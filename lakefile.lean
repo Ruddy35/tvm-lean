@@ -86,15 +86,6 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Gen.Crypto
   ]
 
-target tvmlean_crypto.o pkg : FilePath := do
-  let oFile := pkg.buildDir / "c" / "tvmlean_crypto.o"
-  let srcJob ← inputTextFile <| pkg.dir / "c" / "tvmlean_crypto.c"
-  let ton := match ← tonCryptoDirs with | some (b, s) => tonCryptoIncludes b s | none => #[]
-  let weakArgs :=
-    #["-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "c").toString] ++ ton ++
-      #["-I", "/opt/homebrew/include", "-I", "/usr/local/include"]
-  buildO oFile srcJob weakArgs #["-fPIC"] "cc" getLeanTrace
-
 target tvmlean_hash.o pkg : FilePath := do
   let oFile := pkg.buildDir / "c" / "tvmlean_hash.o"
   let srcJob ← inputTextFile <| pkg.dir / "c" / "tvmlean_hash.cpp"
@@ -148,12 +139,11 @@ extern_lib libtvmlean_crypto pkg := do
       | none => ["/usr/lib/x86_64-linux-gnu/libsodium.a"]
     IO.FS.createDirAll (cryptoLinkRsp.parent.getD ".")
     IO.FS.writeFile cryptoLinkRsp (String.intercalate "\n" libs ++ "\n")
-  let o ← tvmlean_crypto.o.fetch
   let oHash ← tvmlean_hash.o.fetch
   let oKeccak ← tvmlean_keccak.o.fetch
   let oExt ← tvmlean_crypto_ext.o.fetch
   let name := nameToStaticLib "tvmlean_crypto"
-  buildStaticLib (pkg.staticLibDir / name) #[o, oHash, oKeccak, oExt]
+  buildStaticLib (pkg.staticLibDir / name) #[oHash, oKeccak, oExt]
 
 lean_exe "tvm-lean" where
   root := `Apps.Demo

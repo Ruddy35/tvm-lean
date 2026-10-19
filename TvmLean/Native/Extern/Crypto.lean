@@ -2,9 +2,6 @@ import TvmLean.Model
 
 namespace TvmLean
 
-@[extern "tvmlean_ed25519_verify"]
-opaque ed25519VerifyNative (msg pk sig : ByteArray) : Bool
-
 @[extern "tvmlean_secp256k1_ecrecover"]
 opaque secp256k1EcrecoverNative (hash sig : ByteArray) : ByteArray
 

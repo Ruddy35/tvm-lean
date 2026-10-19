@@ -1,4 +1,5 @@
 import TvmLean.Semantics.Exec.Common
+import TvmLean.Model.Crypto.Ed25519
 
 namespace TvmLean
 
@@ -30,7 +31,8 @@ def execInstrCryptoChkSignU (host : Host) (i : Instr) (next : VM Unit) : VM Unit
       let weakKey : Bool :=
         ((← get).globalVersion ≥ 14) && (keyBytes[0]! == 0 || keyBytes[0]! == 1) &&
           (List.range 31).all (fun j => keyBytes[j + 1]! == 0)
-      let ok := !weakKey && host.ed25519Verify (ByteArray.mk msgBytes) (ByteArray.mk keyBytes) (ByteArray.mk sigBytes)
+      -- the verification of OpenSSL, as C++ (`Ed25519.verify`)
+      let ok := !weakKey && Ed25519.verify msgBytes keyBytes sigBytes
       VM.pushSmallInt (if ok then (-1) else 0)
   | _ => next
 

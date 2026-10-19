@@ -5,7 +5,6 @@ import TvmLean.Native.Extern.Hash
 namespace TvmLean
 
 def nativeHost : Host where
-  ed25519Verify := ed25519VerifyNative
   secp256k1Ecrecover := secp256k1EcrecoverNative
   secp256k1XonlyPubkeyTweakAdd := secp256k1XonlyPubkeyTweakAddNative
   p256Verify := p256VerifyNative

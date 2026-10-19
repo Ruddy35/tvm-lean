@@ -23,3 +23,4 @@ import TvmLean.Model.Instr.Ast
 import TvmLean.Model.Instr.Codepage.Cp0
 import TvmLean.Model.Instr.Asm.Cp0
 import TvmLean.Model.Host.Host
+import TvmLean.Model.Crypto.Ed25519
