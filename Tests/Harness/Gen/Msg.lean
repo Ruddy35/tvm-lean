@@ -183,7 +183,51 @@ private def sendMsgPool : Array (String × Cell) :=
      -- two references to equal subtrees: counted once
      ("shared-subtrees", intMsgWith 0 100 false 0 none true #[]
         #[Cell.mkOrdinary (natToBits 1 8) #[leaf 12], Cell.mkOrdinary (natToBits 1 8) #[leaf 12]]),
+     -- destinations a MessageRelaxed admits but parse_addr_workchain reads differently
+     ("dest-var-mc", Cell.mkOrdinary (#[false, true, true, false] ++ natToBits 0 2 ++ natToBits 0b11 2 ++ #[false] ++
+        natToBits 100 9 ++ natToBits (2 ^ 32 - 1) 32 ++ natToBits 5 100 ++ grams 100 ++ #[false] ++ grams 0 ++
+        grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, false]) #[]),
+     ("dest-anycast-mc", Cell.mkOrdinary (#[false, true, true, false] ++ natToBits 0 2 ++ natToBits 0b10 2 ++ #[true] ++
+        natToBits 3 5 ++ natToBits 5 3 ++ natToBits 255 8 ++ natToBits 7 256 ++ grams 100 ++ #[false] ++ grams 0 ++
+        grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, false]) #[]),
+     -- addresses of the wrong kind or an anycast/addr_var source: TL-B decides (invalid -> unknown)
+     ("dest-none", Cell.mkOrdinary (#[false, true, true, false] ++ natToBits 0 2 ++ natToBits 0 2 ++ grams 100 ++ #[false] ++
+        grams 0 ++ grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, false]) #[]),
+     ("dest-anycast-depth0", Cell.mkOrdinary (#[false, true, true, false] ++ natToBits 0 2 ++ natToBits 0b10 2 ++ #[true] ++
+        natToBits 0 5 ++ natToBits 0 8 ++ natToBits 7 256 ++ grams 100 ++ #[false] ++ grams 0 ++
+        grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, false]) #[]),
+     ("src-var", Cell.mkOrdinary (#[false, true, true, false] ++ natToBits 0b11 2 ++ #[false] ++ natToBits 16 9 ++
+        natToBits 5 32 ++ natToBits 1 16 ++ addrStd 0 0x1234 ++ grams 100 ++ #[false] ++ grams 0 ++
+        grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, false]) #[]),
+     ("ext-dest-std", Cell.mkOrdinary (natToBits 0b11 2 ++ natToBits 0 2 ++ addrStd 0 5 ++ natToBits 0 64 ++
+        natToBits 0 32 ++ #[false, false]) #[]),
+     ("ext-src-anycast", Cell.mkOrdinary (natToBits 0b11 2 ++ natToBits 0b10 2 ++ #[true] ++ natToBits 2 5 ++
+        natToBits 3 2 ++ natToBits 0 8 ++ natToBits 9 256 ++ natToBits 0b01 2 ++ natToBits 8 9 ++ natToBits 0x77 8 ++
+        natToBits 0 64 ++ natToBits 0 32 ++ #[false, false]) #[]),
+     -- a body reference must end the message (type_unpack_cell: empty_ext)
+     ("body-ref-trailing", Cell.mkOrdinary (#[false, true, true, false] ++ natToBits 0 2 ++ addrStd 0 0x1234 ++ grams 100 ++
+        #[false] ++ grams 0 ++ grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, true, true]) #[leaf 13]),
+     ("body-ref-extra-ref", Cell.mkOrdinary (#[false, true, true, false] ++ natToBits 0 2 ++ addrStd 0 0x1234 ++ grams 100 ++
+        #[false] ++ grams 0 ++ grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, true]) #[leaf 13, leaf 14]),
      ("ext-out", extOutMsg) ]
+
+/-- `MYADDR` slices: parse_addr_workchain (tonops.cpp) does not validate them: an anycast is
+skipped only if its depth (5 bits, consumed anyway) is at most 30 and its prefix is there, the
+workchain is int8 (addr_std) or int32 after 9 skipped bits (addr_var), and a field cut short
+reads as 0; a first bit 0 (or none) is range_chk. -/
+private def myAddrPool : Array (String × Value) :=
+  let s (b : BitString) : Value := .slice (Slice.ofCell (Cell.mkOrdinary b #[]))
+  #[("none", s (natToBits 0 2)), ("extern", s (natToBits 0b01 2 ++ natToBits 8 9 ++ natToBits 0xa5 8)),
+    ("empty", s #[]), ("one-bit", s #[true]), ("var-cut", s #[true, true]),
+    ("std-anycast-mc", s (natToBits 0b10 2 ++ #[true] ++ natToBits 3 5 ++ natToBits 5 3 ++ natToBits 255 8 ++ natToBits 1 256)),
+    ("std-anycast-depth0-mc", s (natToBits 0b10 2 ++ #[true] ++ natToBits 0 5 ++ natToBits 255 8 ++ natToBits 1 256)),
+    ("std-anycast-depth31", s (natToBits 0b10 2 ++ #[true] ++ natToBits 31 5 ++ natToBits 255 8)),
+    ("std-anycast-cut", s (natToBits 0b10 2 ++ #[true] ++ natToBits 20 5 ++ natToBits 255 8)),
+    ("std-wc-cut", s (natToBits 0b10 2 ++ #[false] ++ natToBits 15 4)),
+    ("std-mc-only", s (natToBits 0b10 2 ++ #[false] ++ natToBits 255 8)),
+    ("var-mc", s (natToBits 0b11 2 ++ #[false] ++ natToBits 64 9 ++ natToBits (2 ^ 32 - 1) 32 ++ natToBits 3 64)),
+    ("var-len-cut", s (natToBits 0b11 2 ++ #[false] ++ natToBits 64 5)),
+    ("var-wc-cut", s (natToBits 0b11 2 ++ #[false] ++ natToBits 64 9 ++ natToBits 255 8))]
 
 /-- Inline bodies of `n` bits, with and without an inline StateInit: the message cell holds them, but
 the root SENDMSG prices (`MYADDR` instead of addr_none, the fees written) may exceed 1023 bits, and
@@ -207,6 +251,11 @@ private def sendMsgCoverageCases (suite : String) : Array OracleCase := Id.run d
         out := out.push
           { name := s!"oracle/cov/{cl}/{ml}/mode{mode}", instr := { name := suite }, program := #[env .sendMsg],
             initStack := #[.cell m, iv mode], initC7 := c7 }
+  for (al, a) in myAddrPool do
+    for (ml, m) in #[sendMsgPool[0]!, sendMsgPool[sendMsgPool.size - 1]!] do
+      out := out.push
+        { name := s!"oracle/cov/myaddr-{al}/{ml}", instr := { name := suite }, program := #[env .sendMsg],
+          initStack := #[.cell m, iv 0], initC7 := sendC7 (myAddr := a) }
   for (cl, c7) in sendC7Errors do
     for mode in (#[0, 64, 128] : Array Int) do
       out := out.push
