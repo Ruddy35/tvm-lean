@@ -12,7 +12,7 @@ def execInstrExceptionThrowArgIfNot (i : Instr) (next : VM Unit) : VM Unit := do
         pure ()
       else
         let arg ← VM.pop
-        modify fun st => (st.throwExceptionArg exc arg).consumeGas exceptionGasPrice
+        VM.throwToHandler fun st => st.throwExceptionArg exc arg
   | _ => next
 
 end TvmLean

@@ -10,7 +10,7 @@ def execInstrExceptionThrowIfNot (i : Instr) (next : VM Unit) : VM Unit := do
       if flag then
         pure ()
       else
-        modify fun st => (st.throwException exc).consumeGas exceptionGasPrice
+        VM.throwToHandler fun st => st.throwException exc
   | _ => next
 
 end TvmLean

@@ -68,6 +68,11 @@ def VmState.ccSummary (cc : Continuation) : String :=
   | .ordinary code _ _ _ =>
       s!"ord(bitPos={code.bitPos},refPos={code.refPos},bitsRem={code.bitsRemaining},refsRem={code.refsRemaining},next8={code.peekByteHex},next16={code.peekWord16Hex})"
 
+/-- The trace event of a step that raised an exception: `ev`, marked if the VM halted handling it. -/
+private def excEvent (ev : String) : StepResult → String
+  | .continue _ => ev
+  | .halt _ _ => ev ++ " halt"
+
 def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × StepResult :=
   let mk (event : String) (stAfter : VmState) (res : StepResult) : TraceEntry × StepResult :=
     ({ step
@@ -133,12 +138,8 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
         match res0 with
         | .ok b => (s!"while_cond({b})", StepResult.continue st1)
         | .error e =>
-            let stExc := st1.throwException e.toInt
-            let stExcGas := stExc.consumeGas exceptionGasPrice
-            if decide (stExcGas.gas.gasRemaining < 0) then
-              (s!"while_cond_error({reprStr e}) out_of_gas", stExcGas.outOfGasHalt)
-            else
-              (s!"while_cond_error({reprStr e})", StepResult.continue stExcGas)
+            let r := st1.raiseException e.toInt
+            (excEvent s!"while_cond_error({reprStr e})" r, r)
       let stAfter :=
         match res with
         | .continue st' => st'
@@ -172,12 +173,8 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
         match res0 with
         | .ok b => (s!"until_body({b})", StepResult.continue st1)
         | .error e =>
-            let stExc := st1.throwException e.toInt
-            let stExcGas := stExc.consumeGas exceptionGasPrice
-            if decide (stExcGas.gas.gasRemaining < 0) then
-              (s!"until_body_error({reprStr e}) out_of_gas", stExcGas.outOfGasHalt)
-            else
-              (s!"until_body_error({reprStr e})", StepResult.continue stExcGas)
+            let r := st1.raiseException e.toInt
+            (excEvent s!"until_body_error({reprStr e})" r, r)
       let stAfter :=
         match res with
         | .continue st' => st'
@@ -230,12 +227,7 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
                 | .ok _ =>
                     .continue st1
                 | .error e =>
-                    let stExc := st1.throwException e.toInt
-                    let stExcGas := stExc.consumeGas exceptionGasPrice
-                    if decide (stExcGas.gas.gasRemaining < 0) then
-                      stExcGas.outOfGasHalt
-                    else
-                      .continue stExcGas
+                    st1.raiseException e.toInt
             let stAfter :=
               match res with
               | .continue st' => st'
@@ -254,12 +246,7 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
                 else
                   .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
               else
-                let stExc := st0.throwException Excno.cellUnd.toInt
-                let stExcGas := stExc.consumeGas exceptionGasPrice
-                if decide (stExcGas.gas.gasRemaining < 0) then
-                  stExcGas.outOfGasHalt
-                else
-                  .continue stExcGas
+                st0.raiseException Excno.cellUnd.toInt
             let stAfter :=
               match res with
               | .continue st' => st'
@@ -282,16 +269,11 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
                 else
                   st
               -- that charge is `consume_gas` (opctable.cpp): out of gas there, no inv_opcode
-              let charged := st0
-              let st0 := st0.throwException e.toInt
-              let st0 := st0.consumeGas exceptionGasPrice
               let res :=
-                if decide (charged.gas.gasRemaining < 0) then
-                  charged.outOfGasHalt
-                else if decide (st0.gas.gasRemaining < 0) then
+                if decide (st0.gas.gasRemaining < 0) then
                   st0.outOfGasHalt
                 else
-                  .continue st0
+                  st0.raiseException e.toInt
               let stAfter :=
                 match res with
                 | .continue st' => st'
@@ -315,12 +297,8 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
                       if e = .outOfGas then
                         (s!"exec({instr.pretty}) out_of_gas", st1.outOfGasHalt)
                       else
-                        let stExc := st1.throwException e.toInt
-                        let stExcGas := stExc.consumeGas exceptionGasPrice
-                        if decide (stExcGas.gas.gasRemaining < 0) then
-                          (s!"exec_error({instr.pretty},{reprStr e}) out_of_gas", stExcGas.outOfGasHalt)
-                        else
-                          (s!"exec_error({instr.pretty},{reprStr e})", .continue stExcGas)
+                        let r := st1.raiseException e.toInt
+                        (excEvent s!"exec_error({instr.pretty},{reprStr e})" r, r)
               let stAfter :=
                 match res with
                 | .continue st' => st'

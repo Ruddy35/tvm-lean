@@ -25,6 +25,18 @@ def VmState.gasCheckFailed (st : VmState) : StepResult :=
   let stExcGas := stExc.consumeGas exceptionGasPrice
   stExcGas.outOfGasHalt
 
+/-- C++ `run_inner` handling an exception `e` raised in a step: `throw_exception(e)` makes the stack
+`[0, e]`, charges the exception gas (out of gas at once) and jumps to `c2`. If that jump fails
+(`c2` expects more arguments), the VM ends with stk_und ("exception while handling exception"). -/
+def VmState.raiseException (st : VmState) (e : Int) : StepResult :=
+  let stExc := (st.throwException e).consumeGas exceptionGasPrice
+  if decide (stExc.gas.gasRemaining < 0) then
+    stExc.outOfGasHalt
+  else if stExc.excHandlerNeedsMoreArgs then
+    .halt (~~~ Excno.stkUnd.toInt) stExc
+  else
+    .continue stExc
+
 def VmState.applyCregsCdata (st : VmState) (cregs : OrdCregs) (cdata : OrdCdata) : VmState :=
   -- Mirrors C++ `adjust_cr(save)` + `adjust_jump_cont` stack truncation/merge on jump/call.
   let regs0 := st.regs
@@ -143,12 +155,7 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
       | .ok _ =>
           .continue st'
       | .error e =>
-          let stExc := st'.throwException e.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            stExcGas.outOfGasHalt
-          else
-            .continue stExcGas
+          st'.raiseException e.toInt
   | .whileBody cond body after =>
       -- Match C++ `WhileCont::jump[_w]`: install while-cond continuation in c0 only if `cond` has no c0.
       if cond.hasC0 then
@@ -203,12 +210,7 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
       | .ok _ =>
           .continue st'
       | .error e =>
-          let stExc := st'.throwException e.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            stExcGas.outOfGasHalt
-          else
-            .continue stExcGas
+          st'.raiseException e.toInt
   | .repeatBody body after count =>
       if count = 0 then
         let afterNeedsMoreArgs : Bool :=
@@ -219,12 +221,7 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
           | _ =>
               false
         if afterNeedsMoreArgs then
-          let stExc := st.throwException Excno.stkUnd.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            stExcGas.outOfGasHalt
-          else
-            .continue stExcGas
+          st.raiseException Excno.stkUnd.toInt
         else
           match after with
           | .ordinary code saved cregs cdata =>
@@ -246,12 +243,7 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
             false
       if body.hasC0 then
         if bodyNeedsMoreArgs then
-          let stExc := st.throwException Excno.stkUnd.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            stExcGas.outOfGasHalt
-          else
-            .continue stExcGas
+          st.raiseException Excno.stkUnd.toInt
         else
           .continue { st with cc := body }
       else
@@ -259,12 +251,7 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
         -- then apply jump-time `nargs` checks (`adjust_jump_cont`).
         let stLoop := { st with regs := { st.regs with c0 := .againBody body } }
         if bodyNeedsMoreArgs then
-          let stExc := stLoop.throwException Excno.stkUnd.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            stExcGas.outOfGasHalt
-          else
-            .continue stExcGas
+          stLoop.raiseException Excno.stkUnd.toInt
         else
           .continue { stLoop with cc := body }
   | .envelope ext cregs cdata =>
@@ -299,12 +286,7 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
               | .ok _ =>
                   .continue st1
               | .error e =>
-                  let stExc := st1.throwException e.toInt
-                  let stExcGas := stExc.consumeGas exceptionGasPrice
-                  if decide (stExcGas.gas.gasRemaining < 0) then
-                    stExcGas.outOfGasHalt
-                  else
-                    .continue stExcGas
+                  st1.raiseException e.toInt
           else
             -- Implicit JMPREF to the first reference.
             let st0 := st.consumeGas implicitJmpRefGasPrice
@@ -319,12 +301,7 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
                 else
                   .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
               else
-                let stExc := st0.throwException Excno.cellUnd.toInt
-                let stExcGas := stExc.consumeGas exceptionGasPrice
-                if decide (stExcGas.gas.gasRemaining < 0) then
-                  stExcGas.outOfGasHalt
-                else
-                  .continue stExcGas
+                st0.raiseException Excno.cellUnd.toInt
         else
           let decoded : Except Excno (Instr × Nat × Slice) :=
             if st.cp = 0 then
@@ -345,12 +322,7 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
               if decide (st0.gas.gasRemaining < 0) then
                 st0.outOfGasHalt
               else
-                let st0 := st0.throwException e.toInt
-                let st0 := st0.consumeGas exceptionGasPrice
-                if decide (st0.gas.gasRemaining < 0) then
-                  st0.outOfGasHalt
-                else
-                  .continue st0
+                st0.raiseException e.toInt
           | .ok (instr, totBits, rest) =>
               let st0 := { st with cc := .ordinary rest (.quit 0) OrdCregs.empty OrdCdata.empty }
               let stGas := st0.consumeGas (instrGas instr totBits)
@@ -373,11 +345,6 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
                       st1.outOfGasHalt
                     else
                       -- TVM behavior: convert VM errors into an exception jump to c2.
-                      let stExc := st1.throwException e.toInt
-                      let stExcGas := stExc.consumeGas exceptionGasPrice
-                      if decide (stExcGas.gas.gasRemaining < 0) then
-                        stExcGas.outOfGasHalt
-                      else
-                        .continue stExcGas
+                      st1.raiseException e.toInt
 
 end TvmLean

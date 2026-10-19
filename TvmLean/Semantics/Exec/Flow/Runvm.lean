@@ -229,6 +229,16 @@ private def gasCheckFailed (st : VmState) : ChildStepResult :=
   let stExcGas := stExc.consumeGas exceptionGasPrice
   outOfGasHalt stExcGas
 
+/-- `VmState.raiseException` for the child VM. -/
+private def childRaiseException (st : VmState) (e : Int) : ChildStepResult :=
+  let stExc := (st.throwException e).consumeGas exceptionGasPrice
+  if decide (stExc.gas.gasRemaining < 0) then
+    outOfGasHalt stExc
+  else if stExc.excHandlerNeedsMoreArgs then
+    .halt (~~~ Excno.stkUnd.toInt) stExc
+  else
+    .continue stExc
+
 def childStep (host : Host) (st : VmState) : ChildStepResult :=
   match st.cc with
   | .quit n =>
@@ -278,12 +288,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
       match res with
       | .ok _ => .continue st'
       | .error e =>
-          let stExc := st'.throwException e.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            outOfGasHalt stExcGas
-          else
-            .continue stExcGas
+          childRaiseException st' e.toInt
   | .whileBody cond body after =>
       if cond.hasC0 then
         .continue { st with cc := cond }
@@ -334,12 +339,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
       match res with
       | .ok _ => .continue st'
       | .error e =>
-          let stExc := st'.throwException e.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            outOfGasHalt stExcGas
-          else
-            .continue stExcGas
+          childRaiseException st' e.toInt
   | .repeatBody body after count =>
       if count = 0 then
         let afterNeedsMoreArgs : Bool :=
@@ -350,12 +350,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
           | _ =>
               false
         if afterNeedsMoreArgs then
-          let stExc := st.throwException Excno.stkUnd.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            outOfGasHalt stExcGas
-          else
-            .continue stExcGas
+          childRaiseException st Excno.stkUnd.toInt
         else
           match after with
           | .ordinary code saved cregs cdata =>
@@ -377,12 +372,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
             false
       if body.hasC0 then
         if bodyNeedsMoreArgs then
-          let stExc := st.throwException Excno.stkUnd.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            outOfGasHalt stExcGas
-          else
-            .continue stExcGas
+          childRaiseException st Excno.stkUnd.toInt
         else
           .continue { st with cc := body }
       else
@@ -390,12 +380,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
         -- then apply jump-time `nargs` checks (`adjust_jump_cont`).
         let stLoop := { st with regs := { st.regs with c0 := .againBody body } }
         if bodyNeedsMoreArgs then
-          let stExc := stLoop.throwException Excno.stkUnd.toInt
-          let stExcGas := stExc.consumeGas exceptionGasPrice
-          if decide (stExcGas.gas.gasRemaining < 0) then
-            outOfGasHalt stExcGas
-          else
-            .continue stExcGas
+          childRaiseException stLoop Excno.stkUnd.toInt
         else
           .continue { stLoop with cc := body }
   | .envelope ext cregs cdata =>
@@ -421,12 +406,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
               match res with
               | .ok _ => .continue st1
               | .error e =>
-                  let stExc := st1.throwException e.toInt
-                  let stExcGas := stExc.consumeGas exceptionGasPrice
-                  if decide (stExcGas.gas.gasRemaining < 0) then
-                    outOfGasHalt stExcGas
-                  else
-                    .continue stExcGas
+                  childRaiseException st1 e.toInt
           else
             let st0 := st.consumeGas implicitJmpRefGasPrice
             if decide (st0.gas.gasRemaining < 0) then
@@ -439,12 +419,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
               else
                 .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
             else
-              let stExc := st0.throwException Excno.cellUnd.toInt
-              let stExcGas := stExc.consumeGas exceptionGasPrice
-              if decide (stExcGas.gas.gasRemaining < 0) then
-                outOfGasHalt stExcGas
-              else
-                .continue stExcGas
+              childRaiseException st0 Excno.cellUnd.toInt
         else
           let decoded : Except Excno (Instr × Nat × Slice) :=
             if st.cp = 0 then
@@ -463,12 +438,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
               if decide (st0.gas.gasRemaining < 0) then
                 outOfGasHalt st0
               else
-                let st0 := st0.throwException e.toInt
-                let st0 := st0.consumeGas exceptionGasPrice
-                if decide (st0.gas.gasRemaining < 0) then
-                  outOfGasHalt st0
-                else
-                  .continue st0
+                childRaiseException st0 e.toInt
           | .ok (instr, totBits, rest) =>
               let st0 := { st with cc := .ordinary rest (.quit 0) OrdCregs.empty OrdCdata.empty }
               let stGas := st0.consumeGas (instrGas instr totBits)
@@ -486,12 +456,7 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
                     if e = .outOfGas then
                       outOfGasHalt st1
                     else
-                      let stExc := st1.throwException e.toInt
-                      let stExcGas := stExc.consumeGas exceptionGasPrice
-                      if decide (stExcGas.gas.gasRemaining < 0) then
-                        outOfGasHalt stExcGas
-                      else
-                        .continue stExcGas
+                      childRaiseException st1 e.toInt
 
 def childRun (host : Host) (fuel : Nat) (st : VmState) : Int × VmState :=
   match fuel with

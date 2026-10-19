@@ -22,9 +22,9 @@ def execInstrExceptionThrowAny (i : Instr) (next : VM Unit) : VM Unit := do
       else
         if hasParam then
           let arg ← VM.pop
-          modify fun st => (st.throwExceptionArg excno arg).consumeGas exceptionGasPrice
+          VM.throwToHandler fun st => st.throwExceptionArg excno arg
         else
-          modify fun st => (st.throwException excno).consumeGas exceptionGasPrice
+          VM.throwToHandler fun st => st.throwException excno
   | _ => next
 
 end TvmLean

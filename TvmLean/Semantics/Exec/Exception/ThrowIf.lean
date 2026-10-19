@@ -7,7 +7,7 @@ def execInstrExceptionThrowIf (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .throwIf exc =>
       if (← VM.popBool) then
-        modify fun st => (st.throwException exc).consumeGas exceptionGasPrice
+        VM.throwToHandler fun st => st.throwException exc
       else
         pure ()
   | _ => next

@@ -7,7 +7,7 @@ def execInstrExceptionThrowArg (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .throwArg exc =>
       let arg ← VM.pop
-      modify fun st => (st.throwExceptionArg exc arg).consumeGas exceptionGasPrice
+      VM.throwToHandler fun st => st.throwExceptionArg exc arg
   | _ => next
 
 end TvmLean

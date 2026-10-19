@@ -12,6 +12,15 @@ def VM.checkUnderflow (n : Nat) : VM Unit := do
   if st.stack.size < n then
     throw .stkUnd
 
+/-- C++ `VmState::throw_exception` called by an instruction: `raise` makes the exception stack and
+continuation, then the exception gas is charged (out of gas at once) and the jump to `c2` fails with
+stk_und if `c2` expects more arguments than the stack holds (`adjust_jump_cont`). -/
+def VM.throwToHandler (raise : VmState → VmState) : VM Unit := do
+  modify raise
+  VM.consumeGas exceptionGasPrice
+  if (← get).excHandlerNeedsMoreArgs then
+    throw .stkUnd
+
 /--
 Marks an instruction path as not yet implemented.
 

@@ -17,6 +17,14 @@ def VmState.throwExceptionArg (st : VmState) (exc : Int) (arg : Value) : VmState
     stack := stack
     cc := st.regs.c2 }
 
+/-- The exception handler `c2` is a closure expecting more arguments than the two values an
+exception passes (`[arg, exc]`), so the jump to it fails: C++ `adjust_jump_cont` raises stk_und
+when `nargs > depth`. -/
+def VmState.excHandlerNeedsMoreArgs (st : VmState) : Bool :=
+  match st.regs.c2 with
+  | .ordinary _ _ _ cdata | .envelope _ _ cdata => decide (2 < cdata.nargs)
+  | _ => false
+
 def VmState.ret (st : VmState) : VmState :=
   -- Mirrors C++ `VmState::ret()` as a jump to old `c0` after swapping `c0 := quit0`.
   let cont := st.regs.c0

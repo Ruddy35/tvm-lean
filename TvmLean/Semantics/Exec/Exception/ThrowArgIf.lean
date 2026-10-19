@@ -9,7 +9,7 @@ def execInstrExceptionThrowArgIf (i : Instr) (next : VM Unit) : VM Unit := do
       let cond ← VM.popBool
       if cond then
         let arg ← VM.pop
-        modify fun st => (st.throwExceptionArg exc arg).consumeGas exceptionGasPrice
+        VM.throwToHandler fun st => st.throwExceptionArg exc arg
       else
         let _ ← VM.pop
         pure ()
