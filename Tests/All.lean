@@ -852,6 +852,7 @@ import Tests.Instr.TonEnv.GLOBALID
 import Tests.Instr.TonEnv.INCOMINGVALUE
 import Tests.Instr.TonEnv.INMSGPARAM
 import Tests.Instr.TonEnv.INMSGPARAMS
+import Tests.Instr.TonEnv.GETEXTRABALANCE
 import Tests.Instr.TonEnv.INMSG_BOUNCE
 import Tests.Instr.TonEnv.INMSG_BOUNCED
 import Tests.Instr.TonEnv.INMSG_FWDFEE
@@ -1777,6 +1778,7 @@ def allInstrSuites : Array InstrSuite :=
     Tests.Instr.TonEnv.INCOMINGVALUE.suite,
     Tests.Instr.TonEnv.INMSGPARAM.suite,
     Tests.Instr.TonEnv.INMSGPARAMS.suite,
+    Tests.Instr.TonEnv.GETEXTRABALANCE.suite,
     Tests.Instr.TonEnv.INMSG_BOUNCE.suite,
     Tests.Instr.TonEnv.INMSG_BOUNCED.suite,
     Tests.Instr.TonEnv.INMSG_FWDFEE.suite,

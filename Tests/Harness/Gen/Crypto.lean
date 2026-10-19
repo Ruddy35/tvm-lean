@@ -175,11 +175,38 @@ private def chkSignCounterCase (suite : String) (fromSlice : Bool) : OracleCase 
     program := (Array.replicate stacks.size #[chkSignInstr fromSlice, .pop 0]).flatten,
     initStack := (stacks.map (·.2)).reverse.flatten }
 
+/-- The free checks are counted as free gas (`consume_free_gas`), which `RUNVM` with isolated gas
+(mode 128) charges to the parent before starting the child (`vm.cpp`, `run_child_vm`); without
+isolation the counter and the free gas pass to the child and back. -/
+private def chkSignFreeGasCases (suite : String) (fromSlice : Bool) : Array OracleCase := Id.run do
+  let stacks := (chkSignVectorStacks fromSlice).extract 0 11
+  let child : Array Value := #[iv 0, .slice (Slice.ofCell Cell.empty)]
+  let mut out : Array OracleCase := #[]
+  for k in [1, 10, 11] do
+    let st := stacks.extract 0 k
+    for mode in [0, 128] do
+      out := out.push
+        { name := s!"oracle/free-gas/checks{k}/runvm{mode}", instr := { name := suite },
+          program := (Array.replicate k #[chkSignInstr fromSlice, .pop 0]).flatten ++ #[.contExt (.runvm mode)],
+          initStack := child ++ (st.map (·.2)).reverse.flatten }
+  -- a check inside the child: counted in the child, the counter and free gas come back
+  for mode in [0, 128] do
+    let (_, inner) := stacks[0]!
+    let childCode : Cell :=
+      match assembleCp0 [chkSignInstr fromSlice] with
+      | .ok c => c
+      | .error _ => Cell.empty
+    out := out.push
+      { name := s!"oracle/free-gas/in-child/runvm{mode}", instr := { name := suite },
+        program := #[.contExt (.runvm mode), .pop 0, .pop 0, .contExt (.runvm 128)],
+        initStack := child ++ inner ++ #[iv 3, .slice (Slice.ofCell childCode)] }
+  return out
+
 private def chkSignCases (suite : String) (fromSlice : Bool) : Array OracleCase :=
   ((chkSignVectorStacks fromSlice) ++ (chkSignErrStacks fromSlice)).map (fun (name, st) =>
     { name := s!"oracle/{name}", instr := { name := suite }, program := #[chkSignInstr fromSlice],
       initStack := st }) ++
-  #[chkSignCounterCase suite fromSlice]
+  #[chkSignCounterCase suite fromSlice] ++ chkSignFreeGasCases suite fromSlice
 
 
 /-- Oracle cases of the suite named `suite`. -/

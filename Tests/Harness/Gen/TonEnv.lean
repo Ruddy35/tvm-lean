@@ -81,6 +81,79 @@ private def ints1 (xs : Array Int) : Array (Array Value) := xs.map (fun n => #[i
 
 private def env (o : TonEnvInstr) : Instr := .tonEnvOp o
 
+
+/-! ### GETEXTRABALANCE (`exec_get_extra_currency_balance`)
+
+The extra-currency dictionary `c7[0][7][1]` (HashmapE 32 (VarUInteger 32)) is looked up with the
+cell loads charged specially for the first `get_extra_balance_cheap_count` (5) calls: at most
+`get_extra_balance_cheap_max_gas_price` (200) per call, the rest counted as free gas, which
+`RUNVM` with isolated gas (mode 128) charges to the parent (`vm.cpp`, `run_child_vm`). -/
+
+/-- VarUInteger 32: 5-bit byte length, then the value. -/
+private def varUInt32 (v : Nat) : BitString :=
+  let len := if v = 0 then 0 else (Nat.log2 v + 8) / 8
+  natToBits len 5 ++ natToBits v (8 * len)
+
+/-- An extra-currency dictionary built by the model's dictionary insertion (C++ only reads it). -/
+private def ecDict (entries : List (Nat × BitString)) : Value :=
+  let root := entries.foldl (fun root (k, v) =>
+    match dictSetSliceWithCells root (natToBits k 32) (Slice.ofCell (Cell.mkOrdinary v #[])) .set with
+    | .ok (r, _, _, _) => r
+    | .error _ => root) none
+  match root with
+  | some c => .cell c
+  | none => .null
+
+private def ecKeys : List Nat :=
+  [0, 1, 2, 3, 7, 100, 1000, 65535, 2 ^ 31, 2 ^ 32 - 1, 12345678, 0xdeadbeef, 0x80000001, 0x7fffffff]
+
+/-- Dictionaries: one entry; fourteen entries (lookups load up to six cells, beyond the cheap
+limit); a value that is not a VarUInteger 32; a malformed root. -/
+private def ecDicts : Array (String × Value) :=
+  #[ ("null", .null),
+     ("one", ecDict [(7, varUInt32 1000)]),
+     ("many", ecDict (ecKeys.map (fun k => (k, varUInt32 (k * 1000 + (if k = 3 then 2 ^ 200 else 0)))))),
+     ("zero-value", ecDict [(7, varUInt32 0), (8, varUInt32 5)]),
+     ("bad-value", ecDict [(7, natToBits 31 5 ++ natToBits 1 8), (9, varUInt32 1)]),
+     ("malformed-root", .cell (Cell.mkOrdinary #[true] #[])) ]
+
+/-- `c7` with the balance tuple `bal` in `c7[0][7]`. -/
+private def c7WithBalance (bal : Value) : Array Value := #[tup ((params 18).set! 7 bal)]
+
+private def ecC7Pool : Array (String × Array Value) :=
+  ecDicts.map (fun (n, d) => (s!"dict-{n}", c7WithBalance (tup #[iv 5000, d]))) ++
+    #[ ("default", #[]), ("bal-short", c7WithBalance (tup #[iv 5000])),
+       ("bal-int", c7WithBalance (tup #[iv 5000, iv 1])), ("bal-not-tuple", c7WithBalance (iv 5)),
+       ("bal-long", c7WithBalance (tup #[iv 5000, ecDicts[1]!.2, iv 1])),
+       ("params-short", #[tup (params 7)]), ("c7-empty", #[tup #[]]), ("c7-0-not-tuple", #[iv 5]) ]
+
+private def getExtraBalance : Instr := env .getExtraBalance
+
+/-- Several calls in a row: the cheap limit, the switch to ordinary gas after five calls, reloads
+of cells loaded by earlier calls; then `RUNVM` with and without isolated gas (an empty child). -/
+private def ecSeqCases (suite : String) : Array OracleCase := Id.run do
+  let c7 := c7WithBalance (tup #[iv 5000, ecDicts[2]!.2])
+  let call (k : Nat) : Array Instr := #[.pushInt (.num (Int.ofNat k)), getExtraBalance, .pop 0]
+  let seqs : Array (String × List Nat) :=
+    #[("distinct7", [0, 0xdeadbeef, 1000, 2 ^ 31, 65535, 3, 0x7fffffff]), ("same7", [7, 7, 7, 7, 7, 7, 7]),
+      ("absent7", [5, 6, 8, 9, 10, 11, 12])]
+  let mut out : Array OracleCase := #[]
+  for (name, ks) in seqs do
+    let prog := (ks.toArray.map call).flatten
+    out := out.push { name := s!"oracle/seq/{name}", instr := { name := suite }, program := prog, initC7 := c7 }
+    for mode in [0, 128] do
+      out := out.push
+        { name := s!"oracle/seq/{name}/runvm{mode}", instr := { name := suite },
+          program := prog ++ #[.contExt (.runvm mode)],
+          initStack := #[iv 0, .slice (Slice.ofCell Cell.empty)], initC7 := c7 }
+  -- free gas charged by an isolated RUNVM may exceed what is left
+  out := out.push
+    { name := "oracle/seq/distinct7/runvm128/low-gas", instr := { name := suite },
+      program := #[.pushInt (.num 3000), .tonEnvOp .setGasLimit] ++ ((seqs[0]!.2.toArray.map call).flatten) ++
+        #[.contExt (.runvm 128)],
+      initStack := #[iv 0, .slice (Slice.ofCell Cell.empty)], initC7 := c7 }
+  return out
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   let one (o : TonEnvInstr) : Array OracleCase := cross suite #[(suite, env o)] c7Pool noArgs
@@ -157,6 +230,8 @@ def casesFor (suite : String) : Array OracleCase :=
         #[iv (2 ^ 63), iv 1, iv 0], #[iv 1, iv 1], #[]]
   | "GETORIGINALFWDFEE" => cross suite #[("fee", env .getOriginalFwdFee)] c7Pool
       #[#[iv 0, iv 0], #[iv 1000, iv 0], #[iv 1000, iv (-1)], #[iv (-1), iv 0], #[iv (2 ^ 63), iv 0], #[iv 1], #[]]
+  | "GETEXTRABALANCE" => cross suite #[("get", getExtraBalance)] ecC7Pool
+      (ints1 #[7, 8, 0, 3, 1000, 0xdeadbeef, 2 ^ 32 - 1, 2 ^ 32, -1]) ++ ecSeqCases suite
   | _ => #[]
 
 end Tests.Gen.TonEnv
