@@ -1,5 +1,6 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.CryptoVectors
+import TvmLean.Native
 
 /-!
 Oracle cases for the crypto instructions (C++ `tonops.cpp`).
@@ -469,6 +470,118 @@ private def blsPairingCases (suite : String) : Array OracleCase :=
       ("n-too-big", #[g1v "gen", g2v "gen", iv 2]), ("empty", #[]), ("n-neg", #[iv (-1)]),
       ("swapped", #[g2v "gen", g1v "gen", iv 1])]
 
+
+/-! ### Unit checks against the independent references
+
+The oracle cases compare the model with C++; these unit checks pin the results themselves to the
+Python references of `tools/crypto` (global version 13), so that, e.g., a valid signature is known
+to verify on both sides and not merely to be rejected by both. -/
+
+/-- The model (native host) running `prog` on `stack`. -/
+private def runModel (prog : Array Instr) (stack : Array Value) : Except Excno (Array Value) := Id.run do
+  let mut st : VmState := { (VmState.initial Cell.empty) with stack := stack }
+  for i in prog do
+    let (res, st') := (execInstr nativeHost i).run st
+    match res with
+    | .ok _ => st := st'
+    | .error e => return .error e
+  return .ok st.stack
+
+private def expectRun (label : String) (prog : Array Instr) (stack : Array Value)
+    (expected : Except Excno (Array Value)) : IO Unit := do
+  let got := runModel prog stack
+  let ok : Bool :=
+    match got, expected with
+    | .ok a, .ok b => a == b
+    | .error a, .error b => a == b
+    | _, _ => false
+  if !ok then
+    throw (IO.userError s!"{label}: got {reprStr got}, expected {reprStr expected}")
+
+/-- `h x1 x2 -1` for an uncompressed key `04 x y`, `0` for "". -/
+private def keyResult (k : String) : Array Value :=
+  if k.isEmpty then #[iv 0]
+  else #[iv 4, iv (hexInt ((k.drop 2).take 64)), iv (hexInt (k.drop 66)), iv (-1)]
+
+private def ristEnc (n : String) : Value :=
+  match CryptoVectors.ristretto.find? (fun e => e.1 == n) with
+  | some (_, e, _) => iv (hexInt e)
+  | none => .null
+
+/-- Unit cases of the suite named `suite`. -/
+def unitFor (suite : String) : Array UnitCase :=
+  let one (name : String) (run : IO Unit) : Array UnitCase := #[{ name := s!"unit/{name}", run := run }]
+  match suite with
+  | "CHKSIGNU" | "CHKSIGNS" => one "vectors" do
+      let fromSlice := suite == "CHKSIGNS"
+      for (name, kind, key, sig, msg, valid) in CryptoVectors.ed25519 do
+        if fromSlice || kind == "U" then
+          let d : Value := if fromSlice then hexSlice msg else iv (hexInt msg)
+          expectRun name #[chkSignInstr fromSlice] #[d, hexSlice sig, iv (hexInt key)]
+            (.ok #[iv (if valid then -1 else 0)])
+  | "ECRECOVER" => one "vectors" do
+      for (name, h, v, r, s, key) in CryptoVectors.ecrecover do
+        expectRun name #[ext .ecrecover] #[iv (hexInt h), iv (Int.ofNat v), iv (hexInt r), iv (hexInt s)]
+          (.ok (keyResult key))
+  | "SECP256K1_XONLY_PUBKEY_TWEAK_ADD" => one "vectors" do
+      for (name, k, t, key) in CryptoVectors.xonlyTweak do
+        expectRun name #[ext .secp256k1XonlyPubkeyTweakAdd] #[iv (hexInt k), iv (hexInt t)] (.ok (keyResult key))
+  | "P256_CHKSIGNU" | "P256_CHKSIGNS" => one "vectors" do
+      let fromSlice := suite == "P256_CHKSIGNS"
+      for (name, kind, key, sig, data, valid) in CryptoVectors.p256 do
+        if fromSlice || kind == "U" then
+          let d : Value := if fromSlice then hexSlice data else iv (hexInt data)
+          expectRun name #[ext (if fromSlice then .p256ChkSignS else .p256ChkSignU)] #[d, hexSlice sig, hexSlice key]
+            (.ok #[iv (if valid then -1 else 0)])
+  | "RIST255_VALIDATE" => one "vectors" do
+      for (name, e, valid) in CryptoVectors.ristretto do
+        expectRun name #[ext .rist255Validate] #[iv (hexInt e)] (if valid then .ok #[] else .error .rangeChk)
+  | "RIST255_ADD" => one "group-law" do
+      expectRun "B+2B" #[ext .rist255Add] #[ristEnc "mul1", ristEnc "mul2"] (.ok #[ristEnc "mul3"])
+      expectRun "7B+8B" #[ext .rist255Add] #[ristEnc "mul7", ristEnc "mul8"] (.ok #[ristEnc "mul15"])
+      expectRun "0+B" #[ext .rist255Add] #[ristEnc "mul0", ristEnc "mul1"] (.ok #[ristEnc "mul1"])
+  | "RIST255_SUB" => one "group-law" do
+      expectRun "3B-B" #[ext .rist255Sub] #[ristEnc "mul3", ristEnc "mul1"] (.ok #[ristEnc "mul2"])
+      expectRun "B-B" #[ext .rist255Sub] #[ristEnc "mul1", ristEnc "mul1"] (.ok #[ristEnc "mul0"])
+  | "RIST255_MUL" => one "group-law" do
+      expectRun "B*7" #[ext .rist255Mul] #[ristEnc "mul1", iv 7] (.ok #[ristEnc "mul7"])
+      expectRun "2B*4" #[ext .rist255Mul] #[ristEnc "mul2", iv 4] (.ok #[ristEnc "mul8"])
+      expectRun "B*(l+3)" #[ext .rist255Mul] #[ristEnc "mul1", iv (rist255L + 3)] (.ok #[ristEnc "mul3"])
+  | "RIST255_MULBASE" => one "group-law" do
+      for k in [1, 2, 3, 4, 7, 8, 15] do
+        expectRun s!"{k}B" #[ext .rist255MulBase] #[iv k] (.ok #[ristEnc s!"mul{k}"])
+  | "BLS_VERIFY" => one "vectors" do
+      for (name, pk, m, sig) in CryptoVectors.blsSig do
+        expectRun name #[ext .blsVerify] #[g1v pk, msgv m, hexSlice sig] (.ok #[iv (-1)])
+      expectRun "wrong-pk" #[ext .blsVerify] #[pkv 1, msgv "m1", sigv 0 1] (.ok #[iv 0])
+      expectRun "wrong-msg" #[ext .blsVerify] #[pkv 0, msgv "m2", sigv 0 1] (.ok #[iv 0])
+  | "BLS_AGGREGATE" => one "vectors" do
+      expectRun "agg012" #[ext .blsAggregate] #[sigv 0 1, sigv 1 1, sigv 2 1, iv 3] (.ok #[g2v "agg012_m1"])
+  | "BLS_FASTAGGREGATEVERIFY" => one "vectors" do
+      expectRun "valid3" #[ext .blsFastAggregateVerify] #[pkv 0, pkv 1, pkv 2, iv 3, msgv "m1", g2v "agg012_m1"]
+        (.ok #[iv (-1)])
+  | "BLS_AGGREGATEVERIFY" => one "vectors" do
+      expectRun "valid3" #[ext .blsAggregateVerify]
+        #[pkv 0, msgv "m0", pkv 1, msgv "m1", pkv 2, msgv "m2", iv 3, g2v "agg_distinct"] (.ok #[iv (-1)])
+  | "BLS_G1_ADD" => one "group-law" do
+      expectRun "G+G" #[ext .blsG1Add] #[g1v "gen", g1v "gen"] (.ok #[g1v "gen2"])
+      expectRun "G+0" #[ext .blsG1Add] #[g1v "gen", g1v "zero"] (.ok #[g1v "gen"])
+  | "BLS_G1_NEG" => one "group-law" do
+      expectRun "-G" #[ext .blsG1Neg] #[g1v "gen"] (.ok #[g1v "genNeg"])
+  | "BLS_G1_MUL" => one "group-law" do
+      expectRun "G*7" #[ext .blsG1Mul] #[g1v "gen", iv 7] (.ok #[g1v "gen7"])
+      expectRun "G*(r+2)" #[ext .blsG1Mul] #[g1v "gen", iv (blsR + 2)] (.ok #[g1v "gen2"])
+  | "BLS_G2_ADD" => one "group-law" do
+      expectRun "G+G" #[ext .blsG2Add] #[g2v "gen", g2v "gen"] (.ok #[g2v "gen2"])
+  | "BLS_G2_NEG" => one "group-law" do
+      expectRun "-G" #[ext .blsG2Neg] #[g2v "gen"] (.ok #[g2v "genNeg"])
+  | "BLS_G2_MUL" => one "group-law" do
+      expectRun "G*7" #[ext .blsG2Mul] #[g2v "gen", iv 7] (.ok #[g2v "gen7"])
+  | "BLS_PAIRING" => one "bilinearity" do
+      expectRun "e(2a,b)e(-a,2b)" #[ext .blsPairing] #[g1v "gen2", g2v "gen", g1v "genNeg", g2v "gen2", iv 2]
+        (.ok #[iv (-1)])
+      expectRun "e(a,b)" #[ext .blsPairing] #[g1v "gen", g2v "gen", iv 1] (.ok #[iv 0])
+  | _ => #[]
 
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=

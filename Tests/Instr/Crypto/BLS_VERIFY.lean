@@ -9,7 +9,7 @@ namespace Tests.Instr.Crypto.BLS_VERIFY
 
 def suite : InstrSuite where
   id := { name := "BLS_VERIFY" }
-  unit := #[]
+  unit := Tests.Gen.Crypto.unitFor "BLS_VERIFY"
   oracle := Tests.Gen.Crypto.casesFor "BLS_VERIFY"
   fuzz := #[]
 

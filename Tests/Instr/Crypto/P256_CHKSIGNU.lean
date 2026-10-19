@@ -9,7 +9,7 @@ namespace Tests.Instr.Crypto.P256_CHKSIGNU
 
 def suite : InstrSuite where
   id := { name := "P256_CHKSIGNU" }
-  unit := #[]
+  unit := Tests.Gen.Crypto.unitFor "P256_CHKSIGNU"
   oracle := Tests.Gen.Crypto.casesFor "P256_CHKSIGNU"
   fuzz := #[]
 

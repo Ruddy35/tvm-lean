@@ -9,7 +9,7 @@ namespace Tests.Instr.Crypto.SECP256K1_XONLY_PUBKEY_TWEAK_ADD
 
 def suite : InstrSuite where
   id := { name := "SECP256K1_XONLY_PUBKEY_TWEAK_ADD" }
-  unit := #[]
+  unit := Tests.Gen.Crypto.unitFor "SECP256K1_XONLY_PUBKEY_TWEAK_ADD"
   oracle := Tests.Gen.Crypto.casesFor "SECP256K1_XONLY_PUBKEY_TWEAK_ADD"
   fuzz := #[]
 

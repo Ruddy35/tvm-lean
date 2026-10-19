@@ -9,7 +9,7 @@ namespace Tests.Instr.Crypto.BLS_FASTAGGREGATEVERIFY
 
 def suite : InstrSuite where
   id := { name := "BLS_FASTAGGREGATEVERIFY" }
-  unit := #[]
+  unit := Tests.Gen.Crypto.unitFor "BLS_FASTAGGREGATEVERIFY"
   oracle := Tests.Gen.Crypto.casesFor "BLS_FASTAGGREGATEVERIFY"
   fuzz := #[]
 

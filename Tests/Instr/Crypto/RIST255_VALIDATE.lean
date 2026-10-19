@@ -9,7 +9,7 @@ namespace Tests.Instr.Crypto.RIST255_VALIDATE
 
 def suite : InstrSuite where
   id := { name := "RIST255_VALIDATE" }
-  unit := #[]
+  unit := Tests.Gen.Crypto.unitFor "RIST255_VALIDATE"
   oracle := Tests.Gen.Crypto.casesFor "RIST255_VALIDATE"
   fuzz := #[]
 
