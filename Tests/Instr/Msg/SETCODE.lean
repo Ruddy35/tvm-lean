@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Msg
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Msg.SETCODE
 def suite : InstrSuite where
   id := { name := "SETCODE" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Msg.casesFor "SETCODE"
   fuzz := #[]
 
 initialize registerSuite suite
