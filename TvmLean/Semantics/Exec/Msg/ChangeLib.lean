@@ -7,6 +7,8 @@ def execInstrMsgChangeLib (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tonEnvOp .changeLib =>
       -- Mirrors C++ `exec_change_lib` (tonops.cpp) for global_version >= 4.
+      -- C++ checks the depth first: with one value on the stack it is stk_und, not range_chk.
+      VM.checkUnderflow 2
       let mode ← VM.popNatUpTo 31
       if (mode &&& 0x0f) > 2 then
         throw .rangeChk
