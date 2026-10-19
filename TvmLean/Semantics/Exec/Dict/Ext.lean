@@ -80,10 +80,16 @@ private def pfxLabelCommonPrefixLen (labelBits keyBits : BitString) (m : Nat) : 
 
 -- `go` lifted to the top level so that its termination can be proved (measure: remaining key
 -- length `m`, which strictly decreases on every descent). Behaviour is unchanged.
+/-- C++ `PrefixDictionary::lookup_prefix`. Every visited node is loaded (and charged) before it is
+parsed, so an error carries the cells loaded up to and including the failing node: their loads are
+charged before the error is raised, as in C++ (`LabelParser` loads the cell, then fails). -/
 private def pfxLookupPrefixGo (keyBits : BitString) (keyLen : Nat) (cell : Cell) (nRem m pos : Nat)
-    (loaded : Array Cell) : Except Excno (Option Slice × Nat × Array Cell) := do
+    (loaded : Array Cell) : Except (Excno × Array Cell) (Option Slice × Nat × Array Cell) := do
   let loaded := loaded.push cell
-  let lbl ← parseDictLabel cell nRem
+  let lbl ←
+    match parseDictLabel cell nRem with
+    | .ok l => pure l
+    | .error e => throw (e, loaded)
   let labelBits : BitString := dictLabelBits lbl
   let l : Nat :=
     let keyPart := keyBits.extract pos (pos + Nat.min m lbl.len)
@@ -95,16 +101,16 @@ private def pfxLookupPrefixGo (keyBits : BitString) (keyLen : Nat) (cell : Cell)
   let pos := pos + lbl.len
   let payload0 : Slice := lbl.remainder.advanceBits lbl.storedBits
   if !payload0.haveBits 1 then
-    throw .dictErr
+    throw (.dictErr, loaded)
   let ctor : Bool := (payload0.readBits 1)[0]!
   let payload : Slice := { payload0 with bitPos := payload0.bitPos + 1 }
   if !ctor then
     return (some payload, pos, loaded)
   -- Fork node
   if nRem = 0 then
-    throw .dictErr
+    throw (.dictErr, loaded)
   if payload.bitsRemaining != 0 || payload.refsRemaining != 2 then
-    throw .dictErr
+    throw (.dictErr, loaded)
   if hm : m = 0 then
     return (none, keyLen, loaded)
   else
@@ -115,7 +121,7 @@ termination_by m
 decreasing_by all_goals (simp_wf; omega)
 
 private def pfxLookupPrefixWithCells (root : Option Cell) (keyBits : BitString) (keyLen : Nat) (n : Nat) :
-    Except Excno (Option Slice × Nat × Array Cell) := do
+    Except (Excno × Array Cell) (Option Slice × Nat × Array Cell) := do
   match root with
   | none => return (none, 0, #[])
   | some rootCell => pfxLookupPrefixGo keyBits keyLen rootCell n keyLen 0 #[]
@@ -737,7 +743,14 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
           DictExt.prechargeRootLoad dictCell?
           let keyBits : BitString := cs0.readBits cs0.bitsRemaining
           match DictExt.pfxLookupPrefixWithCells dictCell? keyBits keyBits.size n with
-          | .error e => throw e
+          | .error (e, loaded0) =>
+              -- the nodes loaded before the error are charged, then the error is raised (C++ order)
+              let loaded :=
+                match dictCell? with
+                | none => loaded0
+                | some root => loaded0.filter (fun c => c != root)
+              DictExt.registerLoaded loaded
+              throw e
           | .ok (none, _pos, loaded) =>
               -- Not found / cannot parse.
               let loaded :=
@@ -788,7 +801,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
           VM.registerCellLoad dictCell
           let keyBits : BitString := cs0.readBits cs0.bitsRemaining
           match DictExt.pfxLookupPrefixWithCells (some dictCell) keyBits keyBits.size keyLen with
-          | .error e => throw e
+          | .error (e, loaded0) =>
+              DictExt.registerLoaded (DictExt.loadedWithoutRoot (some dictCell) loaded0)
+              throw e
           | .ok (none, _pos, loaded0) =>
               let loaded := DictExt.loadedWithoutRoot (some dictCell) loaded0
               DictExt.registerLoaded loaded
