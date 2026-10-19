@@ -278,10 +278,14 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
                 st.consumeGas (gasPerInstr + Int.ofNat invalBits)
               else
                 st
+            -- that charge is `consume_gas` (opctable.cpp): out of gas there, no inv_opcode
+            let charged := st0
             let st0 := st0.throwException e.toInt
             let st0 := st0.consumeGas exceptionGasPrice
             let res :=
-              if decide (st0.gas.gasRemaining < 0) then
+              if decide (charged.gas.gasRemaining < 0) then
+                charged.outOfGasHalt
+              else if decide (st0.gas.gasRemaining < 0) then
                 st0.outOfGasHalt
               else
                 .continue st0

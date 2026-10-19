@@ -331,12 +331,16 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
                 st.consumeGas (gasPerInstr + Int.ofNat invalBits)
               else
                 st
-            let st0 := st0.throwException e.toInt
-            let st0 := st0.consumeGas exceptionGasPrice
+            -- that charge is `consume_gas` (opctable.cpp): out of gas there, no inv_opcode
             if decide (st0.gas.gasRemaining < 0) then
               st0.outOfGasHalt
             else
-              .continue st0
+              let st0 := st0.throwException e.toInt
+              let st0 := st0.consumeGas exceptionGasPrice
+              if decide (st0.gas.gasRemaining < 0) then
+                st0.outOfGasHalt
+              else
+                .continue st0
         | .ok (instr, totBits, rest) =>
             let st0 := { st with cc := .ordinary rest (.quit 0) OrdCregs.empty OrdCdata.empty }
             let stGas := st0.consumeGas (instrGas instr totBits)
