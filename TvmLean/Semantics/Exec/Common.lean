@@ -58,6 +58,20 @@ def VM.getUnpackedConfigTuple : VM (Array Value) := do
   | some _ =>
       throw .typeChk
 
+/-- C++ `Config::do_get_msg_prices` (mc-config.cpp, `tlb::unpack`: trailing data allowed), cell_und
+when it does not parse: (lump_price, bit_price, cell_price, ihr_factor, first_frac). -/
+def parseMsgPrices (pricesCs : Slice) : Except Excno (Int × Int × Int × Nat × Nat) := do
+  let (tag, s1) ← pricesCs.takeBitsAsNatCellUnd 8
+  if tag != 0xea then
+    throw .cellUnd
+  let (lumpPrice, s2) ← s1.takeBitsAsNatCellUnd 64
+  let (bitPrice, s3) ← s2.takeBitsAsNatCellUnd 64
+  let (cellPrice, s4) ← s3.takeBitsAsNatCellUnd 64
+  let (ihrFactor, s5) ← s4.takeBitsAsNatCellUnd 32 -- ihr_price_factor
+  let (firstFrac, s6) ← s5.takeBitsAsNatCellUnd 16
+  let (_, _) ← s6.takeBitsAsNatCellUnd 16 -- next_frac
+  return (Int.ofNat lumpPrice, Int.ofNat bitPrice, Int.ofNat cellPrice, ihrFactor, firstFrac)
+
 def VM.getMsgPrices (isMasterchain : Bool) : VM (Int × Int × Int × Nat × Nat) := do
   -- Mirrors `util::get_msg_prices(get_unpacked_config_tuple(st), is_masterchain)`.
   -- Returns (lump_price, bit_price, cell_price, ihr_factor, first_frac).
@@ -65,16 +79,9 @@ def VM.getMsgPrices (isMasterchain : Bool) : VM (Int × Int × Int × Nat × Nat
   let idx : Nat := if isMasterchain then 4 else 5
   match unpacked[idx]? with
   | some (.slice pricesCs) =>
-      let (tag, s1) ← pricesCs.takeBitsAsNatCellUnd 8
-      if tag != 0xea then
-        throw .cellUnd
-      let (lumpPrice, s2) ← s1.takeBitsAsNatCellUnd 64
-      let (bitPrice, s3) ← s2.takeBitsAsNatCellUnd 64
-      let (cellPrice, s4) ← s3.takeBitsAsNatCellUnd 64
-      let (ihrFactor, s5) ← s4.takeBitsAsNatCellUnd 32 -- ihr_price_factor
-      let (firstFrac, s6) ← s5.takeBitsAsNatCellUnd 16
-      let (_, _) ← s6.takeBitsAsNatCellUnd 16 -- next_frac
-      return (Int.ofNat lumpPrice, Int.ofNat bitPrice, Int.ofNat cellPrice, ihrFactor, firstFrac)
+      match parseMsgPrices pricesCs with
+      | .ok p => return p
+      | .error e => throw e
   | some .null => throw .typeChk
   | some _ => throw .typeChk
   | none => throw .rangeChk

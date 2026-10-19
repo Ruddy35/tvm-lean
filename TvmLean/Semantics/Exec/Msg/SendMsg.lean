@@ -2,10 +2,10 @@ import TvmLean.Semantics.Exec.Common
 
 namespace TvmLean
 
-/-- Total version of the message-cell counting loop of SENDMSG
-(`while todo.size > 0 && cells < maxCells do ...`). Terminates by the lexicographic measure
-`(maxCells - cells, todo.size)`: a newly seen cell increases `cells`, a seen one shrinks `todo`.
-Effects (cell-load gas) happen in the same order as in the loop. -/
+/-- C++ `VmStorageStat::add_storage` (boc.cpp) on the cells of `todo` (a stack: the last one is
+visited first): depth-first, references in order, each distinct cell (by hash) loaded and counted
+once, stopping at the first new cell beyond `maxCells`. Terminates by the lexicographic measure
+`(maxCells - cells, todo.size)`: a newly seen cell increases `cells`, a seen one shrinks `todo`. -/
 def VM.countMsgCells (maxCells : Nat) (todo : Array Cell) (seen : Array (Array UInt8))
     (cells bits : Nat) : VM (Array (Array UInt8) × Nat × Nat) := do
   if h : todo.size > 0 ∧ cells < maxCells then
@@ -14,7 +14,7 @@ def VM.countMsgCells (maxCells : Nat) (todo : Array Cell) (seen : Array (Array U
     let hsh := Cell.hashBytes c
     if !(seen.any (fun x => x == hsh)) then
       VM.registerCellLoad c
-      VM.countMsgCells maxCells (todo' ++ c.refs) (seen.push hsh) (cells + 1) (bits + c.bits.size)
+      VM.countMsgCells maxCells (todo' ++ c.refs.reverse) (seen.push hsh) (cells + 1) (bits + c.bits.size)
     else
       VM.countMsgCells maxCells todo' seen cells bits
   else
@@ -28,6 +28,25 @@ decreasing_by
       | (apply Prod.Lex.right; simp [Array.size_pop]; omega)
       | (simp_wf; apply Prod.Lex.left; omega)
       | (simp_wf; apply Prod.Lex.right; simp [Array.size_pop]; omega)
+
+/-- `max_msg_cells` of C++ `Config::do_get_size_limits_config` (mc-config.cpp) on a slice: a
+`size_limits_config` v1, v2 or v3 record that fills the slice exactly (`tlb::csr_unpack`), else
+`none` (the configuration is invalid). -/
+def sizeLimitsMaxMsgCells? (cs : Slice) : Option Nat :=
+  let b := cs.readBits cs.bitsRemaining
+  -- v1 fields after the tag: 160 bits; v2 adds 200 bits and `max_transaction_library_loads:(Maybe
+  -- uint32)`; v3 adds 64 bits after that
+  let v2Len : Nat := if b.size > 368 && b[368]! then 401 else 369
+  let len? : Option Nat :=
+    match bitsToNat (b.extract 0 8) with
+    | 1 => some 168
+    | 2 => some v2Len
+    | 3 => some (v2Len + 64)
+    | _ => none
+  match len? with
+  | some len =>
+      if b.size == len && cs.refsRemaining == 0 then some (bitsToNat (b.extract 40 72)) else none
+  | none => none
 
 set_option maxHeartbeats 1000000 in
 def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
@@ -271,33 +290,35 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           parseAddrWorkchain parsedMsg.dest
       let isMasterchain : Bool := (myWc == -1) || (!parsedMsg.extMsg && destWc == -1)
 
-      -- Load root cell one more time: storage stat.
-      VM.registerCellLoad msgCell
-
-      -- storage stat: count reachable cells/bits excluding the root cell (and root bits)
+      -- C++ order: the prices (unpacked config 4 or 5: tuple_index, not a slice -> unknown, not
+      -- parsed -> cell_und), the size limits (6: not a slice -> defaults, not parsed -> cell_und),
+      -- then the root cell is loaded again and the cells below it counted (VmStorageStat).
       let unpacked ← VM.getUnpackedConfigTuple
+      let pricesIdx : Nat := if isMasterchain then 4 else 5
+      let (lumpPrice, bitPrice, cellPrice, _ihrFactor, firstFrac) ←
+        match unpacked[pricesIdx]? with
+        | none => throw .rangeChk
+        | some (Value.slice cs) =>
+            match parseMsgPrices cs with
+            | .ok p => pure p
+            | .error e => throw e
+        | some _ => throw .unknown
       let maxCells : Nat ←
         match unpacked[6]? with
-        | some Value.null => pure (1 <<< 13)
+        | none => throw .rangeChk
         | some (Value.slice cs) =>
-            match (show Except Excno Nat from do
-              let (tag, s1) ← cs.takeBitsAsNatCellUnd 8
-              if tag = 0x01 ∨ tag = 0x02 then
-                let (_, s2) ← s1.takeBitsAsNatCellUnd 32 -- max_msg_bits
-                let (maxMsgCells, _) ← s2.takeBitsAsNatCellUnd 32
-                return maxMsgCells
-              else
-                throw .cellUnd) with
-            | .ok v => pure v
-            | .error e => throw e
-        | some _ => throw .typeChk
-        | none => throw .typeChk
+            match sizeLimitsMaxMsgCells? cs with
+            | some n => pure n
+            | none => throw .cellUnd
+        | some _ => pure (1 <<< 13)
 
+      VM.registerCellLoad msgCell
+
+      -- storage stat: the cells below the root (not its bits), without the extra-currency
+      -- dictionary (global version >= 10), depth-first from the first reference
       let refStart : Nat := if parsedMsg.haveExtraCurrencies then 1 else 0
-      let todo0 : Array Cell := msgCell.refs.extract refStart msgCell.refs.size
+      let todo0 : Array Cell := (msgCell.refs.extract refStart msgCell.refs.size).reverse
       let (_seen, cells, bits) ← VM.countMsgCells maxCells todo0 #[] 0 0
-
-      let (lumpPrice, bitPrice, cellPrice, _ihrFactor, firstFrac) ← VM.getMsgPrices isMasterchain
 
       let valueAdjusted : Int ←
         if parsedMsg.extMsg then
