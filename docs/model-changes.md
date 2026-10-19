@@ -27,6 +27,7 @@
 | `Exec/Crypto/Ext.lean` | `ECRECOVER` с `v = 27/28`; `ristretto255_mul` по правилам версии 14 | `exec_ecrecover`, `exec_ristretto255_mul` |
 | `Exec/Msg/SendMsg.lean` | с версии 14 пользовательский `fwd_fee` игнорируется | `exec_send_message` |
 | `Exec/TonEnv/StdAddr.lean` | тихий `STSTDADDR` с версии 14 возвращает исходное значение | `exec_store_std_address` |
+| `Instr/Codepage/Cp0.lean`, `Instr/Ast.lean`, `Exec/Arith/Ext.lean` | **ошибка исходной модели:** режим округления 3 в семействах деления декодируется (длина как в C++) и выполняется как `inv_opcode` после газа инструкции (`invalidArgs`); `F2F6` недопустим; `EXTCALL` удалён | `OpcodeInstrFixed::dispatch`, `exec_divmod` & co., `mkfixedrange(0xf2f0, 0xf2f6)` |
 | `Exec/Arith/Qpow2.lean` | **ошибка исходной модели:** с версии 13 `QPOW2` вне `0..1023` даёт NaN, а не `range_chk` | `exec_pow2` (`arithops.cpp:847`) |
 
 ## 2. Тотальность (поведение не меняется)
