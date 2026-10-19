@@ -16,6 +16,11 @@ structure VmState where
   callStack : Array CallFrame
   cstate : CommittedState
   maxDataDepth : Nat
+  /-- Network global version (config param 8), as in C++ `VmState::global_version`.
+  Instruction semantics differ between versions (e.g. quiet shifts, NaN handling in v13/v14).
+  The model implements versions 13 and later; the default 13 is the behaviour the model had
+  before versioning was introduced. -/
+  globalVersion : Nat := 13
   deriving Repr
 
 def VmState.initial (code : Cell) (gasLimit : Int := 1_000_000) (gasMax : Int := GasLimits.infty)

@@ -616,7 +616,8 @@ def runChildVm (host : Host) (parent : VmState) (mode : Nat) : VM VmState := do
       loadedCells := if isolateGas then #[] else parentAfterPops.loadedCells
       chksgnCounter := if isolateGas then 0 else parentAfterPops.chksgnCounter
       libraries := parentAfterPops.libraries
-      maxDataDepth := parentAfterPops.maxDataDepth }
+      maxDataDepth := parentAfterPops.maxDataDepth
+      globalVersion := parentAfterPops.globalVersion }
 
   let (childExit, childFinal) := childRun host childFuelDefault child
   let mut resCode : Int := ~~~ childExit
