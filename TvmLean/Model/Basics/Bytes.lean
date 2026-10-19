@@ -6,6 +6,72 @@ namespace TvmLean
 
 abbrev BitString := Array Bool
 
+/-- `true` iff `p i` holds for every `i < n` (structural recursion, kernel-reducible). Same value
+as `Id.run do let mut ok := true; for i in [0:n] do if !p i then ok := false; return ok`. -/
+def allBelow : Nat → (Nat → Bool) → Bool
+  | 0, _ => true
+  | n + 1, p => allBelow n p && p n
+
+theorem allBelow_iff (n : Nat) (p : Nat → Bool) : allBelow n p = true ↔ ∀ i < n, p i = true := by
+  induction n with
+  | zero => simp [allBelow]
+  | succ n ih =>
+    simp only [allBelow, Bool.and_eq_true, ih]
+    constructor
+    · rintro ⟨h1, h2⟩ i hi
+      rcases Nat.lt_succ_iff_lt_or_eq.mp hi with h | h
+      · exact h1 i h
+      · subst h; exact h2
+    · intro h; exact ⟨fun i hi => h i (by omega), h n (by omega)⟩
+
+/-- The loop of `countWhile` with an explicit step budget, by structural recursion on the budget
+(kernel-reducible). -/
+def countWhileF : Nat → (Nat → Bool) → Nat → Nat
+  | 0, _, k => k
+  | f + 1, p, k => if p k then countWhileF f p (k + 1) else k
+
+/-- Total, kernel-reducible replacement for the loop
+`let mut k := k0; while k < limit && p k do k := k + 1; return k`
+(`while` in `do`-notation is implemented via `Lean.Loop`, which is `partial` and therefore opaque
+to proofs). The budget `limit - k` is exactly the number of iterations the loop can make. -/
+def countWhile (limit : Nat) (p : Nat → Bool) (k : Nat) : Nat :=
+  countWhileF (limit - k) p k
+
+/-- The defining equation of the loop: one step, or stop at the limit / when `p` fails. -/
+theorem countWhile_eq (limit : Nat) (p : Nat → Bool) (k : Nat) :
+    countWhile limit p k = if k < limit then (if p k then countWhile limit p (k + 1) else k) else k := by
+  unfold countWhile
+  by_cases hk : k < limit
+  · rw [if_pos hk]
+    have : limit - k = (limit - (k + 1)) + 1 := by omega
+    rw [this, countWhileF]
+  · rw [if_neg hk, show limit - k = 0 by omega, countWhileF]
+
+theorem countWhileF_bounds (f : Nat) (p : Nat → Bool) (k : Nat) :
+    k ≤ countWhileF f p k ∧ countWhileF f p k ≤ k + f := by
+  induction f generalizing k with
+  | zero => simp [countWhileF]
+  | succ f ih =>
+    unfold countWhileF
+    split
+    · have := ih (k + 1); omega
+    · omega
+
+/-- `countWhile` never goes past its limit (or below its start). -/
+theorem countWhile_le (limit : Nat) (p : Nat → Bool) (k : Nat) :
+    countWhile limit p k ≤ max k limit := by
+  have := (countWhileF_bounds (limit - k) p k).2
+  unfold countWhile; omega
+
+theorem countWhile_ge (limit : Nat) (p : Nat → Bool) (k : Nat) : k ≤ countWhile limit p k :=
+  (countWhileF_bounds (limit - k) p k).1
+
+/-- Total replacement for `while out.size % blk ≠ tgt do out := out.push 0`.
+For `tgt < blk` at most `blk - 1` pushes are ever needed, so fuel `blk` always suffices. -/
+def pushZerosUntilMod (out : Array UInt8) (blk tgt : Nat) : Nat → Array UInt8
+  | 0 => out
+  | fuel + 1 => if out.size % blk ≠ tgt then pushZerosUntilMod (out.push 0) blk tgt fuel else out
+
 def bitsToNat (bs : BitString) : Nat :=
   bs.foldl (fun acc b => (acc <<< 1) + (if b then 1 else 0)) 0
 
@@ -14,9 +80,7 @@ def bitsStripTrailingMarker (bs : BitString) : BitString :=
   Id.run do
     if bs.size == 0 then
       return bs
-    let mut trailing : Nat := 0
-    while trailing < bs.size && bs[bs.size - 1 - trailing]! = false do
-      trailing := trailing + 1
+    let trailing : Nat := countWhile bs.size (fun t => decide (bs[bs.size - 1 - t]! = false)) 0
     if trailing == bs.size then
       return #[]
     return bs.take (bs.size - (trailing + 1))
@@ -225,10 +289,8 @@ def u32FromBytesBE (b0 b1 b2 b3 : UInt8) : UInt32 :=
 def sha256Pad (msg : Array UInt8) : Array UInt8 :=
   Id.run do
     let bitLen : Nat := msg.size * 8
-    let mut out := msg.push 0x80
-    while out.size % 64 ≠ 56 do
-      out := out.push 0
-    for i in [0:8] do
+    let mut out := pushZerosUntilMod (msg.push 0x80) 64 56 64
+    for i in List.range' (0) ((8) - (0)) do
       let shift := (7 - i) * 8
       out := out.push (UInt8.ofNat ((bitLen >>> shift) &&& 0xff))
     out
@@ -238,17 +300,17 @@ def sha256Digest (msg : Array UInt8) : Array UInt8 :=
     let padded := sha256Pad msg
     let mut h := sha256Init
     let blocks := padded.size / 64
-    for bi in [0:blocks] do
+    for bi in List.range' (0) ((blocks) - (0)) do
       let base := bi * 64
       let mut w : Array UInt32 := Array.replicate 64 0
-      for i in [0:16] do
+      for i in List.range' (0) ((16) - (0)) do
         let j := base + i * 4
         let b0 := padded[j]!
         let b1 := padded[j + 1]!
         let b2 := padded[j + 2]!
         let b3 := padded[j + 3]!
         w := w.set! i (u32FromBytesBE b0 b1 b2 b3)
-      for i in [16:64] do
+      for i in List.range' (16) ((64) - (16)) do
         let s0 := shaSmallSigma0 (w[i - 15]!)
         let s1 := shaSmallSigma1 (w[i - 2]!)
         w := w.set! i (w[i - 16]! + s0 + w[i - 7]! + s1)
@@ -262,7 +324,7 @@ def sha256Digest (msg : Array UInt8) : Array UInt8 :=
       let mut g := h[6]!
       let mut hh := h[7]!
 
-      for i in [0:64] do
+      for i in List.range' (0) ((64) - (0)) do
         let t1 := hh + shaBigSigma1 e + shaCh e f g + sha256K[i]! + w[i]!
         let t2 := shaBigSigma0 a + shaMaj a b c
         hh := g
@@ -284,7 +346,7 @@ def sha256Digest (msg : Array UInt8) : Array UInt8 :=
       h := h.set! 7 (h[7]! + hh)
 
     let mut out : Array UInt8 := #[]
-    for i in [0:8] do
+    for i in List.range' (0) ((8) - (0)) do
       let x := h[i]!
       out := out.push (UInt8.ofNat ((x >>> 24).toNat &&& 0xff))
       out := out.push (UInt8.ofNat ((x >>> 16).toNat &&& 0xff))
@@ -356,10 +418,8 @@ def u64FromBytesBE (b0 b1 b2 b3 b4 b5 b6 b7 : UInt8) : UInt64 :=
 def sha512Pad (msg : Array UInt8) : Array UInt8 :=
   Id.run do
     let bitLen : Nat := msg.size * 8
-    let mut out := msg.push 0x80
-    while out.size % 128 ≠ 112 do
-      out := out.push 0
-    for i in [0:16] do
+    let mut out := pushZerosUntilMod (msg.push 0x80) 128 112 128
+    for i in List.range' (0) ((16) - (0)) do
       let shift := (15 - i) * 8
       out := out.push (UInt8.ofNat ((bitLen >>> shift) &&& 0xff))
     out
@@ -369,10 +429,10 @@ def sha512Digest (msg : Array UInt8) : Array UInt8 :=
     let padded := sha512Pad msg
     let mut h := sha512Init
     let blocks := padded.size / 128
-    for bi in [0:blocks] do
+    for bi in List.range' (0) ((blocks) - (0)) do
       let base := bi * 128
       let mut w : Array UInt64 := Array.replicate 80 0
-      for i in [0:16] do
+      for i in List.range' (0) ((16) - (0)) do
         let j := base + i * 8
         let b0 := padded[j]!
         let b1 := padded[j + 1]!
@@ -383,7 +443,7 @@ def sha512Digest (msg : Array UInt8) : Array UInt8 :=
         let b6 := padded[j + 6]!
         let b7 := padded[j + 7]!
         w := w.set! i (u64FromBytesBE b0 b1 b2 b3 b4 b5 b6 b7)
-      for i in [16:80] do
+      for i in List.range' (16) ((80) - (16)) do
         let s0 := sha512SmallSigma0 (w[i - 15]!)
         let s1 := sha512SmallSigma1 (w[i - 2]!)
         w := w.set! i (w[i - 16]! + s0 + w[i - 7]! + s1)
@@ -397,7 +457,7 @@ def sha512Digest (msg : Array UInt8) : Array UInt8 :=
       let mut g := h[6]!
       let mut hh := h[7]!
 
-      for i in [0:80] do
+      for i in List.range' (0) ((80) - (0)) do
         let t1 := hh + sha512BigSigma1 e + sha512Ch e f g + sha512K[i]! + w[i]!
         let t2 := sha512BigSigma0 a + sha512Maj a b c
         hh := g
@@ -419,7 +479,7 @@ def sha512Digest (msg : Array UInt8) : Array UInt8 :=
       h := h.set! 7 (h[7]! + hh)
 
     let mut out : Array UInt8 := #[]
-    for i in [0:8] do
+    for i in List.range' (0) ((8) - (0)) do
       let x := h[i]!
       out := out.push (UInt8.ofNat ((x >>> 56).toNat &&& 0xff))
       out := out.push (UInt8.ofNat ((x >>> 48).toNat &&& 0xff))

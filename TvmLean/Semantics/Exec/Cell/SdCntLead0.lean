@@ -8,9 +8,7 @@ def execInstrCellSdCntLead0 (i : Instr) (next : VM Unit) : VM Unit := do
   | .sdCntLead0 =>
       let s ← VM.popSlice
       let rem : Nat := s.bitsRemaining
-      let mut cnt : Nat := 0
-      while cnt < rem && s.cell.bits[s.bitPos + cnt]! == false do
-        cnt := cnt + 1
+      let cnt : Nat := countWhile rem (fun c => s.cell.bits[s.bitPos + c]! == false) 0
       VM.pushSmallInt (Int.ofNat cnt)
   | _ => next
 

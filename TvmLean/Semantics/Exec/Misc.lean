@@ -16,7 +16,7 @@ def DataSizeAcc.empty : DataSizeAcc :=
     bits := 0
     refs := 0 }
 
-partial def DataSizeAcc.visitCell (limit : Nat) (c : Cell) (acc : DataSizeAcc) : Except Excno DataSizeAcc := do
+def DataSizeAcc.visitCell (limit : Nat) (c : Cell) (acc : DataSizeAcc) : Except Excno DataSizeAcc := do
   let h : ByteArray := ByteArray.mk (Cell.hashBytes c)
   if acc.visited.contains h then
     return acc
@@ -28,11 +28,18 @@ partial def DataSizeAcc.visitCell (limit : Nat) (c : Cell) (acc : DataSizeAcc) :
       bits := acc.bits + c.bits.size
       refs := acc.refs + c.refs.size }
   let mut acc := acc
-  for r in c.refs do
+  for hr : r in c.refs do
     acc ← DataSizeAcc.visitCell limit r acc
   return acc
+termination_by sizeOf c
+decreasing_by
+  all_goals
+    have h1 := Array.sizeOf_lt_of_mem hr
+    cases c
+    simp_all
+    omega
 
-partial def VM.visitDataSizeCell (limit : Nat) (c : Cell) (acc : DataSizeAcc) : VM DataSizeAcc := do
+def VM.visitDataSizeCell (limit : Nat) (c : Cell) (acc : DataSizeAcc) : VM DataSizeAcc := do
   let h : ByteArray := ByteArray.mk (Cell.hashBytes c)
   if acc.visited.contains h then
     return acc
@@ -46,9 +53,16 @@ partial def VM.visitDataSizeCell (limit : Nat) (c : Cell) (acc : DataSizeAcc) : 
       bits := acc.bits + c.bits.size
       refs := acc.refs + c.refs.size }
   let mut acc := acc
-  for r in c.refs do
+  for hr : r in c.refs do
     acc ← VM.visitDataSizeCell limit r acc
   return acc
+termination_by sizeOf c
+decreasing_by
+  all_goals
+    have h1 := Array.sizeOf_lt_of_mem hr
+    cases c
+    simp_all
+    omega
 
 def VM.execCdataSize (quiet : Bool) : VM Unit := do
   VM.checkUnderflow 2

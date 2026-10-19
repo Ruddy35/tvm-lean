@@ -110,13 +110,13 @@ def execInstrCryptoHashExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit 
           VM.pushIntQuiet (.num (Int.ofNat n)) false
         else
           let mut res : Array Value := #[]
-          let mut off : Nat := 0
-          while off < digest.size do
+          -- the loop visits off = 0, 32, 64, ... while off < size: ⌈size / 32⌉ chunks
+          for i in [0:(digest.size + 31) / 32] do
+            let off : Nat := 32 * i
             let len := Nat.min 32 (digest.size - off)
             let chunk := digest.extract off (off + len)
             let n := byteArrayToNatBE chunk
             res := res.push (.int (.num (Int.ofNat n)))
-            off := off + 32
           VM.push (.tuple res)
   | _ => next
 

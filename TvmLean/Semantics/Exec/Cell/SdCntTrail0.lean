@@ -9,9 +9,7 @@ def execInstrCellSdCntTrail0 (i : Instr) (next : VM Unit) : VM Unit := do
       let s ← VM.popSlice
       let rem : Nat := s.bitsRemaining
       let endPos : Nat := s.cell.bits.size
-      let mut cnt : Nat := 0
-      while cnt < rem && s.cell.bits[endPos - 1 - cnt]! == false do
-        cnt := cnt + 1
+      let cnt : Nat := countWhile rem (fun c => s.cell.bits[endPos - 1 - c]! == false) 0
       VM.pushSmallInt (Int.ofNat cnt)
   | _ => next
 

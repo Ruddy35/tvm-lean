@@ -204,11 +204,8 @@ def natLenBits (n : Nat) : Nat :=
   if n = 0 then 0 else Nat.log2 n + 1
 
 def Slice.countLeading (s : Slice) (b : Bool) : Nat :=
-  Id.run do
-    let mut k : Nat := 0
-    while s.bitPos + k < s.cell.bits.size && s.cell.bits[s.bitPos + k]! == b do
-      k := k + 1
-    return k
+  -- `s.bitPos + k < size` ⇔ `k < size - s.bitPos` (also when `bitPos > size`: both never hold)
+  countWhile (s.cell.bits.size - s.bitPos) (fun k => s.cell.bits[s.bitPos + k]! == b) 0
 
 structure DictLabel where
   remainder : Slice
@@ -218,6 +215,13 @@ structure DictLabel where
   deriving Repr
 
 def parseDictLabel (cell : Cell) (maxLen : Nat) : Except Excno DictLabel := do
+  -- TON C++ loads every dictionary node via `load_cell_slice`, which throws `cell_und`
+  -- for an exotic (special) cell, e.g. a pruned branch inside a Merkle proof
+  -- (crypto/vm/cells/CellSlice.cpp, load_cell_slice_impl). Gas for the load is charged
+  -- before the throw; callers already charge the visited cell on `.error`.
+  -- Note: C++ resolves *library* cells here; this pure model has no library context.
+  if cell.special then
+    throw .cellUnd
   let mut cs := Slice.ofCell cell
   if !cs.haveBits 2 then
     throw .cellUnd
@@ -286,21 +290,10 @@ def dictLabelMatches (lbl : DictLabel) (key : BitString) (pos : Nat) : Bool :=
     false
   else
     match lbl.sameBit with
-    | some b =>
-        Id.run do
-          let mut ok := true
-          for i in [0:lbl.len] do
-            if key[pos + i]! != b then
-              ok := false
-          return ok
+    | some b => allBelow lbl.len (fun i => key[pos + i]! == b)
     | none =>
         let bs := lbl.remainder.readBits lbl.len
-        Id.run do
-          let mut ok := true
-          for i in [0:lbl.len] do
-            if bs[i]! != key[pos + i]! then
-              ok := false
-          return ok
+        allBelow lbl.len (fun i => bs[i]! == key[pos + i]!)
 
 def dictLabelBits (lbl : DictLabel) : BitString :=
   match lbl.sameBit with
@@ -316,15 +309,33 @@ def dictValidateNodeExt (lbl : DictLabel) (remaining : Nat) : Except Excno Nat :
       throw .dictErr
   return rem0
 
+/-- Same as `dictValidateNodeExt` (identical result and errors), but also returns the fact
+`rem0 ≤ remaining`. Used only to make the recursive dictionary walkers provably terminating. -/
+def dictValidateNodeExtLe (lbl : DictLabel) (remaining : Nat) : Except Excno {r : Nat // r ≤ remaining} := do
+  let rem0 : Nat := remaining - lbl.len
+  if rem0 > 0 then
+    if lbl.remainder.bitsRemaining != lbl.storedBits || lbl.remainder.refsRemaining != 2 then
+      throw .dictErr
+  return ⟨rem0, Nat.sub_le remaining lbl.len⟩
+
 def bitsCommonPrefixLen (a b : BitString) : Nat :=
   let m : Nat := Nat.min a.size b.size
-  Id.run do
-    let mut k : Nat := 0
-    while k < m && a[k]! == b[k]! do
-      k := k + 1
-    return k
+  countWhile m (fun k => a[k]! == b[k]!) 0
 
-partial def dictLookupAux (cell : Cell) (key : BitString) (pos remaining : Nat) : Except Excno (Option Slice) := do
+/-- The common prefix is never longer than the second string. -/
+theorem bitsCommonPrefixLen_le_right (a b : BitString) : bitsCommonPrefixLen a b ≤ b.size := by
+  have h := countWhile_le (Nat.min a.size b.size) (fun k => a[k]! == b[k]!) 0
+  have h2 : Nat.min a.size b.size ≤ b.size := Nat.min_le_right _ _
+  simp only [bitsCommonPrefixLen]
+  omega
+
+-- Total version: terminates because `pos` strictly increases and recursion stops at `key.size`.
+/-- One step of the dictionary lookup. `rec` is the recursive call on the chosen child; it
+receives proofs that the new position lies strictly beyond `pos` and not beyond `key.size`.
+Body identical to the former recursive definition. -/
+def dictLookupStep (key : BitString) (pos : Nat)
+    (rec : Cell → (p : Nat) → pos < p → p ≤ key.size → Nat → Except Excno (Option Slice))
+    (cell : Cell) (remaining : Nat) : Except Excno (Option Slice) := do
   let lbl ← parseDictLabel cell remaining
   let rem0 ← dictValidateNodeExt lbl remaining
   if !dictLabelMatches lbl key pos then
@@ -332,12 +343,49 @@ partial def dictLookupAux (cell : Cell) (key : BitString) (pos remaining : Nat) 
   if rem0 = 0 then
     return some (lbl.remainder.advanceBits lbl.storedBits)
   else
-    let nextPos : Nat := pos + lbl.len
-    if nextPos ≥ key.size then
+    if h : pos + lbl.len ≥ key.size then
       return none
-    let sw : Bool := key[nextPos]!
-    let child := lbl.remainder.cell.refs[if sw then 1 else 0]!
-    dictLookupAux child key (nextPos + 1) (rem0 - 1)
+    else
+      let nextPos : Nat := pos + lbl.len
+      let sw : Bool := key[nextPos]!
+      let child := lbl.remainder.cell.refs[if sw then 1 else 0]!
+      rec child (nextPos + 1) (by omega) (by omega) (rem0 - 1)
+
+/-- The lookup with an explicit step budget (structural recursion: kernel-reducible).
+`dictLookupAuxF_fuel` proves that any budget above `key.size - pos` gives the same result, so
+the budget-0 branch is never reached from `dictLookupAux`. -/
+def dictLookupAuxF : Nat → Cell → BitString → Nat → Nat → Except Excno (Option Slice)
+  | 0, _, _, _, _ => .ok none
+  | f + 1, cell, key, pos, remaining =>
+      dictLookupStep key pos (fun c p _ _ r => dictLookupAuxF f c key p r) cell remaining
+
+def dictLookupAux (cell : Cell) (key : BitString) (pos remaining : Nat) : Except Excno (Option Slice) :=
+  dictLookupAuxF (key.size - pos + 1) cell key pos remaining
+
+/-- **Budget independence.** Any budget larger than `key.size - pos` gives the same result. -/
+theorem dictLookupAuxF_fuel (f g : Nat) (cell : Cell) (key : BitString) (pos remaining : Nat)
+    (hf : key.size - pos < f) (hg : key.size - pos < g) :
+    dictLookupAuxF f cell key pos remaining = dictLookupAuxF g cell key pos remaining := by
+  induction f generalizing g cell pos remaining with
+  | zero => omega
+  | succ f ih =>
+    cases g with
+    | zero => omega
+    | succ g =>
+      simp only [dictLookupAuxF]
+      congr 1
+      funext c p hp hpk r
+      exact ih g c p r (by omega) (by omega)
+
+/-- The recursive equation of the lookup holds exactly (the budget never runs out). -/
+theorem dictLookupAux_eq (cell : Cell) (key : BitString) (pos remaining : Nat) :
+    dictLookupAux cell key pos remaining =
+      dictLookupStep key pos (fun c p _ _ r => dictLookupAux c key p r) cell remaining := by
+  unfold dictLookupAux
+  rw [show key.size - pos + 1 = (key.size - pos) + 1 from rfl, dictLookupAuxF]
+  congr 1
+  funext c p hp hpk r
+  exact dictLookupAuxF_fuel _ _ c key p r (by omega) (by omega)
 
 def dictLookup (root : Option Cell) (key : BitString) : Except Excno (Option Slice) := do
   match root with
@@ -345,8 +393,11 @@ def dictLookup (root : Option Cell) (key : BitString) : Except Excno (Option Sli
   | some cell =>
       dictLookupAux cell key 0 key.size
 
-partial def dictLookupAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) :
-    Except Excno (Option Slice × Array Cell) := do
+/-- One step of the lookup that also records the visited cells (for gas); structured like
+`dictLookupStep`. Body identical to the former recursive definition. -/
+def dictLookupWithCellsStep (key : BitString) (pos : Nat)
+    (rec : Cell → (p : Nat) → pos < p → p ≤ key.size → Nat → Except Excno (Option Slice × Array Cell))
+    (cell : Cell) (remaining : Nat) : Except Excno (Option Slice × Array Cell) := do
   let lbl ← parseDictLabel cell remaining
   let rem0 ← dictValidateNodeExt lbl remaining
   if !dictLabelMatches lbl key pos then
@@ -354,13 +405,46 @@ partial def dictLookupAuxWithCells (cell : Cell) (key : BitString) (pos remainin
   if rem0 = 0 then
     return (some (lbl.remainder.advanceBits lbl.storedBits), #[cell])
   else
-    let nextPos : Nat := pos + lbl.len
-    if nextPos ≥ key.size then
+    if h : pos + lbl.len ≥ key.size then
       return (none, #[cell])
-    let sw : Bool := key[nextPos]!
-    let child := lbl.remainder.cell.refs[if sw then 1 else 0]!
-    match (← dictLookupAuxWithCells child key (nextPos + 1) (rem0 - 1)) with
-    | (res, cells) => return (res, #[cell] ++ cells)
+    else
+      let nextPos : Nat := pos + lbl.len
+      let sw : Bool := key[nextPos]!
+      let child := lbl.remainder.cell.refs[if sw then 1 else 0]!
+      match (← rec child (nextPos + 1) (by omega) (by omega) (rem0 - 1)) with
+      | (res, cells) => return (res, #[cell] ++ cells)
+
+def dictLookupAuxWithCellsF : Nat → Cell → BitString → Nat → Nat → Except Excno (Option Slice × Array Cell)
+  | 0, cell, _, _, _ => .ok (none, #[cell])
+  | f + 1, cell, key, pos, remaining =>
+      dictLookupWithCellsStep key pos (fun c p _ _ r => dictLookupAuxWithCellsF f c key p r) cell remaining
+
+def dictLookupAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) :
+    Except Excno (Option Slice × Array Cell) :=
+  dictLookupAuxWithCellsF (key.size - pos + 1) cell key pos remaining
+
+theorem dictLookupAuxWithCellsF_fuel (f g : Nat) (cell : Cell) (key : BitString) (pos remaining : Nat)
+    (hf : key.size - pos < f) (hg : key.size - pos < g) :
+    dictLookupAuxWithCellsF f cell key pos remaining = dictLookupAuxWithCellsF g cell key pos remaining := by
+  induction f generalizing g cell pos remaining with
+  | zero => omega
+  | succ f ih =>
+    cases g with
+    | zero => omega
+    | succ g =>
+      simp only [dictLookupAuxWithCellsF]
+      congr 1
+      funext c p hp hpk r
+      exact ih g c p r (by omega) (by omega)
+
+theorem dictLookupAuxWithCells_eq (cell : Cell) (key : BitString) (pos remaining : Nat) :
+    dictLookupAuxWithCells cell key pos remaining =
+      dictLookupWithCellsStep key pos (fun c p _ _ r => dictLookupAuxWithCells c key p r) cell remaining := by
+  unfold dictLookupAuxWithCells
+  rw [show key.size - pos + 1 = (key.size - pos) + 1 from rfl, dictLookupAuxWithCellsF]
+  congr 1
+  funext c p hp hpk r
+  exact dictLookupAuxWithCellsF_fuel _ _ c key p r (by omega) (by omega)
 
 def dictLookupWithCells (root : Option Cell) (key : BitString) : Except Excno (Option Slice × Array Cell) := do
   match root with
@@ -368,7 +452,11 @@ def dictLookupWithCells (root : Option Cell) (key : BitString) : Except Excno (O
   | some cell =>
       dictLookupAuxWithCells cell key 0 key.size
 
-partial def dictLookupVisitedCellsAux (cell : Cell) (key : BitString) (pos remaining : Nat) : Array Cell :=
+/-- One step of collecting the cells visited by a lookup (for gas on the error path). Body
+identical to the former recursive definition. -/
+def dictLookupVisitedStep (key : BitString) (pos : Nat)
+    (rec : Cell → (p : Nat) → pos < p → p ≤ key.size → Nat → Array Cell)
+    (cell : Cell) (remaining : Nat) : Array Cell :=
   let here : Array Cell := #[cell]
   match parseDictLabel cell remaining with
   | .error _ => here
@@ -381,20 +469,51 @@ partial def dictLookupVisitedCellsAux (cell : Cell) (key : BitString) (pos remai
       else if !dictLabelMatches lbl key pos then
         here
       else
-        let nextPos : Nat := pos + lbl.len
-        if nextPos ≥ key.size then
+        if h : pos + lbl.len ≥ key.size then
           here
         else
+          let nextPos : Nat := pos + lbl.len
           let sw : Bool := key[nextPos]!
           let child := lbl.remainder.cell.refs[if sw then 1 else 0]!
-          here ++ dictLookupVisitedCellsAux child key (nextPos + 1) (rem0 - 1)
+          here ++ rec child (nextPos + 1) (by omega) (by omega) (rem0 - 1)
+
+def dictLookupVisitedCellsAuxF : Nat → Cell → BitString → Nat → Nat → Array Cell
+  | 0, cell, _, _, _ => #[cell]
+  | f + 1, cell, key, pos, remaining =>
+      dictLookupVisitedStep key pos (fun c p _ _ r => dictLookupVisitedCellsAuxF f c key p r) cell remaining
+
+def dictLookupVisitedCellsAux (cell : Cell) (key : BitString) (pos remaining : Nat) : Array Cell :=
+  dictLookupVisitedCellsAuxF (key.size - pos + 1) cell key pos remaining
+
+theorem dictLookupVisitedCellsAuxF_fuel (f g : Nat) (cell : Cell) (key : BitString) (pos remaining : Nat)
+    (hf : key.size - pos < f) (hg : key.size - pos < g) :
+    dictLookupVisitedCellsAuxF f cell key pos remaining = dictLookupVisitedCellsAuxF g cell key pos remaining := by
+  induction f generalizing g cell pos remaining with
+  | zero => omega
+  | succ f ih =>
+    cases g with
+    | zero => omega
+    | succ g =>
+      simp only [dictLookupVisitedCellsAuxF]
+      congr 1
+      funext c p hp hpk r
+      exact ih g c p r (by omega) (by omega)
+
+theorem dictLookupVisitedCellsAux_eq (cell : Cell) (key : BitString) (pos remaining : Nat) :
+    dictLookupVisitedCellsAux cell key pos remaining =
+      dictLookupVisitedStep key pos (fun c p _ _ r => dictLookupVisitedCellsAux c key p r) cell remaining := by
+  unfold dictLookupVisitedCellsAux
+  rw [show key.size - pos + 1 = (key.size - pos) + 1 from rfl, dictLookupVisitedCellsAuxF]
+  congr 1
+  funext c p hp hpk r
+  exact dictLookupVisitedCellsAuxF_fuel _ _ c key p r (by omega) (by omega)
 
 def dictLookupVisitedCells (root : Option Cell) (key : BitString) : Array Cell :=
   match root with
   | none => #[]
   | some cell => dictLookupVisitedCellsAux cell key 0 key.size
 
-partial def dictMinMaxVisitedCellsAux (cell : Cell) (n pos : Nat) (firstBit restBit : Bool) : Array Cell :=
+def dictMinMaxVisitedCellsAux (cell : Cell) (n pos : Nat) (firstBit restBit : Bool) : Array Cell :=
   let here : Array Cell := #[cell]
   match parseDictLabel cell n with
   | .error _ => here
@@ -409,6 +528,8 @@ partial def dictMinMaxVisitedCellsAux (cell : Cell) (n pos : Nat) (firstBit rest
         let bit : Bool := if posAfter = 0 then firstBit else restBit
         let child := lbl.remainder.cell.refs[if bit then 1 else 0]!
         here ++ dictMinMaxVisitedCellsAux child (rem0 - 1) (posAfter + 1) firstBit restBit
+termination_by n
+decreasing_by all_goals (simp_wf; omega)
 
 def dictMinMaxVisitedCells (root : Option Cell) (n : Nat) (fetchMax invertFirst : Bool) : Array Cell :=
   match root with
@@ -429,7 +550,7 @@ structure DictDeleteVisit where
   loaded : Array Cell
   deriving Inhabited
 
-private partial def dictDeleteVisitedTraceAux (cell : Cell) (key : BitString) (pos remaining : Nat) :
+private def dictDeleteVisitedTraceAux (cell : Cell) (key : BitString) (pos remaining : Nat) :
     DictDeleteVisit :=
   let here : Array Cell := #[cell]
   match parseDictLabel cell remaining with
@@ -446,7 +567,7 @@ private partial def dictDeleteVisitedTraceAux (cell : Cell) (key : BitString) (p
             { status := .found, loaded := here }
           else
             let nextPos : Nat := pos + lbl.len
-            if nextPos ≥ key.size then
+            if h : nextPos ≥ key.size then
               { status := .err, loaded := here }
             else
               let swBit : Bool := key[nextPos]!
@@ -463,19 +584,21 @@ private partial def dictDeleteVisitedTraceAux (cell : Cell) (key : BitString) (p
                   { status := .none, loaded := here ++ childTrace.loaded ++ #[sibling0] }
               | .found =>
                   { status := .found, loaded := here ++ childTrace.loaded ++ #[sibling0] }
+termination_by key.size - pos
+decreasing_by all_goals (simp_wf; omega)
 
 def dictDeleteVisitedCells (root : Option Cell) (key : BitString) : Array Cell :=
   match root with
   | none => #[]
   | some cell => (dictDeleteVisitedTraceAux cell key 0 key.size).loaded
 
-partial def dictReplaceBuilderAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) (newVal : Builder) :
+def dictReplaceBuilderAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) (newVal : Builder) :
     Except Excno (Cell × Bool × Nat × Array Cell) := do
   let lbl ← parseDictLabel cell remaining
-  let rem0 ← dictValidateNodeExt lbl remaining
+  let ⟨rem0, hle⟩ ← dictValidateNodeExtLe lbl remaining
   if !dictLabelMatches lbl key pos then
     return (cell, false, 0, #[cell])
-  if rem0 = 0 then
+  if h0 : rem0 = 0 then
     let valueStart := lbl.remainder.advanceBits lbl.storedBits
     let prefixBits := cell.bits.take valueStart.bitPos
     let newBits := prefixBits ++ newVal.bits
@@ -506,6 +629,8 @@ partial def dictReplaceBuilderAuxWithCells (cell : Cell) (key : BitString) (pos 
         #[childNew, right]
     let newCell : Cell := Cell.mkOrdinary cell.bits newRefs
     return (newCell, true, created + 1, #[cell] ++ loaded)
+termination_by remaining
+decreasing_by all_goals (simp_wf; omega)
 
 def dictReplaceBuilderWithCells (root : Option Cell) (key : BitString) (newVal : Builder) :
     Except Excno (Option Cell × Bool × Nat × Array Cell) := do
@@ -579,20 +704,22 @@ def builderAppendBuilderChecked (b : Builder) (v : Builder) : Except Excno Build
   else
     throw .cellOv
 
-partial def dictMinMaxAuxWithCells (cell : Cell) (n pos : Nat) (firstBit restBit : Bool) :
+def dictMinMaxAuxWithCells (cell : Cell) (n pos : Nat) (firstBit restBit : Bool) :
     Except Excno (Slice × BitString × Array Cell) := do
   let lbl ← parseDictLabel cell n
-  let rem0 ← dictValidateNodeExt lbl n
+  let ⟨rem0, hle⟩ ← dictValidateNodeExtLe lbl n
   let labelBits := dictLabelBits lbl
   let payload := lbl.remainder.advanceBits lbl.storedBits
-  if rem0 = 0 then
+  if h0 : rem0 = 0 then
     return (payload, labelBits, #[cell])
-
-  let posAfter : Nat := pos + lbl.len
-  let bit : Bool := if posAfter = 0 then firstBit else restBit
-  let child := lbl.remainder.cell.refs[if bit then 1 else 0]!
-  let (val, keyTail, loaded) ← dictMinMaxAuxWithCells child (rem0 - 1) (posAfter + 1) firstBit restBit
-  return (val, labelBits ++ #[bit] ++ keyTail, #[cell] ++ loaded)
+  else
+    let posAfter : Nat := pos + lbl.len
+    let bit : Bool := if posAfter = 0 then firstBit else restBit
+    let child := lbl.remainder.cell.refs[if bit then 1 else 0]!
+    let (val, keyTail, loaded) ← dictMinMaxAuxWithCells child (rem0 - 1) (posAfter + 1) firstBit restBit
+    return (val, labelBits ++ #[bit] ++ keyTail, #[cell] ++ loaded)
+termination_by n
+decreasing_by all_goals (simp_wf; omega)
 
 def dictMinMaxWithCells (root : Option Cell) (n : Nat) (fetchMax invertFirst : Bool) :
     Except Excno (Option (Slice × BitString) × Array Cell) := do
@@ -604,10 +731,10 @@ def dictMinMaxWithCells (root : Option Cell) (n : Nat) (fetchMax invertFirst : B
       let (val, keyBits, loaded) ← dictMinMaxAuxWithCells cell n 0 firstBit restBit
       return (some (val, keyBits), loaded)
 
-partial def dictNearestAuxWithCells (cell : Cell) (hint : BitString) (n pos : Nat) (allowEq : Bool)
+def dictNearestAuxWithCells (cell : Cell) (hint : BitString) (n pos : Nat) (allowEq : Bool)
     (firstBit restBit : Bool) : Except Excno (Option (Slice × BitString) × Array Cell) := do
   let lbl ← parseDictLabel cell n
-  let rem0 ← dictValidateNodeExt lbl n
+  let ⟨rem0, hle⟩ ← dictValidateNodeExtLe lbl n
   let labelBits := dictLabelBits lbl
 
   -- Compare the hint against the edge label.
@@ -627,31 +754,33 @@ partial def dictNearestAuxWithCells (cell : Cell) (hint : BitString) (n pos : Na
   let payload := lbl.remainder.advanceBits lbl.storedBits
   let posAfter : Nat := pos + lbl.len
   let hintRest : BitString := hint.extract lbl.len hint.size
-  if rem0 = 0 then
+  if h0 : rem0 = 0 then
     if allowEq then
       return (some (payload, labelBits), #[cell])
     else
       return (none, #[cell])
-
-  if hintRest.isEmpty then
-    throw .dictErr
-  let bit : Bool := hintRest[0]!
-  let child := lbl.remainder.cell.refs[if bit then 1 else 0]!
-  let hintChild : BitString := hintRest.extract 1 hintRest.size
-  let (resChild, loadedChild) ← dictNearestAuxWithCells child hintChild (rem0 - 1) (posAfter + 1) allowEq firstBit restBit
-  match resChild with
-  | some (val, keyTail) =>
-      return (some (val, labelBits ++ #[bit] ++ keyTail), #[cell] ++ loadedChild)
-  | none =>
-      let expectedBit : Bool := if posAfter = 0 then firstBit else restBit
-      if bit = expectedBit then
-        return (none, #[cell] ++ loadedChild)
-      else
-        let altChild := lbl.remainder.cell.refs[if expectedBit then 1 else 0]!
-        let firstBit' : Bool := !firstBit
-        let restBit' : Bool := !restBit
-        let (valAlt, keyAlt, loadedAlt) ← dictMinMaxAuxWithCells altChild (rem0 - 1) (posAfter + 1) firstBit' restBit'
-        return (some (valAlt, labelBits ++ #[expectedBit] ++ keyAlt), #[cell] ++ loadedChild ++ loadedAlt)
+  else
+    if hintRest.isEmpty then
+      throw .dictErr
+    let bit : Bool := hintRest[0]!
+    let child := lbl.remainder.cell.refs[if bit then 1 else 0]!
+    let hintChild : BitString := hintRest.extract 1 hintRest.size
+    let (resChild, loadedChild) ← dictNearestAuxWithCells child hintChild (rem0 - 1) (posAfter + 1) allowEq firstBit restBit
+    match resChild with
+    | some (val, keyTail) =>
+        return (some (val, labelBits ++ #[bit] ++ keyTail), #[cell] ++ loadedChild)
+    | none =>
+        let expectedBit : Bool := if posAfter = 0 then firstBit else restBit
+        if bit = expectedBit then
+          return (none, #[cell] ++ loadedChild)
+        else
+          let altChild := lbl.remainder.cell.refs[if expectedBit then 1 else 0]!
+          let firstBit' : Bool := !firstBit
+          let restBit' : Bool := !restBit
+          let (valAlt, keyAlt, loadedAlt) ← dictMinMaxAuxWithCells altChild (rem0 - 1) (posAfter + 1) firstBit' restBit'
+          return (some (valAlt, labelBits ++ #[expectedBit] ++ keyAlt), #[cell] ++ loadedChild ++ loadedAlt)
+termination_by n
+decreasing_by all_goals (simp_wf; omega)
 
 def dictNearestWithCells (root : Option Cell) (hint : BitString) (fetchNext allowEq invertFirst : Bool) :
     Except Excno (Option (Slice × BitString) × Array Cell) := do
@@ -673,7 +802,7 @@ structure DictNearestVisit where
   loaded : Array Cell
   deriving Inhabited
 
-private partial def dictNearestVisitedTraceAux (cell : Cell) (hint : BitString) (n pos : Nat) (allowEq : Bool)
+private def dictNearestVisitedTraceAux (cell : Cell) (hint : BitString) (n pos : Nat) (allowEq : Bool)
     (firstBit restBit : Bool) : DictNearestVisit :=
   let here : Array Cell := #[cell]
   match parseDictLabel cell n with
@@ -734,6 +863,8 @@ private partial def dictNearestVisitedTraceAux (cell : Cell) (hint : BitString) 
                       { status := .found, loaded := here ++ childTrace.loaded ++ loadedAlt }
                   | .error _ =>
                       { status := .err, loaded := here ++ childTrace.loaded ++ loadedAlt }
+termination_by n
+decreasing_by all_goals (simp_wf; omega)
 
 def dictNearestVisitedCells (root : Option Cell) (hint : BitString) (fetchNext allowEq invertFirst : Bool) :
     Array Cell :=
@@ -744,49 +875,51 @@ def dictNearestVisitedCells (root : Option Cell) (hint : BitString) (fetchNext a
       let firstBit : Bool := restBit != invertFirst
       (dictNearestVisitedTraceAux cell hint hint.size 0 allowEq firstBit restBit).loaded
 
-partial def dictDeleteAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) :
+def dictDeleteAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) :
     Except Excno (Option Slice × Option Cell × Nat × Array Cell) := do
   let lbl ← parseDictLabel cell remaining
-  let rem0 ← dictValidateNodeExt lbl remaining
+  let ⟨rem0, hle⟩ ← dictValidateNodeExtLe lbl remaining
   if !dictLabelMatches lbl key pos then
     return (none, some cell, 0, #[cell])
   let payload := lbl.remainder.advanceBits lbl.storedBits
-  if rem0 = 0 then
+  if h0 : rem0 = 0 then
     -- Delete leaf.
     return (some payload, none, 0, #[cell])
-
-  let nextPos : Nat := pos + lbl.len
-  let swBit : Bool := key[nextPos]!
-  let left0 := lbl.remainder.cell.refs[0]!
-  let right0 := lbl.remainder.cell.refs[1]!
-  let child0 := if swBit then right0 else left0
-  let (oldVal?, childNew?, createdChild, loadedChild) ← dictDeleteAuxWithCells child0 key (nextPos + 1) (rem0 - 1)
-  match oldVal? with
-  | none =>
-      -- Not found in subtree: unchanged.
-      return (none, some cell, 0, #[cell] ++ loadedChild)
-  | some oldVal =>
-      match childNew? with
-      | some childNew =>
-          -- Both children present: rebuild fork with updated child.
-          let newRefs : Array Cell := if swBit then #[left0, childNew] else #[childNew, right0]
-          let newCell : Cell := Cell.mkOrdinary cell.bits newRefs
-          return (some oldVal, some newCell, createdChild + 1, #[cell] ++ loadedChild)
-      | none =>
-          -- One child removed: merge current edge with the surviving child.
-          let survivorBit : Bool := !swBit
-          let survivor : Cell := if swBit then left0 else right0
-          let lbl2 ← parseDictLabel survivor (rem0 - 1)
-          let _ ← dictValidateNodeExt lbl2 (rem0 - 1)
-          let childLabelBits := dictLabelBits lbl2
-          let combinedLabelBits : BitString := dictLabelBits lbl ++ #[survivorBit] ++ childLabelBits
-          let combinedLen : Nat := lbl.len + 1 + lbl2.len
-          let enc : BitString := dictLabelEncode combinedLabelBits combinedLen remaining
-          let payload2 := lbl2.remainder.advanceBits lbl2.storedBits
-          let payloadCell2 : Cell := payload2.toCellRemaining
-          let b0 ← builderStoreBitsChecked Builder.empty enc
-          let b1 ← builderAppendCellChecked b0 payloadCell2
-          return (some oldVal, some b1.finalize, createdChild + 1, #[cell] ++ loadedChild ++ #[survivor])
+  else
+    let nextPos : Nat := pos + lbl.len
+    let swBit : Bool := key[nextPos]!
+    let left0 := lbl.remainder.cell.refs[0]!
+    let right0 := lbl.remainder.cell.refs[1]!
+    let child0 := if swBit then right0 else left0
+    let (oldVal?, childNew?, createdChild, loadedChild) ← dictDeleteAuxWithCells child0 key (nextPos + 1) (rem0 - 1)
+    match oldVal? with
+    | none =>
+        -- Not found in subtree: unchanged.
+        return (none, some cell, 0, #[cell] ++ loadedChild)
+    | some oldVal =>
+        match childNew? with
+        | some childNew =>
+            -- Both children present: rebuild fork with updated child.
+            let newRefs : Array Cell := if swBit then #[left0, childNew] else #[childNew, right0]
+            let newCell : Cell := Cell.mkOrdinary cell.bits newRefs
+            return (some oldVal, some newCell, createdChild + 1, #[cell] ++ loadedChild)
+        | none =>
+            -- One child removed: merge current edge with the surviving child.
+            let survivorBit : Bool := !swBit
+            let survivor : Cell := if swBit then left0 else right0
+            let lbl2 ← parseDictLabel survivor (rem0 - 1)
+            let _ ← dictValidateNodeExt lbl2 (rem0 - 1)
+            let childLabelBits := dictLabelBits lbl2
+            let combinedLabelBits : BitString := dictLabelBits lbl ++ #[survivorBit] ++ childLabelBits
+            let combinedLen : Nat := lbl.len + 1 + lbl2.len
+            let enc : BitString := dictLabelEncode combinedLabelBits combinedLen remaining
+            let payload2 := lbl2.remainder.advanceBits lbl2.storedBits
+            let payloadCell2 : Cell := payload2.toCellRemaining
+            let b0 ← builderStoreBitsChecked Builder.empty enc
+            let b1 ← builderAppendCellChecked b0 payloadCell2
+            return (some oldVal, some b1.finalize, createdChild + 1, #[cell] ++ loadedChild ++ #[survivor])
+termination_by remaining
+decreasing_by all_goals (simp_wf; omega)
 
 def dictDeleteWithCells (root : Option Cell) (key : BitString) :
     Except Excno (Option Slice × Option Cell × Nat × Array Cell) := do
@@ -799,20 +932,12 @@ def dictCommonPrefixLen (lbl : DictLabel) (key : BitString) : Nat :=
   let l := lbl.len
   match lbl.sameBit with
   | some b =>
-      Id.run do
-        let mut k : Nat := 0
-        while k < l && k < key.size && key[k]! == b do
-          k := k + 1
-        return k
+      countWhile (Nat.min l key.size) (fun k => key[k]! == b) 0
   | none =>
       let bs := lbl.remainder.readBits l
-      Id.run do
-        let mut k : Nat := 0
-        while k < l && k < key.size && bs[k]! == key[k]! do
-          k := k + 1
-        return k
+      countWhile (Nat.min l key.size) (fun k => bs[k]! == key[k]!) 0
 
-partial def dictSetGenAuxWithCells (root : Option Cell) (key : BitString)
+def dictSetGenAuxWithCells (root : Option Cell) (key : BitString)
     (storeVal : Builder → Except Excno Builder) (mode : DictSetMode) :
     Except Excno (Option Cell × Bool × Nat × Array Cell) := do
   let n : Nat := key.size
@@ -827,7 +952,7 @@ partial def dictSetGenAuxWithCells (root : Option Cell) (key : BitString)
       return (some b2.finalize, true, 1, #[])
   | some cell =>
       let lbl ← parseDictLabel cell n
-      let rem0 ← dictValidateNodeExt lbl n
+      let ⟨rem0, hle⟩ ← dictValidateNodeExtLe lbl n
       let pfxLen : Nat := dictCommonPrefixLen lbl key
       if pfxLen < lbl.len then
         if mode == .replace then
@@ -867,7 +992,7 @@ partial def dictSetGenAuxWithCells (root : Option Cell) (key : BitString)
         let bF ← builderStoreRefChecked bF right
         return (some bF.finalize, true, 3, #[cell])
 
-      if rem0 = 0 then
+      if h0 : rem0 = 0 then
         -- Leaf node: key matches the whole label.
         if mode == .add then
           return (some cell, false, 0, #[cell])
@@ -876,37 +1001,40 @@ partial def dictSetGenAuxWithCells (root : Option Cell) (key : BitString)
         let b0 ← storeVal b0
         return (some b0.finalize, true, 1, #[cell])
 
-      -- Fork node: recurse into the selected child.
-      let swBit : Bool := key[lbl.len]!
-      let childKey : BitString := key.extract (lbl.len + 1) n
-      let left0 := lbl.remainder.cell.refs[0]!
-      let right0 := lbl.remainder.cell.refs[1]!
-      if swBit then
-        let (rightNew?, ok, created, loaded) ← dictSetGenAuxWithCells (some right0) childKey storeVal mode
-        if !ok then
-          return (some cell, false, 0, #[cell] ++ loaded)
-        match rightNew? with
-        | none => throw .dictErr
-        | some rightNew =>
-            let labelBits : BitString := key.take lbl.len
-            let enc : BitString := dictLabelEncode labelBits lbl.len n
-            let b ← builderStoreBitsChecked Builder.empty enc
-            let b ← builderStoreRefChecked b left0
-            let b ← builderStoreRefChecked b rightNew
-            return (some b.finalize, true, created + 1, #[cell] ++ loaded)
       else
-        let (leftNew?, ok, created, loaded) ← dictSetGenAuxWithCells (some left0) childKey storeVal mode
-        if !ok then
-          return (some cell, false, 0, #[cell] ++ loaded)
-        match leftNew? with
-        | none => throw .dictErr
-        | some leftNew =>
-            let labelBits : BitString := key.take lbl.len
-            let enc : BitString := dictLabelEncode labelBits lbl.len n
-            let b ← builderStoreBitsChecked Builder.empty enc
-            let b ← builderStoreRefChecked b leftNew
-            let b ← builderStoreRefChecked b right0
-            return (some b.finalize, true, created + 1, #[cell] ++ loaded)
+        -- Fork node: recurse into the selected child.
+        let swBit : Bool := key[lbl.len]!
+        let childKey : BitString := key.extract (lbl.len + 1) n
+        let left0 := lbl.remainder.cell.refs[0]!
+        let right0 := lbl.remainder.cell.refs[1]!
+        if swBit then
+          let (rightNew?, ok, created, loaded) ← dictSetGenAuxWithCells (some right0) childKey storeVal mode
+          if !ok then
+            return (some cell, false, 0, #[cell] ++ loaded)
+          match rightNew? with
+          | none => throw .dictErr
+          | some rightNew =>
+              let labelBits : BitString := key.take lbl.len
+              let enc : BitString := dictLabelEncode labelBits lbl.len n
+              let b ← builderStoreBitsChecked Builder.empty enc
+              let b ← builderStoreRefChecked b left0
+              let b ← builderStoreRefChecked b rightNew
+              return (some b.finalize, true, created + 1, #[cell] ++ loaded)
+        else
+          let (leftNew?, ok, created, loaded) ← dictSetGenAuxWithCells (some left0) childKey storeVal mode
+          if !ok then
+            return (some cell, false, 0, #[cell] ++ loaded)
+          match leftNew? with
+          | none => throw .dictErr
+          | some leftNew =>
+              let labelBits : BitString := key.take lbl.len
+              let enc : BitString := dictLabelEncode labelBits lbl.len n
+              let b ← builderStoreBitsChecked Builder.empty enc
+              let b ← builderStoreRefChecked b leftNew
+              let b ← builderStoreRefChecked b right0
+              return (some b.finalize, true, created + 1, #[cell] ++ loaded)
+termination_by key.size
+decreasing_by all_goals (simp_wf; have hn : n = Array.size key := rfl; omega)
 
 def dictSetRefWithCells (root : Option Cell) (key : BitString) (valRef : Cell) (mode : DictSetMode) :
     Except Excno (Option Cell × Bool × Nat × Array Cell) := do
@@ -927,7 +1055,7 @@ def dictSetBuilderWithCells (root : Option Cell) (key : BitString) (val : Builde
     fun b => builderAppendBuilderChecked b val
   dictSetGenAuxWithCells root key storeVal mode
 
-partial def dictLookupSetGenAuxWithCells (root : Option Cell) (key : BitString)
+def dictLookupSetGenAuxWithCells (root : Option Cell) (key : BitString)
     (storeVal : Builder → Except Excno Builder) (mode : DictSetMode) :
     Except Excno (Option Slice × Option Cell × Bool × Nat × Array Cell) := do
   let n : Nat := key.size
@@ -942,7 +1070,7 @@ partial def dictLookupSetGenAuxWithCells (root : Option Cell) (key : BitString)
       return (none, some b2.finalize, true, 1, #[])
   | some cell =>
       let lbl ← parseDictLabel cell n
-      let rem0 ← dictValidateNodeExt lbl n
+      let ⟨rem0, hle⟩ ← dictValidateNodeExtLe lbl n
       let pfxLen : Nat := dictCommonPrefixLen lbl key
       if pfxLen < lbl.len then
         if mode == .replace then
@@ -979,7 +1107,7 @@ partial def dictLookupSetGenAuxWithCells (root : Option Cell) (key : BitString)
         let bF ← builderStoreRefChecked bF right
         return (none, some bF.finalize, true, 3, #[cell])
 
-      if rem0 = 0 then
+      if h0 : rem0 = 0 then
         -- Leaf node.
         let oldVal : Slice := lbl.remainder.advanceBits lbl.storedBits
         if mode == .add then
@@ -989,39 +1117,42 @@ partial def dictLookupSetGenAuxWithCells (root : Option Cell) (key : BitString)
         let b0 ← storeVal b0
         return (some oldVal, some b0.finalize, true, 1, #[cell])
 
-      -- Fork node: recurse into the selected child.
-      let swBit : Bool := key[lbl.len]!
-      let childKey : BitString := key.extract (lbl.len + 1) n
-      let left0 := lbl.remainder.cell.refs[0]!
-      let right0 := lbl.remainder.cell.refs[1]!
-      if swBit then
-        let (oldVal?, rightNew?, ok, created, loaded) ←
-          dictLookupSetGenAuxWithCells (some right0) childKey storeVal mode
-        if !ok then
-          return (oldVal?, some cell, false, 0, #[cell] ++ loaded)
-        match rightNew? with
-        | none => throw .dictErr
-        | some rightNew =>
-            let labelBits : BitString := key.take lbl.len
-            let enc : BitString := dictLabelEncode labelBits lbl.len n
-            let b ← builderStoreBitsChecked Builder.empty enc
-            let b ← builderStoreRefChecked b left0
-            let b ← builderStoreRefChecked b rightNew
-            return (oldVal?, some b.finalize, true, created + 1, #[cell] ++ loaded)
       else
-        let (oldVal?, leftNew?, ok, created, loaded) ←
-          dictLookupSetGenAuxWithCells (some left0) childKey storeVal mode
-        if !ok then
-          return (oldVal?, some cell, false, 0, #[cell] ++ loaded)
-        match leftNew? with
-        | none => throw .dictErr
-        | some leftNew =>
-            let labelBits : BitString := key.take lbl.len
-            let enc : BitString := dictLabelEncode labelBits lbl.len n
-            let b ← builderStoreBitsChecked Builder.empty enc
-            let b ← builderStoreRefChecked b leftNew
-            let b ← builderStoreRefChecked b right0
-            return (oldVal?, some b.finalize, true, created + 1, #[cell] ++ loaded)
+        -- Fork node: recurse into the selected child.
+        let swBit : Bool := key[lbl.len]!
+        let childKey : BitString := key.extract (lbl.len + 1) n
+        let left0 := lbl.remainder.cell.refs[0]!
+        let right0 := lbl.remainder.cell.refs[1]!
+        if swBit then
+          let (oldVal?, rightNew?, ok, created, loaded) ←
+            dictLookupSetGenAuxWithCells (some right0) childKey storeVal mode
+          if !ok then
+            return (oldVal?, some cell, false, 0, #[cell] ++ loaded)
+          match rightNew? with
+          | none => throw .dictErr
+          | some rightNew =>
+              let labelBits : BitString := key.take lbl.len
+              let enc : BitString := dictLabelEncode labelBits lbl.len n
+              let b ← builderStoreBitsChecked Builder.empty enc
+              let b ← builderStoreRefChecked b left0
+              let b ← builderStoreRefChecked b rightNew
+              return (oldVal?, some b.finalize, true, created + 1, #[cell] ++ loaded)
+        else
+          let (oldVal?, leftNew?, ok, created, loaded) ←
+            dictLookupSetGenAuxWithCells (some left0) childKey storeVal mode
+          if !ok then
+            return (oldVal?, some cell, false, 0, #[cell] ++ loaded)
+          match leftNew? with
+          | none => throw .dictErr
+          | some leftNew =>
+              let labelBits : BitString := key.take lbl.len
+              let enc : BitString := dictLabelEncode labelBits lbl.len n
+              let b ← builderStoreBitsChecked Builder.empty enc
+              let b ← builderStoreRefChecked b leftNew
+              let b ← builderStoreRefChecked b right0
+              return (oldVal?, some b.finalize, true, created + 1, #[cell] ++ loaded)
+termination_by key.size
+decreasing_by all_goals (simp_wf; have hn : n = Array.size key := rfl; omega)
 
 def dictLookupSetRefWithCells (root : Option Cell) (key : BitString) (valRef : Cell) (mode : DictSetMode) :
     Except Excno (Option Slice × Option Cell × Bool × Nat × Array Cell) := do
@@ -1042,7 +1173,57 @@ def dictLookupSetBuilderWithCells (root : Option Cell) (key : BitString) (val : 
     fun b => builderAppendBuilderChecked b val
   dictLookupSetGenAuxWithCells root key storeVal mode
 
-partial def dictExtractPrefixSubdictWithCells (root : Option Cell) (keyBits : Nat)
+/-- The `go` loop of `dictExtractPrefixSubdictWithCells`, lifted to the top level so that its
+termination can be proved (measure: `prefixLen - m`). Behaviour is unchanged. -/
+def dictExtractPrefixGo (keyBits : Nat) (pfx : BitString) (prefixLen : Nat) (removePrefix : Bool)
+    (rootCell : Cell) (cell : Cell) (m : Nat) (loaded : Array Cell) :
+    Except Excno (Option Cell × Bool × Nat × Array Cell) := do
+  let loaded := loaded.push cell
+  let remaining : Nat := keyBits - m
+  let lbl ← parseDictLabel cell remaining
+  -- C++ parses every node with `LabelParser(..., label_mode())`, i.e. `validate_ext`: a fork
+  -- node must have exactly the stored label bits and two references, otherwise `dict_err`.
+  let _ ← dictValidateNodeExt lbl remaining
+  let labelBits : BitString := dictLabelBits lbl
+  let l : Nat := Nat.min (prefixLen - m) lbl.len
+  let prefixPart : BitString := pfx.extract m (m + l)
+  if bitsCommonPrefixLen labelBits prefixPart < l then
+    return (none, true, 0, loaded)
+
+  if hlt : m + lbl.len < prefixLen then
+    -- proof-only fact (no runtime effect): needed for the termination argument
+    have hdec : prefixLen - (m + lbl.len + 1) < prefixLen - m := by omega
+    let m1 : Nat := m + lbl.len
+    if m1 ≥ prefixLen then
+      throw .fatal
+    if !lbl.remainder.haveRefs 2 then
+      throw .dictErr
+    let swBit : Bool := pfx[m1]!
+    let child := lbl.remainder.cell.refs[if swBit then 1 else 0]!
+    dictExtractPrefixGo keyBits pfx prefixLen removePrefix rootCell child (m1 + 1) loaded
+  else
+    let payload := lbl.remainder.advanceBits lbl.storedBits
+    if !removePrefix then
+      if m = 0 then
+        return (some rootCell, false, 0, loaded)
+      let combinedLabelBits : BitString := pfx.take m ++ labelBits
+      let combinedLen : Nat := m + lbl.len
+      let enc : BitString := dictLabelEncode combinedLabelBits combinedLen keyBits
+      let b0 ← builderStoreBitsChecked Builder.empty enc
+      let b1 ← builderAppendCellChecked b0 payload.toCellRemaining
+      return (some b1.finalize, true, 1, loaded)
+    else
+      let newKeyBits : Nat := keyBits - prefixLen
+      let keep : Nat := m + lbl.len - prefixLen
+      let suffixBits : BitString := labelBits.drop (lbl.len - keep)
+      let enc : BitString := dictLabelEncode suffixBits keep newKeyBits
+      let b0 ← builderStoreBitsChecked Builder.empty enc
+      let b1 ← builderAppendCellChecked b0 payload.toCellRemaining
+      return (some b1.finalize, true, 1, loaded)
+termination_by prefixLen - m
+decreasing_by all_goals (simp_wf; omega)
+
+def dictExtractPrefixSubdictWithCells (root : Option Cell) (keyBits : Nat)
     (pfx : BitString) (prefixLen : Nat) (removePrefix : Bool) :
     Except Excno (Option Cell × Bool × Nat × Array Cell) := do
   match root with
@@ -1057,46 +1238,6 @@ partial def dictExtractPrefixSubdictWithCells (root : Option Cell) (keyBits : Na
         else
           return (none, true, 0, #[])
 
-      let rec go (cell : Cell) (m : Nat) (loaded : Array Cell) :
-          Except Excno (Option Cell × Bool × Nat × Array Cell) := do
-        let loaded := loaded.push cell
-        let remaining : Nat := keyBits - m
-        let lbl ← parseDictLabel cell remaining
-        let labelBits : BitString := dictLabelBits lbl
-        let l : Nat := Nat.min (prefixLen - m) lbl.len
-        let prefixPart : BitString := pfx.extract m (m + l)
-        if bitsCommonPrefixLen labelBits prefixPart < l then
-          return (none, true, 0, loaded)
-
-        if m + lbl.len < prefixLen then
-          let m1 : Nat := m + lbl.len
-          if m1 ≥ prefixLen then
-            throw .fatal
-          if !lbl.remainder.haveRefs 2 then
-            throw .dictErr
-          let swBit : Bool := pfx[m1]!
-          let child := lbl.remainder.cell.refs[if swBit then 1 else 0]!
-          go child (m1 + 1) loaded
-        else
-          let payload := lbl.remainder.advanceBits lbl.storedBits
-          if !removePrefix then
-            if m = 0 then
-              return (some rootCell, false, 0, loaded)
-            let combinedLabelBits : BitString := pfx.take m ++ labelBits
-            let combinedLen : Nat := m + lbl.len
-            let enc : BitString := dictLabelEncode combinedLabelBits combinedLen keyBits
-            let b0 ← builderStoreBitsChecked Builder.empty enc
-            let b1 ← builderAppendCellChecked b0 payload.toCellRemaining
-            return (some b1.finalize, true, 1, loaded)
-          else
-            let newKeyBits : Nat := keyBits - prefixLen
-            let keep : Nat := m + lbl.len - prefixLen
-            let suffixBits : BitString := labelBits.drop (lbl.len - keep)
-            let enc : BitString := dictLabelEncode suffixBits keep newKeyBits
-            let b0 ← builderStoreBitsChecked Builder.empty enc
-            let b1 ← builderAppendCellChecked b0 payload.toCellRemaining
-            return (some b1.finalize, true, 1, loaded)
-
-      go rootCell 0 #[]
+      dictExtractPrefixGo keyBits pfx prefixLen removePrefix rootCell rootCell 0 #[]
 
 end TvmLean

@@ -23,6 +23,15 @@ def Slice.takeRefInv (s : Slice) : Except Excno (Cell × Slice) := do
   else
     throw .invOpcode
 
+/-- Take `n` references from a slice, accumulating them (structural recursion, so the kernel
+can evaluate it). Same as the loop
+`for _ in [0:n] do let (c, rest') ← rest.takeRefInv; acc := acc.push c; rest := rest'`. -/
+def Slice.takeRefsInv : Nat → Slice → Array Cell → Except Excno (Array Cell × Slice)
+  | 0, s, acc => .ok (acc, s)
+  | n + 1, s, acc => do
+      let (c, s') ← s.takeRefInv
+      Slice.takeRefsInv n s' (acc.push c)
+
 def natToIntSignedTwos (n bits : Nat) : Int :=
   let half : Nat := 1 <<< (bits - 1)
   if n < half then
@@ -551,12 +560,7 @@ def decodeCp0WithBits (s : Slice) : Except Excno (Instr × Nat × Slice) := do
         throw .invOpcode
       let (_, s16) ← s.takeBitsAsNat 16
       let codeBits := s16.readBits dataBits
-      let mut rest := s16.advanceBits dataBits
-      let mut contRefs : Array Cell := #[]
-      for _ in [0:refs] do
-        let (c, rest') ← rest.takeRefInv
-        contRefs := contRefs.push c
-        rest := rest'
+      let (contRefs, rest) ← Slice.takeRefsInv refs (s16.advanceBits dataBits) #[]
       let codeCell : Cell := Cell.mkOrdinary codeBits contRefs
       return (.pushCont (Slice.ofCell codeCell), 16, rest)
 
@@ -576,12 +580,7 @@ def decodeCp0WithBits (s : Slice) : Except Excno (Instr × Nat × Slice) := do
         throw .invOpcode
       let (_, s18) ← s.takeBitsAsNat 18
       let raw := s18.readBits dataBits
-      let mut rest := s18.advanceBits dataBits
-      let mut refCells : Array Cell := #[]
-      for _ in [0:refs] do
-        let (c, rest') ← rest.takeRefInv
-        refCells := refCells.push c
-        rest := rest'
+      let (refCells, rest) ← Slice.takeRefsInv refs (s18.advanceBits dataBits) #[]
       let bits := bitsStripTrailingMarker raw
       let cell : Cell := Cell.mkOrdinary bits refCells
       return (.pushSliceConst (Slice.ofCell cell), 18, rest)
@@ -601,12 +600,7 @@ def decodeCp0WithBits (s : Slice) : Except Excno (Instr × Nat × Slice) := do
         throw .invOpcode
       let (_, s15) ← s.takeBitsAsNat 15
       let raw := s15.readBits dataBits
-      let mut rest := s15.advanceBits dataBits
-      let mut refCells : Array Cell := #[]
-      for _ in [0:refs] do
-        let (c, rest') ← rest.takeRefInv
-        refCells := refCells.push c
-        rest := rest'
+      let (refCells, rest) ← Slice.takeRefsInv refs (s15.advanceBits dataBits) #[]
       let bits := bitsStripTrailingMarker raw
       let cell : Cell := Cell.mkOrdinary bits refCells
       return (.pushSliceConst (Slice.ofCell cell), 15, rest)
@@ -625,12 +619,7 @@ def decodeCp0WithBits (s : Slice) : Except Excno (Instr × Nat × Slice) := do
         throw .invOpcode
       let (_, s14) ← s.takeBitsAsNat 14
       let raw := s14.readBits dataBits
-      let mut rest := s14.advanceBits dataBits
-      let mut rs : Array Cell := #[]
-      for _ in [0:refs] do
-        let (c, rest') ← rest.takeRefInv
-        rs := rs.push c
-        rest := rest'
+      let (rs, rest) ← Slice.takeRefsInv refs (s14.advanceBits dataBits) #[]
       let bits := bitsStripTrailingMarker raw
       let cell : Cell := Cell.mkOrdinary bits rs
       return (.stSliceConst (Slice.ofCell cell), 14, rest)

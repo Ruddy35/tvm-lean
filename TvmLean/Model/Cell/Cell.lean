@@ -69,17 +69,21 @@ def Cell.empty : Cell :=
 
 instance : Inhabited Cell := ⟨Cell.empty⟩
 
-partial def Cell.beq (a b : Cell) : Bool :=
-  a.special == b.special &&
-    a.levelMask == b.levelMask &&
-      a.bits == b.bits &&
-        a.refs.size == b.refs.size &&
-          Id.run do
-            let mut ok := true
-            for i in [0:a.refs.size] do
-              if !(Cell.beq a.refs[i]! b.refs[i]!) then
-                ok := false
-            return ok
+mutual
+/-- Structural equality test on cells (structural recursion, kernel-reducible): kind, level mask,
+bits, number of references, then the references pairwise. -/
+def Cell.beq : Cell → Cell → Bool
+  | ⟨⟨b1⟩, ⟨r1⟩, s1, l1⟩, ⟨⟨b2⟩, ⟨r2⟩, s2, l2⟩ =>
+    -- bits compared as lists (same value as array equality; one linear pass)
+    s1 == s2 && l1 == l2 && b1 == b2 && r1.length == r2.length && Cell.beqList r1 r2
+termination_by structural a => a
+/-- Pairwise `Cell.beq` on equally long reference lists. -/
+def Cell.beqList : List Cell → List Cell → Bool
+  | [], [] => true
+  | a :: as, b :: bs => Cell.beq a b && Cell.beqList as bs
+  | _, _ => false
+termination_by structural as => as
+end
 
 instance : BEq Cell := ⟨Cell.beq⟩
 
@@ -94,7 +98,7 @@ def Cell.depthLe (c : Cell) : Nat → Bool
 def bitsToByte (bs : BitString) (start len : Nat) : UInt8 :=
   Id.run do
     let mut acc : Nat := 0
-    for j in [0:len] do
+    for j in List.range' (0) ((len) - (0)) do
       if bs[start + j]! then
         acc := acc ||| (1 <<< (7 - j))
     UInt8.ofNat acc
@@ -103,7 +107,7 @@ def bitsToPaddedLastByte (bs : BitString) (start usedBits : Nat) : UInt8 :=
   -- `usedBits` ∈ {1..7}: data bits in the high bits, then a single `1` tag bit, then zeros.
   Id.run do
     let mut acc : Nat := 0
-    for j in [0:usedBits] do
+    for j in List.range' (0) ((usedBits) - (0)) do
       if bs[start + j]! then
         acc := acc ||| (1 <<< (7 - j))
     acc := acc ||| (1 <<< (7 - usedBits))
@@ -124,7 +128,7 @@ def bytesToNatLE (bs : Array UInt8) : Nat :=
 def byteArrayToNatBE (bs : ByteArray) : Nat :=
   Id.run do
     let mut acc : Nat := 0
-    for i in [0:bs.size] do
+    for i in List.range' (0) ((bs.size) - (0)) do
       acc := (acc <<< 8) + (bs.get! i).toNat
     return acc
 
@@ -172,7 +176,7 @@ def bitStringToBytesBE (bs : BitString) : Array UInt8 :=
   Id.run do
     let bytes : Nat := bs.size / 8
     let mut out : Array UInt8 := #[]
-    for i in [0:bytes] do
+    for i in List.range' (0) ((bytes) - (0)) do
       out := out.push (bitsToByte bs (i * 8) 8)
     out
 
@@ -211,16 +215,10 @@ def readDepthBE (data : Array UInt8) (off : Nat) : Except String Nat := do
     throw "depth read out of bounds"
   return ((data[off]!.toNat <<< 8) + data[off + 1]!.toNat)
 
-partial def Cell.computeLevelInfo? (c : Cell) : Except String CellLevelInfo := do
-  if c.refs.size > 4 then
-    throw "Too many references"
-  if c.bits.size > 1023 then
-    throw "Too many data bits"
-
-  let mut childInfos : Array CellLevelInfo := #[]
-  for r in c.refs do
-    childInfos := childInfos.push (← Cell.computeLevelInfo? r)
-
+/-- Level information of a cell from the level information of its references (the
+non-recursive part of `Cell.computeLevelInfo?`; body unchanged). -/
+def Cell.levelInfoFromChildren (c : Cell) (childInfos : Array CellLevelInfo) :
+    Except String CellLevelInfo := do
   let ty : CellSpecialType ←
     if !c.special then
       pure .ordinary
@@ -244,7 +242,7 @@ partial def Cell.computeLevelInfo? (c : Cell) : Except String CellLevelInfo := d
   | .ordinary =>
       for ci in childInfos do
         levelMask := levelMask ||| ci.levelMask
-        for lvl in [0:maxLevel + 1] do
+        for lvl in List.range' (0) ((maxLevel + 1) - (0)) do
           let d := ci.getDepth lvl
           if d > depths[lvl]! then
             depths := depths.set! lvl d
@@ -270,7 +268,7 @@ partial def Cell.computeLevelInfo? (c : Cell) : Except String CellLevelInfo := d
       if bytes.size != expectedBytes then
         throw "Length mismatch in a pruned branch"
       -- depth[maxLevel] = 0
-      for off in [0:maxLevel] do
+      for off in List.range' (0) ((maxLevel) - (0)) do
         let i := maxLevel - 1 - off
         if LevelMask.isSignificant levelMask (i + 1) then
           let hashesBefore := LevelMask.getHashI (LevelMask.apply levelMask i)
@@ -304,7 +302,7 @@ partial def Cell.computeLevelInfo? (c : Cell) : Except String CellLevelInfo := d
       let storedDepth ← readDepthBE bytes (1 + 32)
       if storedDepth != child.getDepth 0 then
         throw "Invalid depth in a Merkle proof or update"
-      for lvl in [0:maxLevel + 1] do
+      for lvl in List.range' (0) ((maxLevel + 1) - (0)) do
         let childLevel := Nat.min maxLevel (lvl + 1)
         depths := depths.set! lvl (Nat.max depths[lvl]! (child.getDepth childLevel + 1))
       levelMask := LevelMask.shiftRight child.levelMask
@@ -336,7 +334,7 @@ partial def Cell.computeLevelInfo? (c : Cell) : Except String CellLevelInfo := d
       let storedDepth1 ← readDepthBE bytes (1 + 2 * 32 + 2)
       if storedDepth1 != c1.getDepth 0 then
         throw "Invalid depth in a Merkle proof or update"
-      for lvl in [0:maxLevel + 1] do
+      for lvl in List.range' (0) ((maxLevel + 1) - (0)) do
         let childLevel := Nat.min maxLevel (lvl + 1)
         depths := depths.set! lvl (Nat.max depths[lvl]! (c0.getDepth childLevel + 1))
         depths := depths.set! lvl (Nat.max depths[lvl]! (c1.getDepth childLevel + 1))
@@ -355,7 +353,7 @@ partial def Cell.computeLevelInfo? (c : Cell) : Except String CellLevelInfo := d
 
   let isMerkleNode : Bool := ty == .merkleProof || ty == .merkleUpdate
 
-  for lvl in [0:maxLevel + 1] do
+  for lvl in List.range' (0) ((maxLevel + 1) - (0)) do
     let shouldCompute : Bool :=
       lvl == maxLevel || LevelMask.isSignificant levelMask (lvl + 1)
     if !shouldCompute then
@@ -395,12 +393,12 @@ partial def Cell.computeLevelInfo? (c : Cell) : Except String CellLevelInfo := d
                 msg := msg ++ hashes[last]!
               else
                 -- pruned branch: no chaining; always hash original data
-                for i in [0:fullBytes] do
+                for i in List.range' (0) ((fullBytes) - (0)) do
                   msg := msg.push (bitsToByte c.bits (i * 8) 8)
                 if remBits ≠ 0 then
                   msg := msg.push (bitsToPaddedLastByte c.bits (fullBytes * 8) remBits)
           | none =>
-              for i in [0:fullBytes] do
+              for i in List.range' (0) ((fullBytes) - (0)) do
                 msg := msg.push (bitsToByte c.bits (i * 8) 8)
               if remBits ≠ 0 then
                 msg := msg.push (bitsToPaddedLastByte c.bits (fullBytes * 8) remBits)
@@ -421,19 +419,42 @@ partial def Cell.computeLevelInfo? (c : Cell) : Except String CellLevelInfo := d
       match lastComputed with
       | none => 0
       | some last => last + 1
-    for j in [start:lvl] do
+    for j in List.range' (start) ((lvl) - (start)) do
       hashes := hashes.set! j h
     hashes := hashes.set! lvl h
     lastComputed := some lvl
 
   return { ty, levelMask, effectiveLevel, depths, hashes }
 
-partial def Cell.depth (c : Cell) : Nat :=
+mutual
+/-- Level information (level mask, depths, hashes) of a cell. Structural recursion over the cell
+and its list of references (kernel-reducible): the size checks first, then the references left
+to right (the first error is returned), then `Cell.levelInfoFromChildren`. -/
+def Cell.computeLevelInfo? : Cell → Except String CellLevelInfo
+  | c@⟨_, ⟨refs⟩, _, _⟩ => do
+    if c.refs.size > 4 then
+      throw "Too many references"
+    if c.bits.size > 1023 then
+      throw "Too many data bits"
+    let childInfos ← Cell.childLevelInfos? refs
+    Cell.levelInfoFromChildren c childInfos
+termination_by structural c => c
+/-- Level information of a list of references, left to right. -/
+def Cell.childLevelInfos? : List Cell → Except String (Array CellLevelInfo)
+  | [] => pure #[]
+  | r :: rs => do
+    let i ← Cell.computeLevelInfo? r
+    let is ← Cell.childLevelInfos? rs
+    pure (#[i] ++ is)
+termination_by structural rs => rs
+end
+
+def Cell.depth (c : Cell) : Nat :=
   match c.computeLevelInfo? with
   | .ok info => info.getDepth Cell.maxLevel
   | .error _ => 0
 
-partial def Cell.hashBytes (c : Cell) : Array UInt8 :=
+def Cell.hashBytes (c : Cell) : Array UInt8 :=
   match c.computeLevelInfo? with
   | .ok info => info.getHash Cell.maxLevel
   | .error _ => Array.replicate 32 0

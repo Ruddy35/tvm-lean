@@ -41,20 +41,16 @@ def execCellOpExt (op : CellInstr) (next : VM Unit) : VM Unit := do
       VM.checkUnderflow 1
       let s ← VM.popSlice
       let rem : Nat := s.bitsRemaining
-      let mut cnt : Nat := 0
-      while cnt < rem && s.cell.bits[s.bitPos + cnt]! == true do
-        cnt := cnt + 1
+      let cnt : Nat := countWhile rem (fun c => s.cell.bits[s.bitPos + c]! == true) 0
       VM.pushSmallInt (Int.ofNat cnt)
   | .sdCntTrail1 =>
       VM.checkUnderflow 1
       let s ← VM.popSlice
       let rem : Nat := s.bitsRemaining
-      let mut cnt : Nat := 0
       if rem = 0 then
         VM.pushSmallInt 0
       else
-        while cnt < rem && s.cell.bits[s.bitPos + rem - 1 - cnt]! == true do
-          cnt := cnt + 1
+        let cnt : Nat := countWhile rem (fun c => s.cell.bits[s.bitPos + rem - 1 - c]! == true) 0
         VM.pushSmallInt (Int.ofNat cnt)
   | .strefR quiet =>
       VM.checkUnderflow 2

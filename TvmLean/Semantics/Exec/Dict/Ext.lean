@@ -32,6 +32,33 @@ private def loadedWithoutRoot (dictCell? : Option Cell) (loaded : Array Cell) : 
   | none => loaded
   | some root => loaded.filter (fun c => c != root)
 
+/-- Cells loaded by `dictExtractPrefixGo` up to the point where it stops, including the node at
+which it fails. C++ loads (and charges) each node before validating it, so on the error path these
+loads are still paid for. Same traversal and termination measure as `dictExtractPrefixGo`. -/
+def dictExtractPrefixVisited (keyBits : Nat) (pfx : BitString) (prefixLen : Nat)
+    (cell : Cell) (m : Nat) : Array Cell :=
+  let remaining : Nat := keyBits - m
+  match parseDictLabel cell remaining with
+  | .error _ => #[cell]
+  | .ok lbl =>
+      match dictValidateNodeExt lbl remaining with
+      | .error _ => #[cell]
+      | .ok _ =>
+          let l : Nat := Nat.min (prefixLen - m) lbl.len
+          if bitsCommonPrefixLen (dictLabelBits lbl) (pfx.extract m (m + l)) < l then
+            #[cell]
+          else if hlt : m + lbl.len < prefixLen then
+            if !lbl.remainder.haveRefs 2 then
+              #[cell]
+            else
+              let m1 : Nat := m + lbl.len
+              let child := lbl.remainder.cell.refs[if pfx[m1]! then 1 else 0]!
+              #[cell] ++ dictExtractPrefixVisited keyBits pfx prefixLen child (m1 + 1)
+          else
+            #[cell]
+termination_by prefixLen - m
+decreasing_by all_goals (simp_wf; omega)
+
 private def extractRefOrThrow (valueSlice : Slice) : VM Cell := do
   if valueSlice.bitsRemaining == 0 && valueSlice.refsRemaining == 1 then
     return valueSlice.cell.refs[valueSlice.refPos]!
@@ -52,45 +79,49 @@ private def pfxLabelCommonPrefixLen (labelBits keyBits : BitString) (m : Nat) : 
   let keyPart : BitString := keyBits.take cmpLen
   bitsCommonPrefixLen labelBits keyPart
 
-private partial def pfxLookupPrefixWithCells (root : Option Cell) (keyBits : BitString) (keyLen : Nat) (n : Nat) :
+-- `go` lifted to the top level so that its termination can be proved (measure: remaining key
+-- length `m`, which strictly decreases on every descent). Behaviour is unchanged.
+private def pfxLookupPrefixGo (keyBits : BitString) (keyLen : Nat) (cell : Cell) (nRem m pos : Nat)
+    (loaded : Array Cell) : Except Excno (Option Slice × Nat × Array Cell) := do
+  let loaded := loaded.push cell
+  let lbl ← parseDictLabel cell nRem
+  let labelBits : BitString := dictLabelBits lbl
+  let l : Nat :=
+    let keyPart := keyBits.extract pos (pos + Nat.min m lbl.len)
+    bitsCommonPrefixLen labelBits keyPart
+  if l < lbl.len then
+    return (none, pos + l, loaded)
+  let nRem := nRem - lbl.len
+  let m := m - lbl.len
+  let pos := pos + lbl.len
+  let payload0 : Slice := lbl.remainder.advanceBits lbl.storedBits
+  if !payload0.haveBits 1 then
+    throw .dictErr
+  let ctor : Bool := (payload0.readBits 1)[0]!
+  let payload : Slice := { payload0 with bitPos := payload0.bitPos + 1 }
+  if !ctor then
+    return (some payload, pos, loaded)
+  -- Fork node
+  if nRem = 0 then
+    throw .dictErr
+  if payload.bitsRemaining != 0 || payload.refsRemaining != 2 then
+    throw .dictErr
+  if hm : m = 0 then
+    return (none, keyLen, loaded)
+  else
+    let swBit : Bool := keyBits[pos]!
+    let child := payload.cell.refs[if swBit then 1 else 0]!
+    pfxLookupPrefixGo keyBits keyLen child (nRem - 1) (m - 1) (pos + 1) loaded
+termination_by m
+decreasing_by all_goals (simp_wf; omega)
+
+private def pfxLookupPrefixWithCells (root : Option Cell) (keyBits : BitString) (keyLen : Nat) (n : Nat) :
     Except Excno (Option Slice × Nat × Array Cell) := do
   match root with
   | none => return (none, 0, #[])
-  | some rootCell =>
-      let rec go (cell : Cell) (nRem m pos : Nat) (loaded : Array Cell) :
-          Except Excno (Option Slice × Nat × Array Cell) := do
-        let loaded := loaded.push cell
-        let lbl ← parseDictLabel cell nRem
-        let labelBits : BitString := dictLabelBits lbl
-        let l : Nat :=
-          let keyPart := keyBits.extract pos (pos + Nat.min m lbl.len)
-          bitsCommonPrefixLen labelBits keyPart
-        if l < lbl.len then
-          return (none, pos + l, loaded)
-        let nRem := nRem - lbl.len
-        let m := m - lbl.len
-        let pos := pos + lbl.len
-        let payload0 : Slice := lbl.remainder.advanceBits lbl.storedBits
-        if !payload0.haveBits 1 then
-          throw .dictErr
-        let ctor : Bool := (payload0.readBits 1)[0]!
-        let payload : Slice := { payload0 with bitPos := payload0.bitPos + 1 }
-        if !ctor then
-          return (some payload, pos, loaded)
-        -- Fork node
-        if nRem = 0 then
-          throw .dictErr
-        if payload.bitsRemaining != 0 || payload.refsRemaining != 2 then
-          throw .dictErr
-        if m = 0 then
-          return (none, keyLen, loaded)
-        let swBit : Bool := keyBits[pos]!
-        let child := payload.cell.refs[if swBit then 1 else 0]!
-        go child (nRem - 1) (m - 1) (pos + 1) loaded
+  | some rootCell => pfxLookupPrefixGo keyBits keyLen rootCell n keyLen 0 #[]
 
-      go rootCell n keyLen 0 #[]
-
-private partial def pfxSetGenAuxWithCells (root : Option Cell) (key : BitString) (n : Nat)
+private def pfxSetGenAuxWithCells (root : Option Cell) (key : BitString) (n : Nat)
     (storeVal : Builder → Except Excno Builder) (mode : DictSetMode) :
     Except Excno (Option Cell × Bool × Nat × Array Cell) := do
   let m : Nat := key.size
@@ -166,42 +197,47 @@ private partial def pfxSetGenAuxWithCells (root : Option Cell) (key : BitString)
         throw .dictErr
       if payload.bitsRemaining != 0 || payload.refsRemaining != 2 then
         throw .dictErr
-      if mRem = 0 then
+      if hm : mRem = 0 then
         return (some cell, false, 0, #[cell])
-      let swBit : Bool := key[lbl.len]!
-      let childKey : BitString := key.extract (lbl.len + 1) m
-      let left0 := payload.cell.refs[0]!
-      let right0 := payload.cell.refs[1]!
-      if swBit then
-        let (rightNew?, ok, createdChild, loadedChild) ←
-          pfxSetGenAuxWithCells (some right0) childKey (nRem - 1) storeVal mode
-        if !ok then
-          return (some cell, false, 0, #[cell] ++ loadedChild)
-        match rightNew? with
-        | none => throw .dictErr
-        | some rightNew =>
-            let enc : BitString := dictLabelEncode (key.take lbl.len) lbl.len n
-            let b ← builderStoreBitsChecked Builder.empty enc
-            let b ← builderStoreBitsChecked b #[true]
-            let b ← builderStoreRefChecked b left0
-            let b ← builderStoreRefChecked b rightNew
-            return (some b.finalize, true, createdChild + 1, #[cell] ++ loadedChild)
       else
-        let (leftNew?, ok, createdChild, loadedChild) ←
-          pfxSetGenAuxWithCells (some left0) childKey (nRem - 1) storeVal mode
-        if !ok then
-          return (some cell, false, 0, #[cell] ++ loadedChild)
-        match leftNew? with
-        | none => throw .dictErr
-        | some leftNew =>
-            let enc : BitString := dictLabelEncode (key.take lbl.len) lbl.len n
-            let b ← builderStoreBitsChecked Builder.empty enc
-            let b ← builderStoreBitsChecked b #[true]
-            let b ← builderStoreRefChecked b leftNew
-            let b ← builderStoreRefChecked b right0
-            return (some b.finalize, true, createdChild + 1, #[cell] ++ loadedChild)
+        -- proof-only fact (no runtime effect): needed for the termination argument
+        have hlt : lbl.len < key.size := Nat.lt_of_sub_ne_zero hm
+        let swBit : Bool := key[lbl.len]!
+        let childKey : BitString := key.extract (lbl.len + 1) m
+        let left0 := payload.cell.refs[0]!
+        let right0 := payload.cell.refs[1]!
+        if swBit then
+          let (rightNew?, ok, createdChild, loadedChild) ←
+            pfxSetGenAuxWithCells (some right0) childKey (nRem - 1) storeVal mode
+          if !ok then
+            return (some cell, false, 0, #[cell] ++ loadedChild)
+          match rightNew? with
+          | none => throw .dictErr
+          | some rightNew =>
+              let enc : BitString := dictLabelEncode (key.take lbl.len) lbl.len n
+              let b ← builderStoreBitsChecked Builder.empty enc
+              let b ← builderStoreBitsChecked b #[true]
+              let b ← builderStoreRefChecked b left0
+              let b ← builderStoreRefChecked b rightNew
+              return (some b.finalize, true, createdChild + 1, #[cell] ++ loadedChild)
+        else
+          let (leftNew?, ok, createdChild, loadedChild) ←
+            pfxSetGenAuxWithCells (some left0) childKey (nRem - 1) storeVal mode
+          if !ok then
+            return (some cell, false, 0, #[cell] ++ loadedChild)
+          match leftNew? with
+          | none => throw .dictErr
+          | some leftNew =>
+              let enc : BitString := dictLabelEncode (key.take lbl.len) lbl.len n
+              let b ← builderStoreBitsChecked Builder.empty enc
+              let b ← builderStoreBitsChecked b #[true]
+              let b ← builderStoreRefChecked b leftNew
+              let b ← builderStoreRefChecked b right0
+              return (some b.finalize, true, createdChild + 1, #[cell] ++ loadedChild)
+termination_by key.size
+decreasing_by all_goals (simp_wf; omega)
 
-private partial def pfxLookupDeleteWithCells (root : Option Cell) (key : BitString) (n : Nat) :
+private def pfxLookupDeleteWithCells (root : Option Cell) (key : BitString) (n : Nat) :
     Except Excno (Option Slice × Option Cell × Nat × Array Cell) := do
   let m : Nat := key.size
   match root with
@@ -212,54 +248,66 @@ private partial def pfxLookupDeleteWithCells (root : Option Cell) (key : BitStri
       let l : Nat :=
         let keyPart := key.take (Nat.min m lbl.len)
         bitsCommonPrefixLen labelBits keyPart
-      if l < lbl.len then
+      if hl : l < lbl.len then
         return (none, some cell, 0, #[cell])
-      let payload0 : Slice := lbl.remainder.advanceBits lbl.storedBits
-      if !payload0.haveBits 1 then
-        throw .dictErr
-      let ctor : Bool := (payload0.readBits 1)[0]!
-      let payload : Slice := { payload0 with bitPos := payload0.bitPos + 1 }
-      if !ctor then
-        if lbl.len < m then
+      else
+        let payload0 : Slice := lbl.remainder.advanceBits lbl.storedBits
+        if !payload0.haveBits 1 then
+          throw .dictErr
+        let ctor : Bool := (payload0.readBits 1)[0]!
+        let payload : Slice := { payload0 with bitPos := payload0.bitPos + 1 }
+        if !ctor then
+          if lbl.len < m then
+            return (none, some cell, 0, #[cell])
+          return (some payload, none, 0, #[cell])
+        -- Fork
+        if payload.bitsRemaining != 0 || payload.refsRemaining != 2 then
+          throw .dictErr
+        if heq : lbl.len = m then
           return (none, some cell, 0, #[cell])
-        return (some payload, none, 0, #[cell])
-      -- Fork
-      if payload.bitsRemaining != 0 || payload.refsRemaining != 2 then
-        throw .dictErr
-      if lbl.len = m then
-        return (none, some cell, 0, #[cell])
-      let swBit : Bool := key[lbl.len]!
-      let childKey : BitString := key.extract (lbl.len + 1) m
-      let left0 := payload.cell.refs[0]!
-      let right0 := payload.cell.refs[1]!
-      let child0 := if swBit then right0 else left0
-      let (oldVal?, childNew?, createdChild, loadedChild) ←
-        pfxLookupDeleteWithCells (some child0) childKey (n - lbl.len - 1)
-      match oldVal? with
-      | none =>
-          return (none, some cell, 0, #[cell] ++ loadedChild)
-      | some oldVal =>
-          match childNew? with
-          | some childNew =>
-              -- Both children present: rebuild fork with updated child.
-              let newRefs : Array Cell := if swBit then #[left0, childNew] else #[childNew, right0]
-              let newCell : Cell := Cell.mkOrdinary cell.bits newRefs
-              return (some oldVal, some newCell, createdChild + 1, #[cell] ++ loadedChild)
+        else
+          -- proof-only facts (no runtime effect): needed for the termination argument
+          have hl' : lbl.len ≤ bitsCommonPrefixLen labelBits (key.take (Nat.min m lbl.len)) := Nat.le_of_not_lt hl
+          have hb := bitsCommonPrefixLen_le_right labelBits (key.take (Nat.min m lbl.len))
+          have hs : (key.take (Nat.min m lbl.len)).size ≤ key.size := by
+            simp [Array.take]; omega
+          have hlt : lbl.len < key.size := by
+            have : lbl.len ≠ key.size := heq
+            omega
+          let swBit : Bool := key[lbl.len]!
+          let childKey : BitString := key.extract (lbl.len + 1) m
+          let left0 := payload.cell.refs[0]!
+          let right0 := payload.cell.refs[1]!
+          let child0 := if swBit then right0 else left0
+          let (oldVal?, childNew?, createdChild, loadedChild) ←
+            pfxLookupDeleteWithCells (some child0) childKey (n - lbl.len - 1)
+          match oldVal? with
           | none =>
-              -- One child removed: merge current edge with the surviving child.
-              let survivorBit : Bool := !swBit
-              let survivor : Cell := if swBit then left0 else right0
-              let childN : Nat := n - lbl.len - 1
-              let lbl2 ← parseDictLabel survivor childN
-              let childLabelBits : BitString := dictLabelBits lbl2
-              let combinedLabelBits : BitString := dictLabelBits lbl ++ #[survivorBit] ++ childLabelBits
-              let combinedLen : Nat := lbl.len + 1 + lbl2.len
-              let enc : BitString := dictLabelEncode combinedLabelBits combinedLen n
-              let payload2 : Slice := lbl2.remainder.advanceBits lbl2.storedBits
-              let payloadCell2 : Cell := payload2.toCellRemaining
-              let b0 ← builderStoreBitsChecked Builder.empty enc
-              let b1 ← builderAppendCellChecked b0 payloadCell2
-              return (some oldVal, some b1.finalize, createdChild + 1, #[cell] ++ loadedChild ++ #[survivor])
+              return (none, some cell, 0, #[cell] ++ loadedChild)
+          | some oldVal =>
+              match childNew? with
+              | some childNew =>
+                  -- Both children present: rebuild fork with updated child.
+                  let newRefs : Array Cell := if swBit then #[left0, childNew] else #[childNew, right0]
+                  let newCell : Cell := Cell.mkOrdinary cell.bits newRefs
+                  return (some oldVal, some newCell, createdChild + 1, #[cell] ++ loadedChild)
+              | none =>
+                  -- One child removed: merge current edge with the surviving child.
+                  let survivorBit : Bool := !swBit
+                  let survivor : Cell := if swBit then left0 else right0
+                  let childN : Nat := n - lbl.len - 1
+                  let lbl2 ← parseDictLabel survivor childN
+                  let childLabelBits : BitString := dictLabelBits lbl2
+                  let combinedLabelBits : BitString := dictLabelBits lbl ++ #[survivorBit] ++ childLabelBits
+                  let combinedLen : Nat := lbl.len + 1 + lbl2.len
+                  let enc : BitString := dictLabelEncode combinedLabelBits combinedLen n
+                  let payload2 : Slice := lbl2.remainder.advanceBits lbl2.storedBits
+                  let payloadCell2 : Cell := payload2.toCellRemaining
+                  let b0 ← builderStoreBitsChecked Builder.empty enc
+                  let b1 ← builderAppendCellChecked b0 payloadCell2
+                  return (some oldVal, some b1.finalize, createdChild + 1, #[cell] ++ loadedChild ++ #[survivor])
+termination_by key.size
+decreasing_by all_goals (simp_wf; omega)
 
 end DictExt
 
@@ -614,14 +662,18 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
           if k > 0 then
             DictExt.prechargeRootLoad dictCell?
           match dictExtractPrefixSubdictWithCells dictCell? n prefixBits k rp with
-          -- Most SUBDICT* cases propagate `cell_und`, but signed-int RP extraction
-          -- can surface `dict_err` from C++ `cut_prefix_subdict()` for malformed tries.
-          | .error .cellUnd =>
-              if intKey && !unsigned && rp then
-                throw .dictErr
-              else
-                throw .cellUnd
-          | .error e => throw e
+          -- C++ `exec_subdict_get` (dictops.cpp, TON v2026.08) has no special case for
+          -- signed-int RP keys: `cell_und` from label parsing propagates unchanged; `dict_err`
+          -- only comes from `cut_prefix_subdict` returning false (handled in the extraction).
+          | .error e =>
+              -- Nodes loaded before the failure are charged (C++ `load_cell_slice` precedes
+              -- `validate_ext`); the root was already precharged above.
+              match dictCell? with
+              | some root =>
+                  if k > 0 && k ≤ n then
+                    DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell? (DictExt.dictExtractPrefixVisited n prefixBits k root 0))
+              | none => pure ()
+              throw e
           | .ok (newRoot?, _changed, created, loaded) =>
               let loaded :=
                 if k > 0 then
