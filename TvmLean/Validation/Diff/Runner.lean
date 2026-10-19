@@ -1,3 +1,4 @@
+import TvmLean.Semantics.Contract
 import Lean
 import TvmLean.Model
 import TvmLean.Semantics
@@ -42,13 +43,10 @@ def buildInitStack (si : StackInit) : Except String Stack := do
     | .ok c => pure c
     | .error e => throw s!"in_msg_body_boc: {e}"
   let flag : Int := if si.in_msg_extern then -1 else 0
-  return #[
-    .int (.num si.balance_grams),
-    .int (.num si.msg_balance_grams),
-    .cell inMsgCell,
-    .slice (Slice.ofCell bodyCell),
-    .int (.num flag)
-  ]
+  let _ := flag
+  -- formal definition (TvmLean/Semantics/Contract.lean), checked against C++ on every fixture
+  return computePhaseStack si.balance_grams si.msg_balance_grams inMsgCell (Slice.ofCell bodyCell)
+    si.in_msg_extern
 
 def tupleSetExtend (t : Array Value) (idx : Nat) (v : Value) : Array Value :=
   if idx < t.size then
@@ -500,8 +498,14 @@ def defaultInitC7 (si : StackInit) (codeCell : Cell) (myCodeCell : Cell := codeC
   let params10 := tupleSetExtend params9 14 (.tuple unpacked7) -- UNPACKEDCONFIGTUPLE
   let params11 := tupleSetExtend params10 15 (.int (.num si.due_payment)) -- DUEPAYMENT
   let params12 := tupleSetExtend params11 16 precompiledGasUsageVal -- GETPRECOMPILEDGAS (Maybe Integer)
-  let params13 := tupleSetExtend params12 17 inMsgParamsVal -- INMSGPARAMS (TVM global_version >= 11)
-  #[.tuple params13]
+  let _params13 := tupleSetExtend params12 17 inMsgParamsVal -- INMSGPARAMS (TVM global_version >= 11)
+  -- formal definition (TvmLean/Semantics/Contract.lean), checked against C++ on every fixture
+  SmartContractInfo.toC7
+    { now := si.now, blockLt := blockLt, txLt := si.lt, randSeed := randSeedVal,
+      balanceGrams := si.balance_grams, myAddr := myAddrVal, configRoot := configRootVal,
+      myCode := myCodeCell, incomingGrams := si.msg_balance_grams, storageFees := si.storage_fees,
+      unpackedConfig := unpacked7, duePayment := si.due_payment,
+      precompiledGas := precompiledGasUsageVal, inMsgParams := inMsgParamsVal }
 
 def runTestCase (cfg : RunConfig) (tc : TestCase) : IO TestResult := do
   let expectedExitRaw : Int := tc.expected.exit_code
@@ -581,12 +585,21 @@ def runTestCase (cfg : RunConfig) (tc : TestCase) : IO TestResult := do
                       let gasCreditInit : Int := tc.expected.gas_credit.getD 0
                       -- Compute-phase VM in TON is created with `flags=1` (same_c3), i.e. `c3 := OrdCont(code, cp)`
                       -- so that CALLDICT/JMPDICT re-enter the root code dispatcher.
-                      let base0 := VmState.initial codeCell gasLimitInit gasMaxInit gasCreditInit
-                      let base : VmState := { base0 with regs := { base0.regs with c3 := base0.cc } }
+                      -- formal definition (TvmLean/Semantics/Contract.lean)
+                      -- network global version: config param 8 of the fixture (as the C++ oracle does)
+                      let globalVersion : Nat :=
+                        match tc.stack_init.config_root_boc with
+                        | none => 13
+                        | some boc =>
+                            match decodeBytes boc with
+                            | .error _ => 13
+                            | .ok bs =>
+                                match stdBocDeserialize bs with
+                                | .ok root => (globalVersionOfConfig? root).getD 13
+                                | .error _ => 13
                       let st0 : VmState :=
-                        { base with
-                          stack := initStack
-                          regs := { base.regs with c4 := dataCell, c7 := initC7 } }
+                        computePhaseInit codeCell dataCell initStack initC7 gasLimitInit gasMaxInit gasCreditInit
+                          globalVersion
 
                       let precompiledGasUsage? : Option Int :=
                         match initC7[0]? with
@@ -654,9 +667,13 @@ def runTestCase (cfg : RunConfig) (tc : TestCase) : IO TestResult := do
                           return base
                         let mut mismatches : Array String := #[]
 
-                        -- Always compare the VM registers as-is after execution (no "committed state" gating).
-                        let finalC4 : Cell := stF.regs.c4
-                        let finalC5 : Cell := stF.regs.c5
+                        -- Compare the committed state, as TON C++ does: on an uncommitted (failed) run
+                        -- c4 is rolled back to the initial data and c5 to the empty action list.
+                        -- (Same rule as Apps/ActionsDebug.lean and Validation/Oracle/Runner.lean.)
+                        -- formal commit rule (TvmLean/Semantics/Contract.lean, ComputeOutcome.ofHalt)
+                        let outcome := ComputeOutcome.ofHalt 0 stF dataCell
+                        let finalC4 : Cell := outcome.c4
+                        let finalC5 : Cell := outcome.c5
 
                         let bytesToHex (bs : Array UInt8) : String :=
                           "0x" ++ String.intercalate "" (bs.toList.map (fun b => natToHexPad b.toNat 2))

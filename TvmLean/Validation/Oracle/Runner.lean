@@ -1349,6 +1349,14 @@ def runOracle (code : Cell) (stackArgs : List String) (libraries : Array Cell :=
     die s!"oracle process failed (exit={res.exitCode}):\n{res.stderr}\n{res.stdout}"
   parseOracle res.stdout
 
+/-- Global version used for oracle comparisons (env `TVMLEAN_GLOBAL_VERSION`, default 16 =
+C++ `SUPPORTED_VERSION` of TON v2026.08). The Fift side reads the same variable and passes it
+to `runvmx` (+1024), so both sides always run the same version. -/
+initialize oracleGlobalVersion : Nat ← do
+  match (← IO.getEnv "TVMLEAN_GLOBAL_VERSION") with
+  | some v => pure (v.toNat?.getD 16)
+  | none => pure 16
+
 def runLean (code : Cell) (initStack : Array Value) (fuel : Nat := 2_000_000) : StepResult :=
   -- Use an iterative runner (not `VmState.run` recursion) so we can allow enough steps for
   -- structured-loop opcodes to reach out-of-gas deterministically.
@@ -1424,7 +1432,7 @@ def runLean (code : Cell) (initStack : Array Value) (fuel : Nat := 2_000_000) : 
 
     let c7 : Array Value := #[.tuple env]
 
-    let base : VmState := VmState.initial code 1_000_000 1_000_000
+    let base : VmState := { VmState.initial code 1_000_000 1_000_000 with globalVersion := oracleGlobalVersion }
     let mut stCur : VmState :=
       { base with
         stack := initStack

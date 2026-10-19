@@ -118,6 +118,9 @@ lean_exe "tvm-lean" where
 lean_exe "tvm-lean-tests" where
   root := `Apps.Tests
 
+lean_exe "tvm-lean-tests-subset" where
+  root := `Apps.TestsSubset
+
 lean_exe "tvm-lean-diff-test" where
   root := `Apps.DiffTest
 

@@ -198,6 +198,10 @@ recursive val>$ {
 { default-env-tuple 1 tuple } : default-c7
 
 // ( x1 .. xn code_boc_hex$ -- )
+// Global version for runvmx: env TVMLEAN_GLOBAL_VERSION, default 16 (= C++ SUPPORTED_VERSION in v2026.08).
+variable oracle_global_version
+"TVMLEAN_GLOBAL_VERSION" getenv? { (number) drop } { 16 } cond oracle_global_version !
+
 // Runs runvmx(mode=60) and prints canonicalized results (consumes the stack).
 {
   // load code
@@ -209,7 +213,8 @@ recursive val>$ {
   data_cell @
   default-c7
   oracle_gas_limit @
-  60
+  oracle_global_version @
+  60 1024 +   // +1024: global_version passed explicitly (TVMLEAN_GLOBAL_VERSION, default 16)
   runvmx
 
   // stack=[final..., exit_code, data_cell, actions_cell, gas_used]
