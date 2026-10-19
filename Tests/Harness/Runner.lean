@@ -88,6 +88,19 @@ private def oracleFailureReason (out : OracleRunResult) : String :=
           | none => "oracle comparison failed"
       | none => "oracle comparison failed"
 
+/-- Short stacks for every suite: C++ checks the stack depth (`check_underflow`) before popping
+the operands, so a stack too short for an instruction is stk_und whatever its values, while a
+model that pops first fails on the first value of a wrong type. The suite's first oracle case
+that runs a single instruction is run on 0..5 copies of `null` and of `1` (its `c7`, libraries
+and gas kept). -/
+def shortStackCases (suite : InstrSuite) : Array OracleCase :=
+  match suite.oracle.find? (fun c => c.program.size == 1 && c.codeCell?.isNone) with
+  | none => #[]
+  | some base =>
+      (#[("null", TvmLean.Value.null), ("int", TvmLean.Value.int (.num 1))] : Array (String × TvmLean.Value)).flatMap fun (vl, v) =>
+        (Array.range 6).map fun k =>
+          { base with name := s!"sweep/short-stack/{vl}{k}", initStack := Array.replicate k v }
+
 private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResult := do
   let mut out : SuiteRunResult := { suiteId := suite.id }
 
@@ -103,7 +116,7 @@ private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResul
       | none => pure ()
 
   if !opts.unitOnly && !opts.fuzzOnly then
-    for c in suite.oracle do
+    for c in suite.oracle ++ shortStackCases suite do
       out := { out with oracleCases := out.oracleCases + 1 }
       let runOut ← runOracleCase c
       if !runOut.ok then
