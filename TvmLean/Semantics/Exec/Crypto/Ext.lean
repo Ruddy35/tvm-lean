@@ -82,7 +82,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           -- TVM 14 accepts Ethereum legacy recovery ids v = 27/28 (mapped to 0/1)
           let v : Nat := if ((← get).globalVersion ≥ 14) && (v == 27 || v == 28) then v - 27 else v
           let sig : Array UInt8 := rBytes ++ sBytes ++ #[UInt8.ofNat v]
-          modify fun st => st.consumeGas ecrecoverGasPrice
+          VM.consumeGas ecrecoverGasPrice
 
           let publicKey : ByteArray := host.secp256k1Ecrecover (ByteArray.mk hashBytes) (ByteArray.mk sig)
           if publicKey.size == 0 then
@@ -111,7 +111,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             | .ok bs => pure bs
             | .error e => throw e
 
-          modify fun st => st.consumeGas secp256k1XonlyPubkeyTweakAddGasPrice
+          VM.consumeGas secp256k1XonlyPubkeyTweakAddGasPrice
 
           let publicKey : ByteArray :=
             host.secp256k1XonlyPubkeyTweakAdd (ByteArray.mk keyBytes) (ByteArray.mk tweakBytes)
@@ -147,7 +147,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             | .ok bs => pure bs
             | .error e => throw e
 
-          modify fun st => st.consumeGas p256ChksgnGasPrice
+          VM.consumeGas p256ChksgnGasPrice
           let ok := host.p256Verify (ByteArray.mk dataBytes) (ByteArray.mk keyBytes) (ByteArray.mk sigBytes)
           VM.pushSmallInt (if ok then (-1) else 0)
 
@@ -175,7 +175,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             | .ok bs => pure bs
             | .error e => throw e
 
-          modify fun st => st.consumeGas p256ChksgnGasPrice
+          VM.consumeGas p256ChksgnGasPrice
           let ok := host.p256Verify (ByteArray.mk dataBytes) (ByteArray.mk keyBytes) (ByteArray.mk sigBytes)
           VM.pushSmallInt (if ok then (-1) else 0)
 
@@ -183,7 +183,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let x2 ← VM.popInt
           let x1 ← VM.popInt
-          modify fun st => st.consumeGas rist255FromHashGasPrice
+          VM.consumeGas rist255FromHashGasPrice
           let x1Bytes ←
             match exportUInt256BE x1 with
             | .ok bs => pure bs
@@ -199,7 +199,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
 
       | .rist255Validate =>
           let x ← VM.popInt
-          modify fun st => st.consumeGas rist255ValidateGasPrice
+          VM.consumeGas rist255ValidateGasPrice
           let xb ←
             match exportUInt256BE x with
             | .ok bs => pure bs
@@ -209,7 +209,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
 
       | .rist255Qvalidate =>
           let x ← VM.popInt
-          modify fun st => st.consumeGas rist255ValidateGasPrice
+          VM.consumeGas rist255ValidateGasPrice
           let ok :=
             match exportUInt256BE? x with
             | none => false
@@ -220,7 +220,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let y ← VM.popInt
           let x ← VM.popInt
-          modify fun st => st.consumeGas rist255AddGasPrice
+          VM.consumeGas rist255AddGasPrice
           let xb ←
             match exportUInt256BE x with
             | .ok bs => pure bs
@@ -238,7 +238,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let y ← VM.popInt
           let x ← VM.popInt
-          modify fun st => st.consumeGas rist255AddGasPrice
+          VM.consumeGas rist255AddGasPrice
           let xb ←
             match exportUInt256BE x with
             | .ok bs => pure bs
@@ -256,7 +256,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let y ← VM.popInt
           let x ← VM.popInt
-          modify fun st => st.consumeGas rist255AddGasPrice
+          VM.consumeGas rist255AddGasPrice
           match exportUInt256BE? x, exportUInt256BE? y with
           | some xb, some yb =>
               let r := host.rist255AddBytes (ByteArray.mk xb) (ByteArray.mk yb)
@@ -272,7 +272,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let y ← VM.popInt
           let x ← VM.popInt
-          modify fun st => st.consumeGas rist255AddGasPrice
+          VM.consumeGas rist255AddGasPrice
           match exportUInt256BE? x, exportUInt256BE? y with
           | some xb, some yb =>
               let r := host.rist255SubBytes (ByteArray.mk xb) (ByteArray.mk yb)
@@ -289,7 +289,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let n0 ← VM.popInt
           let x ← VM.popInt
           let n := intValMod n0 rist255L
-          modify fun st => st.consumeGas rist255MulGasPrice
+          VM.consumeGas rist255MulGasPrice
           -- C++ exec_ristretto255_mul, including the TVM 14 changes (NaN operands rejected,
           -- `x = 0` gives 0, the point is validated on the `n % l = 0` fast path).
           let v14 : Bool := (← get).globalVersion ≥ 14
@@ -324,7 +324,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let n0 ← VM.popInt
           let x ← VM.popInt
           let n := intValMod n0 rist255L
-          modify fun st => st.consumeGas rist255MulGasPrice
+          VM.consumeGas rist255MulGasPrice
           -- C++ exec_ristretto255_mul, including the TVM 14 changes (NaN operands rejected,
           -- `x = 0` gives 0, the point is validated on the `n % l = 0` fast path).
           let v14 : Bool := (← get).globalVersion ≥ 14
@@ -359,7 +359,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
       | .rist255MulBase =>
           let n0 ← VM.popInt
           let n := intValMod n0 rist255L
-          modify fun st => st.consumeGas rist255MulBaseGasPrice
+          VM.consumeGas rist255MulBaseGasPrice
           -- TVM 14: `n % l = 0` gives 0 directly (C++ exec_ristretto255_mul_base)
           if ((← get).globalVersion ≥ 14) && (match n with | .num 0 => true | _ => false) then
             VM.pushSmallInt 0
@@ -377,7 +377,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
       | .rist255QmulBase =>
           let n0 ← VM.popInt
           let n := intValMod n0 rist255L
-          modify fun st => st.consumeGas rist255MulBaseGasPrice
+          VM.consumeGas rist255MulBaseGasPrice
           -- TVM 14: `n % l = 0` gives 0 directly (C++ exec_ristretto255_mul_base)
           if ((← get).globalVersion ≥ 14) && (match n with | .num 0 => true | _ => false) then
             VM.pushSmallInt 0
@@ -402,7 +402,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let st0 ← get
           if st0.stack.size < 3 then
             throw .stkUnd
-          modify fun st => st.consumeGas blsVerifyGasPrice
+          VM.consumeGas blsVerifyGasPrice
           let sigBytes ←
             do
               let sigSlice ← VM.popSlice
@@ -429,7 +429,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let st0 ← get
           let maxN : Nat := st0.stack.size - 1
           let n ← popNatInRange 1 maxN
-          modify fun st => st.consumeGas (blsAggregateBaseGasPrice + Int.ofNat n * blsAggregateElementGasPrice)
+          VM.consumeGas (blsAggregateBaseGasPrice + Int.ofNat n * blsAggregateElementGasPrice)
 
           let mut sigs : Array ByteArray := Array.replicate n (ByteArray.mk #[])
           for j in [0:n] do
@@ -455,8 +455,8 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let stBeforeN ← get
           let maxN : Nat := stBeforeN.stack.size - 1
           let n ← VM.popNatUpTo maxN
-          modify fun st =>
-            st.consumeGas (blsFastAggregateVerifyBaseGasPrice + Int.ofNat n * blsFastAggregateVerifyElementGasPrice)
+          VM.consumeGas
+            (blsFastAggregateVerifyBaseGasPrice + Int.ofNat n * blsFastAggregateVerifyElementGasPrice)
 
           let mut pubs : Array ByteArray := Array.replicate n (ByteArray.mk #[])
           for j in [0:n] do
@@ -487,8 +487,8 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let stBeforeN ← get
           let maxN : Nat := (stBeforeN.stack.size - 1) / 2
           let n ← VM.popNatUpTo maxN
-          modify fun st =>
-            st.consumeGas (blsAggregateVerifyBaseGasPrice + Int.ofNat n * blsAggregateVerifyElementGasPrice)
+          VM.consumeGas
+            (blsAggregateVerifyBaseGasPrice + Int.ofNat n * blsAggregateVerifyElementGasPrice)
 
           let mut pubs : Array ByteArray := Array.replicate n (ByteArray.mk #[])
           let mut msgs : Array ByteArray := Array.replicate n (ByteArray.mk #[])
@@ -519,7 +519,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let st0 ← get
           if st0.stack.size < 2 then
             throw .stkUnd
-          modify fun st => st.consumeGas blsG1AddSubGasPrice
+          VM.consumeGas blsG1AddSubGasPrice
           let b ← VM.popSlice
           let bb ←
             match b.prefetchBytesCellUnd 48 with
@@ -539,7 +539,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let st0 ← get
           if st0.stack.size < 2 then
             throw .stkUnd
-          modify fun st => st.consumeGas blsG1AddSubGasPrice
+          VM.consumeGas blsG1AddSubGasPrice
           let b ← VM.popSlice
           let bb ←
             match b.prefetchBytesCellUnd 48 with
@@ -556,7 +556,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.push (.slice (sliceOfByteArray out))
 
       | .blsG1Neg =>
-          modify fun st => st.consumeGas blsG1NegGasPrice
+          VM.consumeGas blsG1NegGasPrice
           let a ← VM.popSlice
           let ab ←
             match a.prefetchBytesCellUnd 48 with
@@ -571,7 +571,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let st0 ← get
           if st0.stack.size < 2 then
             throw .stkUnd
-          modify fun st => st.consumeGas blsG1MulGasPrice
+          VM.consumeGas blsG1MulGasPrice
           let x ← VM.popIntFinite
           let pSlice ← VM.popSlice
           let pb ←
@@ -598,8 +598,8 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let stBeforeN ← get
           let maxN : Nat := (stBeforeN.stack.size - 1) / 2
           let n ← VM.popNatUpTo maxN
-          modify fun st =>
-            st.consumeGas (blsCalculateMultiexpGas n blsG1MultiExpBaseGasPrice blsG1MultiExpCoef1GasPrice blsG1MultiExpCoef2GasPrice)
+          VM.consumeGas
+            (blsCalculateMultiexpGas n blsG1MultiExpBaseGasPrice blsG1MultiExpCoef1GasPrice blsG1MultiExpCoef2GasPrice)
 
           let mut ps : Array ByteArray := Array.replicate n (ByteArray.mk #[])
           let mut xs : Array Int := Array.replicate n 0
@@ -658,7 +658,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.push (.slice (sliceOfByteArray out))
 
       | .blsMapToG1 =>
-          modify fun st => st.consumeGas blsMapToG1GasPrice
+          VM.consumeGas blsMapToG1GasPrice
           let a ← VM.popSlice
           let ab ←
             match a.prefetchBytesCellUnd 48 with
@@ -670,7 +670,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.push (.slice (sliceOfByteArray out))
 
       | .blsG1InGroup =>
-          modify fun st => st.consumeGas blsG1InGroupGasPrice
+          VM.consumeGas blsG1InGroupGasPrice
           let a ← VM.popSlice
           let ab ←
             match a.prefetchBytesCellUnd 48 with
@@ -692,7 +692,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let st0 ← get
           if st0.stack.size < 2 then
             throw .stkUnd
-          modify fun st => st.consumeGas blsG2AddSubGasPrice
+          VM.consumeGas blsG2AddSubGasPrice
           let b ← VM.popSlice
           let bb ←
             match b.prefetchBytesCellUnd 96 with
@@ -712,7 +712,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let st0 ← get
           if st0.stack.size < 2 then
             throw .stkUnd
-          modify fun st => st.consumeGas blsG2AddSubGasPrice
+          VM.consumeGas blsG2AddSubGasPrice
           let b ← VM.popSlice
           let bb ←
             match b.prefetchBytesCellUnd 96 with
@@ -729,7 +729,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.push (.slice (sliceOfByteArray out))
 
       | .blsG2Neg =>
-          modify fun st => st.consumeGas blsG2NegGasPrice
+          VM.consumeGas blsG2NegGasPrice
           let a ← VM.popSlice
           let ab ←
             match a.prefetchBytesCellUnd 96 with
@@ -744,7 +744,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let st0 ← get
           if st0.stack.size < 2 then
             throw .stkUnd
-          modify fun st => st.consumeGas blsG2MulGasPrice
+          VM.consumeGas blsG2MulGasPrice
           let x ← VM.popIntFinite
           let pSlice ← VM.popSlice
           let pb ←
@@ -771,8 +771,8 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let stBeforeN ← get
           let maxN : Nat := (stBeforeN.stack.size - 1) / 2
           let n ← VM.popNatUpTo maxN
-          modify fun st =>
-            st.consumeGas (blsCalculateMultiexpGas n blsG2MultiExpBaseGasPrice blsG2MultiExpCoef1GasPrice blsG2MultiExpCoef2GasPrice)
+          VM.consumeGas
+            (blsCalculateMultiexpGas n blsG2MultiExpBaseGasPrice blsG2MultiExpCoef1GasPrice blsG2MultiExpCoef2GasPrice)
 
           let mut ps : Array ByteArray := Array.replicate n (ByteArray.mk #[])
           let mut xs : Array Int := Array.replicate n 0
@@ -831,7 +831,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.push (.slice (sliceOfByteArray out))
 
       | .blsMapToG2 =>
-          modify fun st => st.consumeGas blsMapToG2GasPrice
+          VM.consumeGas blsMapToG2GasPrice
           let a ← VM.popSlice
           let ab ←
             match a.prefetchBytesCellUnd 96 with
@@ -843,7 +843,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.push (.slice (sliceOfByteArray out))
 
       | .blsG2InGroup =>
-          modify fun st => st.consumeGas blsG2InGroupGasPrice
+          VM.consumeGas blsG2InGroupGasPrice
           let a ← VM.popSlice
           let ab ←
             match a.prefetchBytesCellUnd 96 with
@@ -865,7 +865,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let stBeforeN ← get
           let maxN : Nat := (stBeforeN.stack.size - 1) / 2
           let n ← VM.popNatUpTo maxN
-          modify fun st => st.consumeGas (blsPairingBaseGasPrice + Int.ofNat n * blsPairingElementGasPrice)
+          VM.consumeGas (blsPairingBaseGasPrice + Int.ofNat n * blsPairingElementGasPrice)
           let mut p1s : Array ByteArray := Array.replicate n (ByteArray.mk #[])
           let mut p2s : Array ByteArray := Array.replicate n (ByteArray.mk #[])
           for j in [0:n] do
