@@ -341,7 +341,9 @@ def suite : InstrSuite where
         expectOkStack "k2-miss" (runSubdictIRPGET (mkStack (-2) (.cell dictSigned4Root) 2 4)) expectedMiss },
     { name := "unit/semantics/malformed" -- [B10][B7]
       run := do
-        expectErr "malformed" (runSubdictIRPGET (mkStack 1 (.cell malformedDictCell) 4 4)) .dictErr },
+        -- TON C++ v2026.08 (`exec_subdict_get`) propagates `cell_und` from label parsing: the same
+        -- input in the oracle fuzz (`fuzz/.../malformed-root-rp`) returns exit 9, not 10.
+        expectErr "malformed" (runSubdictIRPGET (mkStack 1 (.cell malformedDictCell) 4 4)) .cellUnd },
     { name := "unit/assembler" -- [B10]
       run := do
         match assembleCp0 [instr] with
