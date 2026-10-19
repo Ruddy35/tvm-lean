@@ -60,6 +60,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
   | .cryptoOp (.ext op) =>
       match op with
       | .ecrecover =>
+          VM.checkUnderflow 4  -- C++ `stack.check_underflow(4)` before the pops
           let s ← VM.popInt
           let r ← VM.popInt
           let v ← VM.popNatUpTo 255
@@ -98,6 +99,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             VM.pushSmallInt (-1)
 
       | .secp256k1XonlyPubkeyTweakAdd =>
+          VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let tweak ← VM.popInt
           let key ← VM.popInt
           let keyBytes ←
@@ -127,6 +129,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             VM.pushSmallInt (-1)
 
       | .p256ChkSignU =>
+          VM.checkUnderflow 3  -- C++ `stack.check_underflow(3)` before the pops
           let keySlice ← VM.popSlice
           let sigSlice ← VM.popSlice
           let hash ← VM.popInt
@@ -149,6 +152,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.pushSmallInt (if ok then (-1) else 0)
 
       | .p256ChkSignS =>
+          VM.checkUnderflow 3  -- C++ `stack.check_underflow(3)` before the pops
           let keySlice ← VM.popSlice
           let sigSlice ← VM.popSlice
           let dataSlice ← VM.popSlice
@@ -176,6 +180,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.pushSmallInt (if ok then (-1) else 0)
 
       | .rist255FromHash =>
+          VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let x2 ← VM.popInt
           let x1 ← VM.popInt
           modify fun st => st.consumeGas rist255FromHashGasPrice
@@ -212,6 +217,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.pushSmallInt (if ok then (-1) else 0)
 
       | .rist255Add =>
+          VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let y ← VM.popInt
           let x ← VM.popInt
           modify fun st => st.consumeGas rist255AddGasPrice
@@ -229,6 +235,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           pushUInt256FromByteArrayBE r
 
       | .rist255Sub =>
+          VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let y ← VM.popInt
           let x ← VM.popInt
           modify fun st => st.consumeGas rist255AddGasPrice
@@ -246,6 +253,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           pushUInt256FromByteArrayBE r
 
       | .rist255Qadd =>
+          VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let y ← VM.popInt
           let x ← VM.popInt
           modify fun st => st.consumeGas rist255AddGasPrice
@@ -261,6 +269,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
               VM.pushSmallInt 0
 
       | .rist255Qsub =>
+          VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let y ← VM.popInt
           let x ← VM.popInt
           modify fun st => st.consumeGas rist255AddGasPrice
@@ -276,6 +285,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
               VM.pushSmallInt 0
 
       | .rist255Mul =>
+          VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let n0 ← VM.popInt
           let x ← VM.popInt
           let n := intValMod n0 rist255L
@@ -310,6 +320,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
                 throw .rangeChk
 
       | .rist255Qmul =>
+          VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
           let n0 ← VM.popInt
           let x ← VM.popInt
           let n := intValMod n0 rist255L
