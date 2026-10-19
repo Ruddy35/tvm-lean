@@ -1,0 +1,209 @@
+file,line,function,op,threshold,code
+crypto/block/transaction.cpp,383,Account::compute_my_addr,<,10,* Legacy (used only if global_version < 10).
+crypto/block/transaction.cpp,900,Transaction::unpack_input_msg,>=,12,if (cfg->global_version >= 12) {
+crypto/block/transaction.cpp,1073,Transaction::prepare_storage_phase,>=,7,if (cfg.global_version >= 7) {
+crypto/block/transaction.cpp,1093,Transaction::prepare_storage_phase,>=,13,if (cfg.global_version >= 13) {
+crypto/block/transaction.cpp,1379,ComputePhaseConfig::compute_gas_price,,,if (it == accounts.end() || cfg.global_version < it->second.from_version || now >= it->second.until) {
+crypto/block/transaction.cpp,1500,Transaction::prepare_rand_seed,>=,8,if (cfg.global_version >= 8) {
+crypto/block/transaction.cpp,1540,Transaction::prepare_vm_c7,>=,4,if (cfg.global_version >= 4) {
+crypto/block/transaction.cpp,1561,Transaction::prepare_vm_c7,>=,6,if (cfg.global_version >= 6) {
+crypto/block/transaction.cpp,1568,Transaction::prepare_vm_c7,>=,11,if (cfg.global_version >= 11) {
+crypto/block/transaction.cpp,1682,Transaction::unpack_msg_state,>=,15,if (cfg.global_version >= 15 && acc_status == Account::acc_uninit) {
+crypto/block/transaction.cpp,1696,Transaction::unpack_msg_state,,,"auto S = check_state_limits(size_limits, cfg.global_version, false);"
+crypto/block/transaction.cpp,1716,Transaction::compute_vm_libraries,<,15,if (cfg.global_version < 15) {
+crypto/block/transaction.cpp,1771,Transaction::run_precompiled_contract,,,"compute_vm_libraries(cfg), cfg.global_version, cfg.max_vm_data_depth, new_code,"
+crypto/block/transaction.cpp,1844,Transaction::prepare_compute_phase,>=,9,if (cfg.global_version >= 9) {
+crypto/block/transaction.cpp,1887,Transaction::prepare_compute_phase,<,16,if ((cfg.global_version < 16 || acc_status != Account::acc_frozen) &&
+crypto/block/transaction.cpp,1947,Transaction::prepare_compute_phase,,,if (impl != nullptr && !cfg.dont_run_precompiled_ && impl->required_version() <= cfg.global_version) {
+crypto/block/transaction.cpp,1995,Transaction::prepare_compute_phase,,,"vm::VmState vm{new_code, cfg.global_version, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};"
+crypto/block/transaction.cpp,2113,Transaction::prepare_action_phase,,,"auto S = check_state_limits(cfg.size_limits, cfg.global_version);"
+crypto/block/transaction.cpp,2246,Transaction::prepare_action_phase,>=,14,if (cfg.global_version >= 14) {
+crypto/block/transaction.cpp,2275,Transaction::prepare_action_phase,>=,14,if (cfg.global_version >= 14) {
+crypto/block/transaction.cpp,2360,Transaction::try_action_change_library,>=,15,if (cfg.global_version >= 15) {
+crypto/block/transaction.cpp,2696,Transaction::check_replace_src_addr,>=,13,return cfg.global_version >= 13 ? check_skip_invalid(-1) : -1;
+crypto/block/transaction.cpp,2706,Transaction::check_replace_src_addr,>=,13,return cfg.global_version >= 13 ? check_skip_invalid(-1) : -1;
+crypto/block/transaction.cpp,2770,Transaction::check_replace_src_addr,>=,12,ihr_fee = cfg.global_version >= 12 ? td::zero_refint() : tlb::t_Grams.as_integer(info.extra_flags);
+crypto/block/transaction.cpp,2778,Transaction::check_replace_src_addr,>=,12,if (cfg.global_version >= 12) {
+crypto/block/transaction.cpp,2795,Transaction::check_replace_src_addr,>=,13,if (cfg.global_version >= 13) {
+crypto/block/transaction.cpp,3021,Transaction::check_replace_src_addr,<,12,if (cfg.global_version < 12) {
+crypto/block/transaction.cpp,3039,Transaction::check_replace_src_addr,>=,15,if (cfg.global_version >= 15) {
+crypto/block/transaction.cpp,3091,Transaction::check_replace_src_addr,>=,15,if (cfg.global_version >= 15) {
+crypto/block/transaction.cpp,3147,Transaction::check_replace_src_addr,>=,15,if (cfg.global_version >= 15) {
+crypto/block/transaction.cpp,3301,get_public_libraries_count,,,* @param global_version Global version (ConfigParam 8).
+crypto/block/transaction.cpp,3309,get_public_libraries_count,,,"td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, int global_version,"
+crypto/block/transaction.cpp,3344,get_public_libraries_count,>=,12,td::uint32 max_cells = account.is_masterchain() && global_version >= 12 ? size_limits.max_mc_acc_state_cells
+crypto/block/transaction.cpp,3443,Transaction::prepare_bounce_phase,<,13,if (!cfg.extra_currency_v2 || cfg.global_version < 13) {
+crypto/block/transaction.cpp,3604,Transaction::compute_state,>=,13,if (cfg.global_version >= 13) {
+crypto/block/transaction.cpp,4300,Account::libraries_changed,>=,5,compute_phase_cfg->special_gas_full = config.get_global_version() >= 5;
+crypto/block/transaction.cpp,4301,Account::libraries_changed,>=,4,storage_phase_cfg->enable_due_payment = config.get_global_version() >= 4;
+crypto/block/transaction.cpp,4302,Account::libraries_changed,,,storage_phase_cfg->global_version = config.get_global_version();
+crypto/block/transaction.cpp,4306,Account::libraries_changed,,,compute_phase_cfg->global_version = config.get_global_version();
+crypto/block/transaction.cpp,4307,Account::libraries_changed,>=,4,if (compute_phase_cfg->global_version >= 4) {
+crypto/block/transaction.cpp,4310,Account::libraries_changed,>=,6,if (compute_phase_cfg->global_version >= 6) {
+crypto/block/transaction.cpp,4316,Account::libraries_changed,>=,8,compute_phase_cfg->allow_external_unfreeze = compute_phase_cfg->global_version >= 8;
+crypto/block/transaction.cpp,4317,Account::libraries_changed,>=,10,compute_phase_cfg->disable_anycast = config.get_global_version() >= 10;
+crypto/block/transaction.cpp,4339,Account::libraries_changed,>=,4,action_phase_cfg->action_fine_enabled = config.get_global_version() >= 4;
+crypto/block/transaction.cpp,4340,Account::libraries_changed,>=,4,action_phase_cfg->bounce_on_fail_enabled = config.get_global_version() >= 4;
+crypto/block/transaction.cpp,4341,Account::libraries_changed,>=,8,action_phase_cfg->message_skip_enabled = config.get_global_version() >= 8;
+crypto/block/transaction.cpp,4342,Account::libraries_changed,>=,8,action_phase_cfg->disable_custom_fess = config.get_global_version() >= 8;
+crypto/block/transaction.cpp,4343,Account::libraries_changed,>=,9,action_phase_cfg->reserve_extra_enabled = config.get_global_version() >= 9;
+crypto/block/transaction.cpp,4345,Account::libraries_changed,>=,10,action_phase_cfg->extra_currency_v2 = config.get_global_version() >= 10;
+crypto/block/transaction.cpp,4346,Account::libraries_changed,>=,10,action_phase_cfg->disable_anycast = config.get_global_version() >= 10;
+crypto/block/transaction.cpp,4347,Account::libraries_changed,>=,11,action_phase_cfg->disable_ihr_flag = config.get_global_version() >= 11;
+crypto/block/transaction.cpp,4348,Account::libraries_changed,,,action_phase_cfg->global_version = config.get_global_version();
+crypto/block/transaction.cpp,4351,Account::libraries_changed,,,serialize_cfg->global_version = config.get_global_version();
+crypto/block/transaction.cpp,4352,Account::libraries_changed,>=,10,serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;
+crypto/block/transaction.cpp,4353,Account::libraries_changed,>=,10,serialize_cfg->disable_anycast = config.get_global_version() >= 10;
+crypto/block/transaction.cpp,4354,Account::libraries_changed,>=,11,serialize_cfg->store_storage_dict_hash = config.get_global_version() >= 11;
+crypto/vm/arithops.cpp,271,exec_divmod,>=,4,if (d == 0 && st->get_global_version() >= 4) {
+crypto/vm/arithops.cpp,350,exec_shrmod,>=,4,if (d == 0 && st->get_global_version() >= 4) {
+crypto/vm/arithops.cpp,363,exec_shrmod,<,14,if ((st->get_global_version() < 14 || !quiet) && !valid_shift) {
+crypto/vm/arithops.cpp,375,exec_shrmod,>=,14,if (st->get_global_version() >= 14) {
+crypto/vm/arithops.cpp,461,exec_muldivmod,>=,4,if (d == 0 && st->get_global_version() >= 4) {
+crypto/vm/arithops.cpp,530,exec_mulshrmod,>=,4,if (d == 0 && st->get_global_version() >= 4) {
+crypto/vm/arithops.cpp,542,exec_mulshrmod,<,13,if ((st->get_global_version() < 13 || !quiet) && (z < 0 || z > 256)) {
+crypto/vm/arithops.cpp,554,exec_mulshrmod,>=,13,if (st->get_global_version() >= 13) {
+crypto/vm/arithops.cpp,643,exec_shldivmod,>=,4,if (d == 0 && st->get_global_version() >= 4) {
+crypto/vm/arithops.cpp,655,exec_shldivmod,<,13,if ((st->get_global_version() < 13 || !quiet) && (y < 0 || y > 256)) {
+crypto/vm/arithops.cpp,664,exec_shldivmod,>=,13,if (st->get_global_version() >= 13) {
+crypto/vm/arithops.cpp,783,exec_lshift_tinyint8,>=,14,if (st->get_global_version() >= 14 && !a->is_valid()) {
+crypto/vm/arithops.cpp,800,exec_rshift_tinyint8,>=,14,if (st->get_global_version() >= 14 && !a->is_valid()) {
+crypto/vm/arithops.cpp,814,exec_lshift,<,13,if ((st->get_global_version() < 13 || !quiet) && (shift < 0 || shift > 1023)) {
+crypto/vm/arithops.cpp,819,exec_lshift,>=,13,if (st->get_global_version() >= 13 && (shift < 0 || shift > 1023 || !a->is_valid())) {
+crypto/vm/arithops.cpp,833,exec_rshift,<,13,if ((st->get_global_version() < 13 || !quiet) && (shift < 0 || shift > 1023)) {
+crypto/vm/arithops.cpp,838,exec_rshift,>=,13,if (st->get_global_version() >= 13 && (shift < 0 || shift > 1023 || !a->is_valid())) {
+crypto/vm/arithops.cpp,852,exec_pow2,<,13,if ((st->get_global_version() < 13 || !quiet) && (x < 0 || x > 1023)) {
+crypto/vm/arithops.cpp,856,exec_pow2,>=,13,if (st->get_global_version() >= 13 && (x < 0 || x > 1023)) {
+crypto/vm/arithops.cpp,873,exec_and,>=,13,if (st->get_global_version() >= 13 && (!x->is_valid() || !y->is_valid())) {
+crypto/vm/arithops.cpp,889,exec_or,>=,13,if (st->get_global_version() >= 13 && (!x->is_valid() || !y->is_valid())) {
+crypto/vm/cellops.cpp,906,exec_load_special_cell,>=,5,if (st->get_global_version() >= 5) {
+crypto/vm/cells/CellSlice.cpp,1102,load_cell_slice_impl,>=,5,if (vm_state_interface->get_global_version() >= 5) {
+crypto/vm/contops.cpp,266,exec_runvm_common,,,"std::move(code), st->get_global_version(), std::move(new_stack), gas, (int)mode & 3, std::move(data),"
+crypto/vm/contops.cpp,819,exec_setcont_ctr,>=,14,bool silent_if_set = st->get_global_version() >= 14;
+crypto/vm/contops.cpp,829,exec_setret_ctr,>=,14,bool silent_if_set = st->get_global_version() >= 14;
+crypto/vm/contops.cpp,839,exec_setalt_ctr,>=,14,bool silent_if_set = st->get_global_version() >= 14;
+crypto/vm/contops.cpp,866,exec_save_ctr,>=,14,bool silent_if_set = st->get_global_version() >= 14;
+crypto/vm/contops.cpp,887,exec_savealt_ctr,>=,14,bool silent_if_set = st->get_global_version() >= 14;
+crypto/vm/contops.cpp,932,exec_setcont_ctr_var,>=,14,bool silent_if_set = st->get_global_version() >= 14;
+crypto/vm/contops.cpp,946,exec_setcont_ctr_many,>=,14,bool silent_if_set = st->get_global_version() >= 14;
+crypto/vm/contops.cpp,965,exec_setcont_ctr_many_var,>=,14,bool silent_if_set = st->get_global_version() >= 14;
+crypto/vm/dictops.cpp,570,exec_pfx_dict_set,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 4 : 3);
+crypto/vm/dictops.cpp,584,exec_pfx_dict_delete,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 3 : 2);
+crypto/vm/memo.cpp,37,DummyVmState::load_library,>=,4,VmStateInterface::Guard guard{global_version >= 4 ? tmp_ctx.get() : VmStateInterface::get()};
+crypto/vm/memo.h,40,,,,"explicit DummyVmState(std::vector<Ref<Cell>> libraries, int global_version = ton::SUPPORTED_VERSION)"
+crypto/vm/memo.h,41,,,,": libraries(std::move(libraries)), global_version(global_version) {"
+crypto/vm/memo.h,44,,,,int get_global_version() const override {
+crypto/vm/memo.h,45,,,,return global_version;
+crypto/vm/memo.h,53,,,,int global_version;
+crypto/vm/opctable.cpp,458,OpcodeInstrWithVersion::dispatch,,,if (st->get_global_version() < required_version) {
+crypto/vm/stackops.cpp,404,exec_pick,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,414,exec_roll,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,427,exec_rollrev,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,440,exec_blkswap_x,>=,4,int y = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,441,exec_blkswap_x,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,444,exec_blkswap_x,>=,4,if (st->get_global_version() >= 4) {
+crypto/vm/stackops.cpp,456,exec_reverse_x,>=,4,int y = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,457,exec_reverse_x,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,468,exec_drop_x,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,487,exec_xchg_x,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,504,exec_chkdepth,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,513,exec_onlytop_x,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/stackops.cpp,530,exec_only_x,>=,4,int x = stack.pop_smallint_range(st->get_global_version() >= 4 ? (1 << 30) - 1 : 255);
+crypto/vm/tonops.cpp,279,exec_get_global_id,>=,6,if (st->get_global_version() >= 6) {
+crypto/vm/tonops.cpp,310,exec_get_gas_fee,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 2 : 0);
+crypto/vm/tonops.cpp,321,exec_get_storage_fee,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 4 : 0);
+crypto/vm/tonops.cpp,334,exec_get_forward_fee,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 3 : 0);
+crypto/vm/tonops.cpp,353,exec_get_original_fwd_fee,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 2 : 0);
+crypto/vm/tonops.cpp,367,exec_get_gas_fee_simple,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 2 : 0);
+crypto/vm/tonops.cpp,378,exec_get_forward_fee_simple,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 3 : 0);
+crypto/vm/tonops.cpp,423,exec_get_extra_currency_balance,,,int get_global_version() const override {
+crypto/vm/tonops.cpp,424,exec_get_extra_currency_balance,,,return st_->get_global_version();
+crypto/vm/tonops.cpp,688,exec_hash_ext,>=,9,stack.check_underflow(st->get_global_version() >= 9 ? 2 : 0);
+crypto/vm/tonops.cpp,691,exec_hash_ext,>=,9,int cnt = stack.pop_smallint_range(stack.depth() - 1 - (st->get_global_version() >= 9 ? (int)append : 0));
+crypto/vm/tonops.cpp,788,exec_ed25519_check_signature,>=,14,if (st->get_global_version() >= 14) {
+crypto/vm/tonops.cpp,822,exec_ecrecover,>=,14,if (st->get_global_version() >= 14 && (v == 27 || v == 28)) {
+crypto/vm/tonops.cpp,1033,exec_ristretto255_mul,>=,14,if (st->get_global_version() >= 14 && !(n->is_valid() && x->is_valid())) {
+crypto/vm/tonops.cpp,1043,exec_ristretto255_mul,>=,14,if (n->sgn() == 0 || (st->get_global_version() >= 14 && x->sgn() == 0)) {
+crypto/vm/tonops.cpp,1047,exec_ristretto255_mul,>=,14,if (st->get_global_version() >= 14 && invalid_point) {
+crypto/vm/tonops.cpp,1083,exec_ristretto255_mul_base,>=,14,if (st->get_global_version() >= 14 && n->sgn() == 0) {
+crypto/vm/tonops.cpp,1093,exec_ristretto255_mul_base,>=,14,"if (st->get_global_version() >= 14 || std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {"
+crypto/vm/tonops.cpp,1608,skip_maybe_anycast,,,"bool skip_maybe_anycast(CellSlice& cs, int global_version) {"
+crypto/vm/tonops.cpp,1612,skip_maybe_anycast,>=,10,if (global_version >= 10) {
+crypto/vm/tonops.cpp,1622,skip_message_addr,,,"bool skip_message_addr(CellSlice& cs, int global_version) {"
+crypto/vm/tonops.cpp,1632,skip_message_addr,,,"return skip_maybe_anycast(cs, global_version) // anycast:(Maybe Anycast)"
+crypto/vm/tonops.cpp,1636,skip_message_addr,>=,10,if (global_version >= 10) {
+crypto/vm/tonops.cpp,1640,skip_message_addr,,,"return skip_maybe_anycast(cs, global_version) // anycast:(Maybe Anycast)"
+crypto/vm/tonops.cpp,1649,skip_std_message_addr,,,"bool skip_std_message_addr(CellSlice& cs, int global_version) {"
+crypto/vm/tonops.cpp,1652,skip_std_message_addr,,,"return skip_maybe_anycast(cs, global_version) // anycast:(Maybe Anycast)"
+crypto/vm/tonops.cpp,1668,exec_load_message_addr,,,"if (util::load_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {"
+crypto/vm/tonops.cpp,1686,exec_load_std_message_addr,,,"if (util::load_std_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {"
+crypto/vm/tonops.cpp,1728,exec_load_opt_std_message_addr,,,"if (util::load_std_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {"
+crypto/vm/tonops.cpp,1741,parse_maybe_anycast,,,"bool parse_maybe_anycast(CellSlice& cs, StackEntry& res, int global_version) {"
+crypto/vm/tonops.cpp,1746,parse_maybe_anycast,>=,10,if (global_version >= 10) {
+crypto/vm/tonops.cpp,1761,parse_message_addr,,,"bool parse_message_addr(CellSlice& cs, std::vector<StackEntry>& res, int global_version) {"
+crypto/vm/tonops.cpp,1782,parse_message_addr,,,"if (parse_maybe_anycast(cs, v, global_version) // anycast:(Maybe Anycast)"
+crypto/vm/tonops.cpp,1794,parse_message_addr,>=,10,if (global_version >= 10) {
+crypto/vm/tonops.cpp,1800,parse_message_addr,,,"if (parse_maybe_anycast(cs, v, global_version) // anycast:(Maybe Anycast)"
+crypto/vm/tonops.cpp,1822,exec_parse_message_addr,,,"if (!(parse_message_addr(cs, res, st->get_global_version()) && cs.empty_ext())) {"
+crypto/vm/tonops.cpp,1862,exec_rewrite_message_addr,,,"if (!(parse_message_addr(cs, tuple, st->get_global_version()) && cs.empty_ext())) {"
+crypto/vm/tonops.cpp,1912,is_valid_std_msg_addr,,,"bool is_valid_std_msg_addr(const Ref<CellSlice>& cs, int global_version) {"
+crypto/vm/tonops.cpp,1918,is_valid_std_msg_addr,>=,10,if (global_version >= 10) {
+crypto/vm/tonops.cpp,1930,is_valid_std_msg_addr,,,"if (!skip_std_message_addr(cloned_cs.write(), global_version)) {"
+crypto/vm/tonops.cpp,1942,exec_store_std_address,,,"bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());"
+crypto/vm/tonops.cpp,1997,exec_store_opt_std_address,>=,14,if (st->get_global_version() >= 14) {
+crypto/vm/tonops.cpp,2006,exec_store_opt_std_address,,,"bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());"
+crypto/vm/tonops.cpp,2162,exec_send_message,>=,11,ihr_disabled = info.ihr_disabled || st->get_global_version() >= 11;
+crypto/vm/tonops.cpp,2170,exec_send_message,>=,12,if (st->get_global_version() >= 12) {
+crypto/vm/tonops.cpp,2187,exec_send_message,>=,6,if (st->get_global_version() >= 6) {
+crypto/vm/tonops.cpp,2209,exec_send_message,>=,6,if (st->get_global_version() >= 6) {
+crypto/vm/tonops.cpp,2222,exec_send_message,>=,10,if (st->get_global_version() >= 10 && have_extra_currencies) {
+crypto/vm/tonops.cpp,2238,exec_send_message,<,10,if (st->get_global_version() < 10) {
+crypto/vm/tonops.cpp,2251,exec_send_message,<,10,if (st->get_global_version() < 10) {
+crypto/vm/tonops.cpp,2281,exec_send_message,<,14,if (st->get_global_version() < 14) {
+crypto/vm/tonops.cpp,2305,exec_send_message,>=,12,bits += st->get_global_version() >= 12 ? extra_flags_len : stored_grams_len(ihr_fee);
+crypto/vm/tonops.cpp,2370,exec_reserve_raw,>=,4,int f = stack.pop_smallint_range(st->get_global_version() >= 4 ? 31 : 15);
+crypto/vm/tonops.cpp,2407,exec_set_lib_code,>=,4,if (st->get_global_version() >= 4) {
+crypto/vm/tonops.cpp,2431,exec_change_lib,>=,4,if (st->get_global_version() >= 4) {
+crypto/vm/tonops.cpp,2492,load_msg_addr_q,,,"bool load_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet) {"
+crypto/vm/tonops.cpp,2494,load_msg_addr_q,,,"if (!skip_message_addr(cs, global_version)) {"
+crypto/vm/tonops.cpp,2504,load_std_msg_addr_q,,,"bool load_std_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet) {"
+crypto/vm/tonops.cpp,2506,load_std_msg_addr_q,,,"if (!skip_std_message_addr(cs, global_version)) {"
+crypto/vm/tonops.cpp,2516,load_std_msg_addr_q,,,"bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, int global_version,"
+crypto/vm/tonops.cpp,2520,load_std_msg_addr_q,,,"if (!(parse_message_addr(cs, tuple, global_version) && cs.empty_ext())) {"
+crypto/vm/tonops.cpp,2555,load_msg_addr,,,"CellSlice load_msg_addr(CellSlice& cs, int global_version) {"
+crypto/vm/tonops.cpp,2557,load_msg_addr,,,"load_msg_addr_q(cs, addr, global_version, false);"
+crypto/vm/tonops.cpp,2560,parse_std_addr,,,"std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs, int global_version) {"
+crypto/vm/tonops.cpp,2562,parse_std_addr,,,"parse_std_addr_q(std::move(cs), res.first, res.second, global_version, false);"
+crypto/vm/tonops.h,36,,,,"bool load_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet);"
+crypto/vm/tonops.h,37,,,,"bool load_std_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet);"
+crypto/vm/tonops.h,38,,,,"bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, int global_version,"
+crypto/vm/tonops.h,44,,,,"CellSlice load_msg_addr(CellSlice& cs, int global_version);"
+crypto/vm/tonops.h,45,,,,"std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs, int global_version);"
+crypto/vm/vm.cpp,37,VmState,,,"VmState::VmState(Ref<CellSlice> _code, int global_version, Ref<Stack> _stack, const GasLimits& gas, int flags,"
+crypto/vm/vm.cpp,49,VmState,,,", global_version(global_version) {"
+crypto/vm/vm.cpp,84,VmState::init_cregs,,,"Ref<CellSlice> VmState::convert_code_cell(Ref<Cell> code_cell, int global_version,"
+crypto/vm/vm.cpp,90,VmState::init_cregs,>=,9,if (global_version >= 9) {
+crypto/vm/vm.cpp,92,VmState::init_cregs,,,"DummyVmState dummy{libraries, global_version};"
+crypto/vm/vm.cpp,581,force_cregs,,,int global_version) {
+crypto/vm/vm.cpp,583,force_cregs,,,"global_version,"
+crypto/vm/vm.cpp,621,force_cregs,,,int global_version) {
+crypto/vm/vm.cpp,626,force_cregs,,,"actions_ptr, global_version);"
+crypto/vm/vm.cpp,659,VmState::load_library,>=,4,VmStateInterface::Guard guard{global_version >= 4 ? tmp_ctx.get() : VmStateInterface::get()};
+crypto/vm/vm.cpp,731,lookup_library_in,<,10,if (global_version < 10) {
+crypto/vm/vm.cpp,747,lookup_library_in,>=,10,if (global_version >= 10) {
+crypto/vm/vm.cpp,754,lookup_library_in,>=,10,if (global_version >= 10) {
+crypto/vm/vm.cpp,811,VmState::restore_parent_vm,>=,11,if (global_version >= 11 && !child_state.get_committed_state().committed) {
+crypto/vm/vm.h,107,,,,int global_version{0};
+crypto/vm/vm.h,175,,,,"VmState(Ref<CellSlice> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0,"
+crypto/vm/vm.h,177,,,,"VmState(Ref<Cell> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0,"
+crypto/vm/vm.h,179,,,,": VmState(convert_code_cell(std::move(_code), global_version, _libraries), global_version, std::move(_stack),"
+crypto/vm/vm.h,204,,>=,4,if (global_version >= 4) {
+crypto/vm/vm.h,356,,,,int get_global_version() const override {
+crypto/vm/vm.h,357,,,,return global_version;
+crypto/vm/vm.h,391,,>=,9,if (cnt > free_nested_cont_jump && global_version >= 9) {
+crypto/vm/vm.h,394,,>=,9,if (cont.not_null() && global_version >= 9) {
+crypto/vm/vm.h,404,,,,"static Ref<CellSlice> convert_code_cell(Ref<Cell> code_cell, int global_version,"
+crypto/vm/vm.h,435,,>=,4,if (global_version >= 4) {
+crypto/vm/vm.h,470,,,,"Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr, int global_version = 0);"
+crypto/vm/vm.h,473,,,,"Ref<Tuple> init_c7 = {}, Ref<Cell>* actions_ptr = nullptr, int global_version = 0);"
+crypto/vm/vmstate.h,41,,,,virtual int get_global_version() const {
