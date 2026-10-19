@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Crypto
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Crypto.HASHEXTR
 def suite : InstrSuite where
   id := { name := "HASHEXTR" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Crypto.casesFor "HASHEXTR"
   fuzz := #[]
 
 initialize registerSuite suite
