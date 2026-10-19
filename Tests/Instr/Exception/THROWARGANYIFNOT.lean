@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Control
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Exception.THROWARGANYIFNOT
 def suite : InstrSuite where
   id := { name := "THROWARGANYIFNOT" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Control.casesFor "THROWARGANYIFNOT"
   fuzz := #[]
 
 initialize registerSuite suite

@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Control
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Flow.SETCP_SHORT
 def suite : InstrSuite where
   id := { name := "SETCP_SHORT" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Control.casesFor "SETCP_SHORT"
   fuzz := #[]
 
 initialize registerSuite suite

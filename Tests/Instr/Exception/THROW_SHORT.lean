@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Control
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Exception.THROW_SHORT
 def suite : InstrSuite where
   id := { name := "THROW_SHORT" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Control.casesFor "THROW_SHORT"
   fuzz := #[]
 
 initialize registerSuite suite

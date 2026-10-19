@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Control
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Debug.DEBUG_2
 def suite : InstrSuite where
   id := { name := "DEBUG_2" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Control.casesFor "DEBUG_2"
   fuzz := #[]
 
 initialize registerSuite suite

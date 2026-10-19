@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Control
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Misc.CDATASIZE
 def suite : InstrSuite where
   id := { name := "CDATASIZE" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Control.casesFor "CDATASIZE"
   fuzz := #[]
 
 initialize registerSuite suite
