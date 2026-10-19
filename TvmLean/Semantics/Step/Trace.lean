@@ -208,121 +208,124 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
   | .envelope ext cregs cdata =>
       let st1 := st.applyCregsCdata cregs cdata
       let stAfter := { st1 with cc := ext }
-      let res := StepResult.continue stAfter
+      let res := if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else StepResult.continue stAfter
       mk "envelope" stAfter res
   | .ordinary code saved cregs cdata =>
       -- Apply pending continuation regs and closure stack (once), matching `VmState.step`.
       let st2 := st.applyCregsCdata cregs cdata
-      let cdata' : OrdCdata := { cdata with stack := #[], nargs := -1 }
-      let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata' }
-      if code.bitsRemaining == 0 then
-        if code.refsRemaining == 0 then
-          let st0 := st.consumeGas implicitRetGasPrice
-          let res :=
-            if decide (st0.gas.gasRemaining < 0) then
-              st0.outOfGasHalt
-            else
-              let (res0, st1) := (VM.ret).run st0
-              match res0 with
-              | .ok _ =>
-                  .continue st1
-              | .error e =>
-                  let stExc := st1.throwException e.toInt
-                  let stExcGas := stExc.consumeGas exceptionGasPrice
-                  if decide (stExcGas.gas.gasRemaining < 0) then
-                    stExcGas.outOfGasHalt
-                  else
-                    .continue stExcGas
-          let stAfter :=
-            match res with
-            | .continue st' => st'
-            | .halt _ st' => st'
-          mk "implicit_ret" stAfter res
-        else
-          let st0 := st.consumeGas implicitJmpRefGasPrice
-          let res :=
-            if decide (st0.gas.gasRemaining < 0) then
-              st0.outOfGasHalt
-            else if code.refPos < code.cell.refs.size then
-              let refCell := code.cell.refs[code.refPos]!
-              let st1 := st0.registerCellLoad refCell
-              if decide (st1.gas.gasRemaining < 0) then
-                st1.outOfGasHalt
-              else
-                .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
-            else
-              let stExc := st0.throwException Excno.cellUnd.toInt
-              let stExcGas := stExc.consumeGas exceptionGasPrice
-              if decide (stExcGas.gas.gasRemaining < 0) then
-                stExcGas.outOfGasHalt
-              else
-                .continue stExcGas
-          let stAfter :=
-            match res with
-            | .continue st' => st'
-            | .halt _ st' => st'
-          mk "implicit_jmpref" stAfter res
+      if decide (st2.gas.gasRemaining < 0) then
+        mk "closure_stack_gas out_of_gas" st2 st2.outOfGasHalt
       else
-        let decoded : Except Excno (Instr × Nat × Slice) :=
-          if st.cp = 0 then
-            decodeCp0WithBits code
-          else
-            .error .invOpcode
-        match decoded with
-        | .error e =>
-            -- Align with C++ opcode-table behavior: some invalid/too-short opcode paths
-            -- charge one instruction slot before raising `inv_opcode`.
-            let st0 :=
-              if e = .invOpcode ∧ code.bitsRemaining > 0 then
-                let invalBits : Nat := cp0InvOpcodeGasBits code
-                st.consumeGas (gasPerInstr + Int.ofNat invalBits)
-              else
-                st
-            -- that charge is `consume_gas` (opctable.cpp): out of gas there, no inv_opcode
-            let charged := st0
-            let st0 := st0.throwException e.toInt
-            let st0 := st0.consumeGas exceptionGasPrice
+        let cdata' : OrdCdata := { cdata with stack := #[], nargs := -1 }
+        let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata' }
+        if code.bitsRemaining == 0 then
+          if code.refsRemaining == 0 then
+            let st0 := st.consumeGas implicitRetGasPrice
             let res :=
-              if decide (charged.gas.gasRemaining < 0) then
-                charged.outOfGasHalt
-              else if decide (st0.gas.gasRemaining < 0) then
+              if decide (st0.gas.gasRemaining < 0) then
                 st0.outOfGasHalt
               else
-                .continue st0
-            let stAfter :=
-              match res with
-              | .continue st' => st'
-              | .halt _ st' => st'
-            mk s!"decode_error({e})" stAfter res
-        | .ok (instr, totBits, rest) =>
-            let st0 := { st with cc := .ordinary rest (.quit 0) OrdCregs.empty OrdCdata.empty }
-            let stGas := st0.consumeGas (instrGas instr totBits)
-            let (event, res) :=
-              if decide (stGas.gas.gasRemaining < 0) then
-                (s!"exec({instr.pretty}) out_of_gas", stGas.outOfGasHalt)
-              else
-                let (res1, st1) := (execInstr host instr).run stGas
-                match res1 with
+                let (res0, st1) := (VM.ret).run st0
+                match res0 with
                 | .ok _ =>
-                    if decide (st1.gas.gasRemaining < 0) then
-                      (s!"exec({instr.pretty}) out_of_gas", st1.outOfGasHalt)
-                    else
-                      (s!"exec({instr.pretty})", .continue st1)
+                    .continue st1
                 | .error e =>
-                    if e = .outOfGas then
-                      (s!"exec({instr.pretty}) out_of_gas", st1.outOfGasHalt)
+                    let stExc := st1.throwException e.toInt
+                    let stExcGas := stExc.consumeGas exceptionGasPrice
+                    if decide (stExcGas.gas.gasRemaining < 0) then
+                      stExcGas.outOfGasHalt
                     else
-                      let stExc := st1.throwException e.toInt
-                      let stExcGas := stExc.consumeGas exceptionGasPrice
-                      if decide (stExcGas.gas.gasRemaining < 0) then
-                        (s!"exec_error({instr.pretty},{reprStr e}) out_of_gas", stExcGas.outOfGasHalt)
-                      else
-                        (s!"exec_error({instr.pretty},{reprStr e})", .continue stExcGas)
+                      .continue stExcGas
             let stAfter :=
               match res with
               | .continue st' => st'
               | .halt _ st' => st'
-            mk event stAfter res
+            mk "implicit_ret" stAfter res
+          else
+            let st0 := st.consumeGas implicitJmpRefGasPrice
+            let res :=
+              if decide (st0.gas.gasRemaining < 0) then
+                st0.outOfGasHalt
+              else if code.refPos < code.cell.refs.size then
+                let refCell := code.cell.refs[code.refPos]!
+                let st1 := st0.registerCellLoad refCell
+                if decide (st1.gas.gasRemaining < 0) then
+                  st1.outOfGasHalt
+                else
+                  .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
+              else
+                let stExc := st0.throwException Excno.cellUnd.toInt
+                let stExcGas := stExc.consumeGas exceptionGasPrice
+                if decide (stExcGas.gas.gasRemaining < 0) then
+                  stExcGas.outOfGasHalt
+                else
+                  .continue stExcGas
+            let stAfter :=
+              match res with
+              | .continue st' => st'
+              | .halt _ st' => st'
+            mk "implicit_jmpref" stAfter res
+        else
+          let decoded : Except Excno (Instr × Nat × Slice) :=
+            if st.cp = 0 then
+              decodeCp0WithBits code
+            else
+              .error .invOpcode
+          match decoded with
+          | .error e =>
+              -- Align with C++ opcode-table behavior: some invalid/too-short opcode paths
+              -- charge one instruction slot before raising `inv_opcode`.
+              let st0 :=
+                if e = .invOpcode ∧ code.bitsRemaining > 0 then
+                  let invalBits : Nat := cp0InvOpcodeGasBits code
+                  st.consumeGas (gasPerInstr + Int.ofNat invalBits)
+                else
+                  st
+              -- that charge is `consume_gas` (opctable.cpp): out of gas there, no inv_opcode
+              let charged := st0
+              let st0 := st0.throwException e.toInt
+              let st0 := st0.consumeGas exceptionGasPrice
+              let res :=
+                if decide (charged.gas.gasRemaining < 0) then
+                  charged.outOfGasHalt
+                else if decide (st0.gas.gasRemaining < 0) then
+                  st0.outOfGasHalt
+                else
+                  .continue st0
+              let stAfter :=
+                match res with
+                | .continue st' => st'
+                | .halt _ st' => st'
+              mk s!"decode_error({e})" stAfter res
+          | .ok (instr, totBits, rest) =>
+              let st0 := { st with cc := .ordinary rest (.quit 0) OrdCregs.empty OrdCdata.empty }
+              let stGas := st0.consumeGas (instrGas instr totBits)
+              let (event, res) :=
+                if decide (stGas.gas.gasRemaining < 0) then
+                  (s!"exec({instr.pretty}) out_of_gas", stGas.outOfGasHalt)
+                else
+                  let (res1, st1) := (execInstr host instr).run stGas
+                  match res1 with
+                  | .ok _ =>
+                      if decide (st1.gas.gasRemaining < 0) then
+                        (s!"exec({instr.pretty}) out_of_gas", st1.outOfGasHalt)
+                      else
+                        (s!"exec({instr.pretty})", .continue st1)
+                  | .error e =>
+                      if e = .outOfGas then
+                        (s!"exec({instr.pretty}) out_of_gas", st1.outOfGasHalt)
+                      else
+                        let stExc := st1.throwException e.toInt
+                        let stExcGas := stExc.consumeGas exceptionGasPrice
+                        if decide (stExcGas.gas.gasRemaining < 0) then
+                          (s!"exec_error({instr.pretty},{reprStr e}) out_of_gas", stExcGas.outOfGasHalt)
+                        else
+                          (s!"exec_error({instr.pretty},{reprStr e})", .continue stExcGas)
+              let stAfter :=
+                match res with
+                | .continue st' => st'
+                | .halt _ st' => st'
+              mk event stAfter res
 
 def VmState.runTrace (host : Host) (fuel : Nat) (st : VmState) (maxTrace : Nat := 200) :
     StepResult × Array TraceEntry × Bool :=

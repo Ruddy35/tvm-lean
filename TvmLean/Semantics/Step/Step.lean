@@ -270,104 +270,114 @@ def VmState.step (host : Host) (st : VmState) : StepResult :=
   | .envelope ext cregs cdata =>
       -- Mirrors C++ `ArgContExt::jump`: apply saved control regs, closure stack and nargs, then jump to `ext`.
       let st := st.applyCregsCdata cregs cdata
-      .continue { st with cc := ext }
+      -- the stack gas of that jump is `consume_stack_gas` (adjust_jump_cont): out of gas at once
+      if decide (st.gas.gasRemaining < 0) then
+        st.outOfGasHalt
+      else
+        .continue { st with cc := ext }
   | .ordinary code saved cregs cdata =>
       -- Apply pending continuation control regs (MVP: c0,c1,c2,c3,c4,c5,c7), once.
       let st2 := st.applyCregsCdata cregs cdata
-      -- Closure stack / nargs are applied once on entry.
-      let cdata' : OrdCdata := { cdata with stack := #[], nargs := -1 }
-      let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata' }
-      if code.bitsRemaining == 0 then
-        if code.refsRemaining == 0 then
-          -- Implicit RET.
-          let st0 := st.consumeGas implicitRetGasPrice
-          if decide (st0.gas.gasRemaining < 0) then
-            st0.outOfGasHalt
+      -- the stack gas of applying a closure (the jump to this continuation, e.g. to the exception
+      -- handler c2 in throw_exception) is `consume_stack_gas` (adjust_jump_cont): out of gas at once,
+      -- before the next instruction is charged
+      if decide (st2.gas.gasRemaining < 0) then
+        st2.outOfGasHalt
+      else
+        -- Closure stack / nargs are applied once on entry.
+        let cdata' : OrdCdata := { cdata with stack := #[], nargs := -1 }
+        let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata' }
+        if code.bitsRemaining == 0 then
+          if code.refsRemaining == 0 then
+            -- Implicit RET.
+            let st0 := st.consumeGas implicitRetGasPrice
+            if decide (st0.gas.gasRemaining < 0) then
+              st0.outOfGasHalt
+            else
+              let (res, st1) := (VM.ret).run st0
+              match res with
+              | .ok _ =>
+                  .continue st1
+              | .error e =>
+                  let stExc := st1.throwException e.toInt
+                  let stExcGas := stExc.consumeGas exceptionGasPrice
+                  if decide (stExcGas.gas.gasRemaining < 0) then
+                    stExcGas.outOfGasHalt
+                  else
+                    .continue stExcGas
           else
-            let (res, st1) := (VM.ret).run st0
-            match res with
-            | .ok _ =>
-                .continue st1
-            | .error e =>
-                let stExc := st1.throwException e.toInt
+            -- Implicit JMPREF to the first reference.
+            let st0 := st.consumeGas implicitJmpRefGasPrice
+            if decide (st0.gas.gasRemaining < 0) then
+              st0.outOfGasHalt
+            else
+              if code.refPos < code.cell.refs.size then
+                let refCell := code.cell.refs[code.refPos]!
+                let st1 := st0.registerCellLoad refCell
+                if decide (st1.gas.gasRemaining < 0) then
+                  st1.outOfGasHalt
+                else
+                  .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
+              else
+                let stExc := st0.throwException Excno.cellUnd.toInt
                 let stExcGas := stExc.consumeGas exceptionGasPrice
                 if decide (stExcGas.gas.gasRemaining < 0) then
                   stExcGas.outOfGasHalt
                 else
                   .continue stExcGas
         else
-          -- Implicit JMPREF to the first reference.
-          let st0 := st.consumeGas implicitJmpRefGasPrice
-          if decide (st0.gas.gasRemaining < 0) then
-            st0.outOfGasHalt
-          else
-            if code.refPos < code.cell.refs.size then
-              let refCell := code.cell.refs[code.refPos]!
-              let st1 := st0.registerCellLoad refCell
-              if decide (st1.gas.gasRemaining < 0) then
-                st1.outOfGasHalt
-              else
-                .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
+          let decoded : Except Excno (Instr × Nat × Slice) :=
+            if st.cp = 0 then
+              decodeCp0WithBits code
             else
-              let stExc := st0.throwException Excno.cellUnd.toInt
-              let stExcGas := stExc.consumeGas exceptionGasPrice
-              if decide (stExcGas.gas.gasRemaining < 0) then
-                stExcGas.outOfGasHalt
-              else
-                .continue stExcGas
-      else
-        let decoded : Except Excno (Instr × Nat × Slice) :=
-          if st.cp = 0 then
-            decodeCp0WithBits code
-          else
-            .error .invOpcode
-        match decoded with
-        | .error e =>
-            -- Align with C++ opcode-table behavior: some invalid/too-short opcode paths
-            -- charge one instruction slot before raising `inv_opcode`.
-            let st0 :=
-              if e = .invOpcode ∧ code.bitsRemaining > 0 then
-                let invalBits : Nat := cp0InvOpcodeGasBits code
-                st.consumeGas (gasPerInstr + Int.ofNat invalBits)
-              else
-                st
-            -- that charge is `consume_gas` (opctable.cpp): out of gas there, no inv_opcode
-            if decide (st0.gas.gasRemaining < 0) then
-              st0.outOfGasHalt
-            else
-              let st0 := st0.throwException e.toInt
-              let st0 := st0.consumeGas exceptionGasPrice
+              .error .invOpcode
+          match decoded with
+          | .error e =>
+              -- Align with C++ opcode-table behavior: some invalid/too-short opcode paths
+              -- charge one instruction slot before raising `inv_opcode`.
+              let st0 :=
+                if e = .invOpcode ∧ code.bitsRemaining > 0 then
+                  let invalBits : Nat := cp0InvOpcodeGasBits code
+                  st.consumeGas (gasPerInstr + Int.ofNat invalBits)
+                else
+                  st
+              -- that charge is `consume_gas` (opctable.cpp): out of gas there, no inv_opcode
               if decide (st0.gas.gasRemaining < 0) then
                 st0.outOfGasHalt
               else
-                .continue st0
-        | .ok (instr, totBits, rest) =>
-            let st0 := { st with cc := .ordinary rest (.quit 0) OrdCregs.empty OrdCdata.empty }
-            let stGas := st0.consumeGas (instrGas instr totBits)
-            if decide (stGas.gas.gasRemaining < 0) then
-              stGas.outOfGasHalt
-            else
-              let (res, st1) := (execInstr host instr).run stGas
-              match res with
-              | .ok _ =>
-                  if decide (st1.gas.gasRemaining < 0) then
-                    -- C++ gas.check() after step → VmNoGas → propagates to run(),
-                    -- bypassing throw_exception.  No exception_gas charged.
-                    st1.outOfGasHalt
-                  else
-                    .continue st1
-              | .error e =>
-                  if e = .outOfGas then
-                    -- VmNoGas thrown mid-instruction (e.g. from consume_gas during
-                    -- cell load).  Propagates to run(), no exception_gas charged.
-                    st1.outOfGasHalt
-                  else
-                    -- TVM behavior: convert VM errors into an exception jump to c2.
-                    let stExc := st1.throwException e.toInt
-                    let stExcGas := stExc.consumeGas exceptionGasPrice
-                    if decide (stExcGas.gas.gasRemaining < 0) then
-                      stExcGas.outOfGasHalt
+                let st0 := st0.throwException e.toInt
+                let st0 := st0.consumeGas exceptionGasPrice
+                if decide (st0.gas.gasRemaining < 0) then
+                  st0.outOfGasHalt
+                else
+                  .continue st0
+          | .ok (instr, totBits, rest) =>
+              let st0 := { st with cc := .ordinary rest (.quit 0) OrdCregs.empty OrdCdata.empty }
+              let stGas := st0.consumeGas (instrGas instr totBits)
+              if decide (stGas.gas.gasRemaining < 0) then
+                stGas.outOfGasHalt
+              else
+                let (res, st1) := (execInstr host instr).run stGas
+                match res with
+                | .ok _ =>
+                    if decide (st1.gas.gasRemaining < 0) then
+                      -- C++ gas.check() after step → VmNoGas → propagates to run(),
+                      -- bypassing throw_exception.  No exception_gas charged.
+                      st1.outOfGasHalt
                     else
-                      .continue stExcGas
+                      .continue st1
+                | .error e =>
+                    if e = .outOfGas then
+                      -- VmNoGas thrown mid-instruction (e.g. from consume_gas during
+                      -- cell load).  Propagates to run(), no exception_gas charged.
+                      st1.outOfGasHalt
+                    else
+                      -- TVM behavior: convert VM errors into an exception jump to c2.
+                      let stExc := st1.throwException e.toInt
+                      let stExcGas := stExc.consumeGas exceptionGasPrice
+                      if decide (stExcGas.gas.gasRemaining < 0) then
+                        stExcGas.outOfGasHalt
+                      else
+                        .continue stExcGas
 
 end TvmLean
