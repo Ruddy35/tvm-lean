@@ -3,10 +3,14 @@
 oracle cases. Pure Python (short Weierstrass arithmetic), independent of the model and of the
 libraries C++ uses (libsecp256k1, OpenSSL); deterministic.
 
-Output lines (consumed by Tests/Harness/Gen/Crypto.lean, pasted as constants):
-  ecrecover <name> <hash> <v> <r> <s>          (decimal v; 32-byte hex hash, r, s)
-  tweak     <name> <xonly_key> <tweak>         (32-byte hex)
-  p256      <name> <U|S> <key33> <sig64> <data>  (data: hex, `-` if empty)
+Output lines (consumed by Tests/Harness/Gen/Crypto.lean via gen_lean_vectors.py):
+  ecrecover <name> <hash> <v> <r> <s> <expected>        (decimal v; 32-byte hex hash, r, s)
+  tweak     <name> <xonly_key> <tweak> <expected>       (32-byte hex)
+  p256      <name> <U|S> <key33> <sig64> <data> <0|1>   (data: hex, `-` if empty)
+<expected>: the 65-byte uncompressed public key (04 x y) the operation returns, `-` if it fails
+(ECRECOVER as at global version 13, where v must be 0..3), computed here with the semantics of
+libsecp256k1 (secp256k1_ecdsa_recover, secp256k1_xonly_pubkey_tweak_add) and OpenSSL
+(ECDSA verification of SHA-256(data), any s in [1, n-1]).
 """
 import hashlib
 
@@ -74,6 +78,55 @@ def h32(i, tag):
 
 def hx(n, size=32):
     return int.to_bytes(n, size, "big").hex()
+
+
+def enc65(P):
+    return "-" if P is None else "04" + int.to_bytes(P[0], 32, "big").hex() + int.to_bytes(P[1], 32, "big").hex()
+
+
+def recover(z, v, r, s):
+    """libsecp256k1 recovery (signature[64] = v must be 0..3: crypto/ellcurve/secp256k1.cpp)."""
+    C = SECP
+    if v > 3 or r >= C.n or s >= C.n or r == 0 or s == 0:
+        return None
+    x = r + (C.n if v & 2 else 0)
+    if x >= C.p:
+        return None
+    R = C.lift_x(x, v & 1)
+    if R is None:
+        return None
+    rinv = pow(r, C.n - 2, C.n)
+    return C.add(C.mul(s * rinv % C.n, R), C.mul((-(z % C.n) * rinv) % C.n, C.G))
+
+
+def tweak_add(x, t):
+    """secp256k1_xonly_pubkey_parse + secp256k1_xonly_pubkey_tweak_add."""
+    C = SECP
+    if x >= C.p:
+        return None
+    P = C.lift_x(x, 0)
+    if P is None or t >= C.n:
+        return None
+    return C.add(P, C.mul(t, C.G)) if t else P
+
+
+def p256_verify(key, sig, data):
+    C = P256
+    if key[0] not in (2, 3):
+        return False
+    x = int.from_bytes(key[1:], "big")
+    if x >= C.p:
+        return False
+    Q = C.lift_x(x, key[0] & 1)
+    if Q is None:
+        return False
+    r, s = int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:], "big")
+    if not (0 < r < C.n and 0 < s < C.n):
+        return False
+    z = int.from_bytes(hashlib.sha256(data).digest(), "big")
+    w = pow(s, C.n - 2, C.n)
+    X = C.add(C.mul(z * w % C.n, C.G), C.mul(r * w % C.n, Q))
+    return X is not None and X[0] % C.n == r
 
 
 def main():
@@ -148,7 +201,18 @@ def main():
                 xo += 1
             out.append(f"p256 keyOffCurve {kind} {'02' + hx(xo)} {sig.hex()} {data.hex()}")
             out.append(f"p256 keyXp {kind} {'02' + hx(P256.p)} {sig.hex()} {data.hex()}")
-    print("\n".join(out))
+    final = []
+    for line in out:
+        p = line.split()
+        if p[0] == "ecrecover":
+            exp = enc65(recover(int(p[2], 16), int(p[3]), int(p[4], 16), int(p[5], 16)))
+        elif p[0] == "tweak":
+            exp = enc65(tweak_add(int(p[2], 16), int(p[3], 16)))
+        else:
+            data = b"" if p[5] == "-" else bytes.fromhex(p[5])
+            exp = "1" if p256_verify(bytes.fromhex(p[3]), bytes.fromhex(p[4]), data) else "0"
+        final.append(f"{line} {exp}")
+    print("\n".join(final))
 
 
 if __name__ == "__main__":

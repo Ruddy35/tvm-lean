@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Crypto
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Crypto.BLS_G1_MULTIEXP
 def suite : InstrSuite where
   id := { name := "BLS_G1_MULTIEXP" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Crypto.casesFor "BLS_G1_MULTIEXP"
   fuzz := #[]
 
 initialize registerSuite suite

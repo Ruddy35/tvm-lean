@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Crypto
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Crypto.SECP256K1_XONLY_PUBKEY_TWEAK_ADD
 def suite : InstrSuite where
   id := { name := "SECP256K1_XONLY_PUBKEY_TWEAK_ADD" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Crypto.casesFor "SECP256K1_XONLY_PUBKEY_TWEAK_ADD"
   fuzz := #[]
 
 initialize registerSuite suite

@@ -39,13 +39,16 @@ namespace Tests.Gen.CryptoVectors
     parts.append(table("ed25519", "`(name, kind, key, signature, message, strict equation holds)`; see ed25519_vectors.py",
                        "String × String × String × String × String × Bool",
                        [[q(r[0]), q(r[1]), q(r[2]), q(r[3]), q(r[4]), "true" if r[5] == "1" else "false"] for r in ed]))
-    parts.append(table("ecrecover", "`(name, hash, v, r, s)`", "String × String × Nat × String × String",
-                       [[q(r[1]), q(r[2]), r[3], q(r[4]), q(r[5])] for r in ec if r[0] == "ecrecover"]))
-    parts.append(table("xonlyTweak", "`(name, x-only key, tweak)`", "String × String × String",
-                       [[q(r[1]), q(r[2]), q(r[3])] for r in ec if r[0] == "tweak"]))
-    parts.append(table("p256", "`(name, kind, key (33 bytes), signature (r ‖ s), data)`",
-                       "String × String × String × String × String",
-                       [[q(r[1]), q(r[2]), q(r[3]), q(r[4]), q(r[5])] for r in ec if r[0] == "p256"]))
+    parts.append(table("ecrecover", "`(name, hash, v, r, s, recovered key (04 x y) at version 13 or \"\")`",
+                       "String × String × Nat × String × String × String",
+                       [[q(r[1]), q(r[2]), r[3], q(r[4]), q(r[5]), q(r[6])] for r in ec if r[0] == "ecrecover"]))
+    parts.append(table("xonlyTweak", "`(name, x-only key, tweak, resulting key (04 x y) or \"\")`",
+                       "String × String × String × String",
+                       [[q(r[1]), q(r[2]), q(r[3]), q(r[4])] for r in ec if r[0] == "tweak"]))
+    parts.append(table("p256", "`(name, kind, key (33 bytes), signature (r ‖ s), data, valid)`",
+                       "String × String × String × String × String × Bool",
+                       [[q(r[1]), q(r[2]), q(r[3]), q(r[4]), q(r[5]), "true" if r[6] == "1" else "false"]
+                        for r in ec if r[0] == "p256"]))
     parts.append(table("ristretto", "`(name, encoding, valid)`", "String × String × Bool",
                        [[q(r[0]), q(r[1]), "true" if r[2] == "1" else "false"] for r in ri]))
     for kind, name, doc in [("g1", "blsG1", "compressed G1 points (48 bytes)"),

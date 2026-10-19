@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Crypto
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Crypto.RIST255_QSUB
 def suite : InstrSuite where
   id := { name := "RIST255_QSUB" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Crypto.casesFor "RIST255_QSUB"
   fuzz := #[]
 
 initialize registerSuite suite

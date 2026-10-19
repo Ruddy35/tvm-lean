@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Crypto
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Crypto.ECRECOVER
 def suite : InstrSuite where
   id := { name := "ECRECOVER" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Crypto.casesFor "ECRECOVER"
   fuzz := #[]
 
 initialize registerSuite suite

@@ -50,10 +50,12 @@ def main():
     out.append(f"g1 gen {g1hex(G1)}")
     out.append(f"g1 gen2 {g1hex(multiply(G1, 2))}")
     out.append(f"g1 gen7 {g1hex(multiply(G1, 7))}")
+    out.append(f"g1 genNeg {g1hex(neg(G1))}")
     out.append(f"g1 zero {g1hex(Z1)}")
     out.append(f"g2 gen {g2hex(G2)}")
     out.append(f"g2 gen2 {g2hex(multiply(G2, 2))}")
     out.append(f"g2 gen7 {g2hex(multiply(G2, 7))}")
+    out.append(f"g2 genNeg {g2hex(neg(G2))}")
     out.append(f"g2 zero {g2hex(Z2)}")
     # on the curve, outside the r-subgroup
     x = 1
