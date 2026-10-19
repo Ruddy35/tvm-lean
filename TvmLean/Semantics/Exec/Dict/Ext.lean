@@ -14,9 +14,8 @@ private def pushDictRoot (c? : Option Cell) : VM Unit := do
   | none => VM.push .null
   | some c => VM.push (.cell c)
 
-private def consumeCreatedGas (created : Nat) : VM Unit := do
-  if created > 0 then
-    modify fun st => st.consumeGas (cellCreateGasPrice * Int.ofNat created)
+private def consumeCreatedGas (created : Nat) : VM Unit :=
+  VM.chargeCellCreates created
 
 private def registerLoaded (loaded : Array Cell) : VM Unit := do
   for c in loaded do

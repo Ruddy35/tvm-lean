@@ -75,7 +75,7 @@ def execInstrDictDictGetMinMax (i : Instr) (next : VM Unit) : VM Unit := do
           for c in loaded1 do
             VM.registerCellLoad c
           if created > 0 then
-            VM.consumeGas (cellCreateGasPrice * Int.ofNat created)
+            VM.chargeCellCreates created
 
           if remove then
             match dictOut? with

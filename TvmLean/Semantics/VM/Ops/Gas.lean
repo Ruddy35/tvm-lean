@@ -47,4 +47,12 @@ def VM.consumeGas (amount : Int) : VM Unit := do
   if decide (st.gas.gasRemaining < 0) then
     throw .outOfGas
 
+/-- Charges `n` cell creations one at a time, checking the limit after each: in C++ every
+`CellBuilder::finalize` calls `register_cell_create` (`consume_gas`), which throws as soon as the
+limit is exceeded, so when gas runs out inside an instruction only the creations up to the first
+overrun are counted. -/
+def VM.chargeCellCreates (n : Nat) : VM Unit := do
+  for _ in [0:n] do
+    VM.consumeGas cellCreateGasPrice
+
 end TvmLean
