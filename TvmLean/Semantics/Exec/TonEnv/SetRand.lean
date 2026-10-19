@@ -34,11 +34,12 @@ def execInstrTonEnvSetRand (i : Instr) (next : VM Unit) : VM Unit := do
           let (params', tpay) := tupleExtendSetIndex params 6 (.int (.num newSeed))
           let outerSize := st.regs.c7.size
           let c7' := st.regs.c7.set! 0 (.tuple params')
-          let mut st' := { st with regs := { st.regs with c7 := c7' } }
+          set { st with regs := { st.regs with c7 := c7' } }
+          -- C++ exec_set_rand: consume_tuple_gas(tpay), then consume_tuple_gas(c7), each a
+          -- consume_gas that throws out of gas at once
           if tpay > 0 then
-            st' := st'.consumeTupleGas tpay
-          st' := st'.consumeTupleGas outerSize
-          set st'
+            VM.consumeGas (Int.ofNat tpay * tupleEntryGasPrice)
+          VM.consumeGas (Int.ofNat outerSize * tupleEntryGasPrice)
       | some _ => throw .typeChk
   | _ => next
 
