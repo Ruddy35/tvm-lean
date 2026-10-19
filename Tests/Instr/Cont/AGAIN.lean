@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 import TvmLean.Native.Host.StubHost
@@ -436,7 +437,7 @@ def suite : InstrSuite where
       #[.pushInt (.num againSetGasExact), .tonEnvOp .setGasLimit, againInstr],
     mkCase "gas/exact-minus-one-out-of-gas" #[kCont]
       #[.pushInt (.num againSetGasExactMinusOne), .tonEnvOp .setGasLimit, againInstr]
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "AGAIN"
   fuzz := #[
     { seed := fuzzSeedForInstr againId
       count := 500

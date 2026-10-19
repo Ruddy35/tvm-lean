@@ -11,7 +11,8 @@ Oracle cases for paths of the C++ VM core (`crypto/vm/vm.cpp`) that the full cov
 - `VmState::call`: a call to a continuation with a saved `c0` is a jump; a closure with a captured
   stack or a fixed argument count; an empty captured stack (`BLESSARGS 0,-1`); a shared closure;
   `nargs` above the passed arguments (stk_und);
-- `VmState::adjust_jump_cont`: jumps with an empty captured stack, with `nargs` equal to the depth.
+- `VmState::adjust_jump_cont`: jumps with an empty captured stack, with `nargs` equal to the depth;
+- loops (`continuation.cpp`) whose body has a saved `c0`, an `UNTIL` running its body several times.
 -/
 
 namespace Tests.Gen.VmCore
@@ -101,10 +102,29 @@ private def callCases (suite : String) : Array OracleCase :=
           #[.pushInt (.num 10), cont #[.pushInt (.num 9)], .setContArgs 1 (-1), .push 0, .jmpx] #[iv 1, iv 2] ]
   | _ => #[]
 
+/-- Loops whose body has a saved `c0` (`RepeatCont`, `AgainCont`, `UntilCont::jump_w`, `VmState::until`:
+the loop continuation is not installed, the body returns to its own `c0`), and an `UNTIL` loop that
+runs its body three times (the uniquely held loop continuation, `jump_w`, continuing the loop). -/
+private def loopCases (suite : String) : Array OracleCase :=
+  match suite with
+  | "REPEAT" =>
+      #[progCase suite "body-saved-c0"
+          (#[Instr.pushInt (.num 3)] ++ withSavedC0 #[.pushInt (.num 1)] ++ #[.contExt (.repeat false), .pushInt (.num 5)]) #[],
+        progCase suite "body-3"
+          #[.pushInt (.num 3), cont #[.inc], .contExt (.repeat false), .pushInt (.num 5)] #[iv 0]]
+  | "AGAIN" =>
+      #[progCase suite "body-saved-c0" (withSavedC0 #[.pushInt (.num 1)] ++ #[.contExt (.again false), .pushInt (.num 5)]) #[]]
+  | "UNTIL" =>
+      #[progCase suite "body-3" #[cont #[.dec, .push 0, .eqInt 0], .until, .pushInt (.num 7)] #[iv 3],
+        progCase suite "body-saved-c0"
+          (withSavedC0 #[.pushInt (.num 1), .pushInt (.num 0)] ++ #[.until, .pushInt (.num 7)]) #[]]
+  | _ => #[]
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
   | "COMMIT" => commitCases suite
+  | "REPEAT" | "AGAIN" | "UNTIL" => loopCases suite
   | _ => callCases suite
 
 end Tests.Gen.VmCore

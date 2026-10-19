@@ -79,6 +79,9 @@ private def childCodeInvalid15 : Cell :=
 private def childCodeImplicitJmpRef : Cell :=
   Cell.mkOrdinary #[] #[childCodePush7Ret]
 
+private def childCodePush7RetAlt : Cell :=
+  assembleNoRefCell! "runvm/child/push7-retalt" #[.pushInt (.num 7), .retAlt]
+
 /-- Child code making the exception handler `c2` a closure expecting `nargs` arguments
 (PUSHCONT {NOP}; SETCONTARGS 0,nargs; POPCTR c2), then running `tail`. -/
 private def childCodeArgsHandler (nargs : Nat) (tail : Array Instr) : Cell :=
@@ -400,7 +403,13 @@ private def oracleCases : Array OracleCase :=
        (8, "throw", #[Instr.throw 5]), (8, "stk-und", #[Instr.pop 5])]).map fun (mode, name, tail) =>
       mkRunvmOracleCase s!"err/child-args-handler/mode{mode}/{name}/nargs{nargs}"
         (mkRunvmInit mode #[intV 1, intV 2] (childCodeArgsHandler nargs tail) (gasLimit := 500_000))
-        #[runvmInstr mode])
+        #[runvmInstr mode]) ++
+  -- the child ends with exit code 1 (RETALT): restore_parent_vm treats it as 0 (vm.cpp)
+  #[mkRunvmOracleCase "ok/child-retalt/mode0" (mkRunvmInit 0 #[intV 1] childCodePush7RetAlt) #[runvmInstr 0],
+    mkRunvmOracleCase "ok/child-retalt/mode256-ret1" (mkRunvmInit 256 #[intV 1] childCodePush7RetAlt (retVals := 1))
+      #[runvmInstr 256],
+    mkRunvmOracleCase "err/child-retalt/mode256-ret3" (mkRunvmInit 256 #[intV 1] childCodePush7RetAlt (retVals := 3))
+      #[runvmInstr 256]]
 
 private def pickFromPool {a : Type} [Inhabited a] (pool : Array a) (rng : StdGen) : a × StdGen :=
   let (idx, rng') := randNat rng 0 (pool.size - 1)

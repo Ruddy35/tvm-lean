@@ -183,7 +183,13 @@ def casesFor (suite : String) : Array OracleCase :=
   | "DEBUGSTR" => cross suite
       #[("1byte", dbg (.debugStr (Slice.ofCell (Cell.mkOrdinary (natToBits 0x41 8) #[])))),
         ("16bytes", dbg (.debugStr (Slice.ofCell (Cell.mkOrdinary (natToBits 0x4142434445464748494a4b4c4d4e4f50 128) #[]))))]
-      two
+      two ++
+      -- data shorter than the length in the opcode: OpcodeInstrExt::dispatch charges 10 + 16, then
+      -- exec_dummy_debug_str throws inv_opcode (debugops.cpp)
+      ((#[("len4-8bits", natToBits 0xfef3 16 ++ natToBits 0x41 8), ("len1-none", natToBits 0xfef0 16),
+          ("len16-100bits", natToBits 0xfeff 16 ++ natToBits 5 100)] : Array (String × BitString)).map fun (n, b) =>
+        { name := s!"oracle/raw/truncated/{n}", instr := { name := suite }, codeCell? := some (Cell.mkOrdinary b #[]),
+          initStack := #[iv 1] })
   | _ => #[]
 
 end Tests.Gen.Control

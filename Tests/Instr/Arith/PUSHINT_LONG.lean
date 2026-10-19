@@ -338,6 +338,14 @@ def suite : InstrSuite where
           (runPushLongDispatchFallback (.pushPow2 8) #[]) #[intV 6060] }
   ]
   oracle := #[
+    -- value shorter than 3 + 8 * l bits: OpcodeInstrExt::dispatch charges 10 + 13, then
+    -- exec_push_int throws inv_opcode (arithops.cpp)
+    { name := "/raw/truncated/len0-10bits", instr := pushintLongId,
+      codeCell? := some (Cell.mkOrdinary (natToBits (0x82 <<< 5) 13 ++ natToBits 0x155 10) #[]) },
+    { name := "/raw/truncated/len3-no-value", instr := pushintLongId,
+      codeCell? := some (Cell.mkOrdinary (natToBits ((0x82 <<< 5) + 3) 13) #[]) },
+    { name := "/raw/truncated/len30-200bits", instr := pushintLongId, initStack := #[intV 5],
+      codeCell? := some (Cell.mkOrdinary (natToBits ((0x82 <<< 5) + 30) 13 ++ natToBits 1 200) #[]) },
     mkPushLongCase "ok/long/pos-32768" 32768,
     mkPushLongCase "ok/long/neg-32769" (-32769),
     mkPushLongCase "ok/long/pos-65536" 65536,

@@ -328,6 +328,12 @@ private def oracleCases : Array OracleCase :=
     mkOracleCase "oracle/err/nonquiet/library-miss" xloadCode1 #[.cell specialLibraryRefA],
     mkOracleCase "oracle/ok/nonquiet/library-hit" xloadCode1 #[.cell specialLibraryRefA] #[libCollectionHitA],
     mkOracleCase "oracle/err/nonquiet/library-hash-mismatch" xloadCode1 #[.cell specialLibraryRefA] #[libCollectionMismatchA],
+    -- the collection is not a dictionary (one bit, no label): the lookup fails inside
+    -- lookup_library_in (vm.cpp), which then reports the library as missing
+    mkOracleCase "oracle/err/nonquiet/library-collection-malformed" xloadCode1 #[.cell specialLibraryRefA]
+      #[Cell.mkOrdinary (natToBits 1 1) #[]],
+    mkOracleCase "oracle/err/nonquiet/library-collection-label-overrun" xloadCode1 #[.cell specialLibraryRefA]
+      #[Cell.mkOrdinary (natToBits 0b10 2 ++ natToBits 300 9) #[]],
     mkOracleCase "oracle/err/nonquiet/library-no-ref-value" xloadCode1 #[.cell specialLibraryRefA] #[libCollectionNoRefA]
   ]
 

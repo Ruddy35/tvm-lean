@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 import TvmLean.Native
@@ -344,7 +345,7 @@ def suite : InstrSuite where
       #[.pushInt (.num untilSetGasExact), .tonEnvOp .setGasLimit, untilInstr],
     mkCase "gas/exact-minus-one-out-of-gas" #[q0]
       #[.pushInt (.num untilSetGasExactMinusOne), .tonEnvOp .setGasLimit, untilInstr]
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "UNTIL"
   fuzz := #[
     { seed := fuzzSeedForInstr untilId
       count := 500

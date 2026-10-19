@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 import TvmLean.Native.Host.StubHost
@@ -489,7 +490,7 @@ def suite : InstrSuite where
       #[.pushInt (.num repeatSetGasExact), .tonEnvOp .setGasLimit, repeatInstr],
     mkRepeatCase "gas/exact-minus-one-zero-out-of-gas" (withRepeatArgs #[] (.num 0))
       #[.pushInt (.num repeatSetGasExactMinusOne), .tonEnvOp .setGasLimit, repeatInstr]
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "REPEAT"
   fuzz := #[
     { seed := fuzzSeedForInstr repeatId
       count := 500
