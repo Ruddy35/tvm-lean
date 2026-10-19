@@ -130,8 +130,9 @@ def execInstrTonEnvStdAddr (i : Instr) (next : VM Unit) : VM Unit := do
               throw .cellOv
       | _ =>
           if quiet then
-            -- C++ pushes `as_slice()` result (null) on quiet type mismatch.
-            VM.push .null
+            -- Before TVM 14 C++ pushed `as_slice()` (null) on quiet type mismatch;
+            -- since TVM 14 the original value is pushed back.
+            VM.push (if (← get).globalVersion ≥ 14 then v else .null)
             VM.push (.builder b)
             VM.pushSmallInt (-1)
           else

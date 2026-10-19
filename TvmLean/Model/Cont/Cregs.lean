@@ -53,32 +53,35 @@ end
 
 def OrdCregs.empty : OrdCregs := {}
 
-def OrdCregs.defineFromValue (cregs : OrdCregs) (idx : Nat) (v : Value) : Except Excno OrdCregs := do
+/-- C++ `ControlRegs::define`. With `silentIfSet` (TVM ≥ 14) writing into an already-set slot
+is a silent no-op; before TVM 14 it raised `type_chk`. -/
+def OrdCregs.defineFromValue (cregs : OrdCregs) (idx : Nat) (v : Value) (silentIfSet : Bool := false) :
+    Except Excno OrdCregs := do
   match idx, v with
   | 0, .cont k =>
       match cregs.c0 with
       | none => pure { cregs with c0 := some k }
-      | some _ => throw .typeChk
+      | some _ => if silentIfSet then pure cregs else throw .typeChk
   | 1, .cont k =>
       match cregs.c1 with
       | none => pure { cregs with c1 := some k }
-      | some _ => throw .typeChk
+      | some _ => if silentIfSet then pure cregs else throw .typeChk
   | 2, .cont k =>
       match cregs.c2 with
       | none => pure { cregs with c2 := some k }
-      | some _ => throw .typeChk
+      | some _ => if silentIfSet then pure cregs else throw .typeChk
   | 3, .cont k =>
       match cregs.c3 with
       | none => pure { cregs with c3 := some k }
-      | some _ => throw .typeChk
+      | some _ => if silentIfSet then pure cregs else throw .typeChk
   | 4, .cell c =>
       match cregs.c4 with
       | none => pure { cregs with c4 := some c }
-      | some _ => throw .typeChk
+      | some _ => if silentIfSet then pure cregs else throw .typeChk
   | 5, .cell c =>
       match cregs.c5 with
       | none => pure { cregs with c5 := some c }
-      | some _ => throw .typeChk
+      | some _ => if silentIfSet then pure cregs else throw .typeChk
   | 7, .tuple t =>
       -- `define_c7` in C++ never fails; it just keeps the existing one if present.
       match cregs.c7 with

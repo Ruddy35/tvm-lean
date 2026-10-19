@@ -12,7 +12,10 @@ def execInstrArithLshiftConst (i : Instr) (next : VM Unit) : VM Unit := do
           -- Match C++ `exec_lshift_tinyint8`: invalid integers are shifted via
           -- `AnyIntView::lshift_any`, where small shifts preserve NaN but
           -- shifts by whole words normalize invalid-zero to integer zero.
+          -- Since TVM 14 NaN stays NaN (before, a C++ BigInt quirk turned it into a number).
+          let gv : Nat := (← get).globalVersion
           let invalidCompat : IntVal :=
+            if gv ≥ 14 then .nan else
             if bits = 0 then
               .nan
             else if bits < 64 then

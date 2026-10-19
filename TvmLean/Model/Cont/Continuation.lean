@@ -2,7 +2,7 @@ import TvmLean.Model.Cont.Cdata
 
 namespace TvmLean
 
-partial def Continuation.beq : Continuation → Continuation → Bool
+def Continuation.beq : Continuation → Continuation → Bool
   | .quit x, .quit y => x == y
   | .excQuit, .excQuit => true
   | .ordinary x sx _ _, .ordinary y sy _ _ => x == y && Continuation.beq sx sy
@@ -31,14 +31,15 @@ def Continuation.forceCdata : Continuation → Continuation
   | .envelope ext cregs cdata => .envelope ext cregs cdata
   | k => .envelope k OrdCregs.empty OrdCdata.empty
 
-def Continuation.defineCtr (k : Continuation) (idx : Nat) (v : Value) : Except Excno Continuation := do
+def Continuation.defineCtr (k : Continuation) (idx : Nat) (v : Value) (silentIfSet : Bool := false) :
+    Except Excno Continuation := do
   let k := k.forceCdata
   match k with
   | .ordinary code saved cregs cdata =>
-      let cregs ← cregs.defineFromValue idx v
+      let cregs ← cregs.defineFromValue idx v silentIfSet
       return .ordinary code saved cregs cdata
   | .envelope ext cregs cdata =>
-      let cregs ← cregs.defineFromValue idx v
+      let cregs ← cregs.defineFromValue idx v silentIfSet
       return .envelope ext cregs cdata
   | _ =>
       -- unreachable (forceCdata makes it either .ordinary or .envelope)

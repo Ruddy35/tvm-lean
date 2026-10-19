@@ -31,7 +31,7 @@ def execInstrContChangeExt (i : Instr) (next : VM Unit) : VM Unit := do
             throw .rangeChk
           let cont ← VM.popCont
           let v ← VM.pop
-          match cont.defineCtr idx v with
+          match cont.defineCtr idx v (silentIfSet := (← get).globalVersion ≥ 14) with
           | .ok cont' => VM.push (.cont cont')
           | .error e => throw e
       | .setContCtrMany mask =>
@@ -44,7 +44,7 @@ def execInstrContChangeExt (i : Instr) (next : VM Unit) : VM Unit := do
             if (mask &&& (1 <<< i)) ≠ 0 then
               match st.getCtr i with
               | .ok v =>
-                  match cont'.defineCtr i v with
+                  match cont'.defineCtr i v (silentIfSet := (← get).globalVersion ≥ 14) with
                   | .ok k => cont' := k
                   | .error e => throw e
               | .error e => throw e
@@ -61,7 +61,7 @@ def execInstrContChangeExt (i : Instr) (next : VM Unit) : VM Unit := do
             if (mask &&& (1 <<< i)) ≠ 0 then
               match st.getCtr i with
               | .ok v =>
-                  match cont'.defineCtr i v with
+                  match cont'.defineCtr i v (silentIfSet := (← get).globalVersion ≥ 14) with
                   | .ok k => cont' := k
                   | .error e => throw e
               | .error e => throw e
@@ -70,7 +70,7 @@ def execInstrContChangeExt (i : Instr) (next : VM Unit) : VM Unit := do
           VM.checkUnderflow 1
           let v ← VM.pop
           let st ← get
-          match st.regs.c0.defineCtr idx v with
+          match st.regs.c0.defineCtr idx v (silentIfSet := (← get).globalVersion ≥ 14) with
           | .ok c0' =>
               set { st with regs := { st.regs with c0 := c0' } }
           | .error e => throw e
@@ -78,7 +78,7 @@ def execInstrContChangeExt (i : Instr) (next : VM Unit) : VM Unit := do
           VM.checkUnderflow 1
           let v ← VM.pop
           let st ← get
-          match st.regs.c1.defineCtr idx v with
+          match st.regs.c1.defineCtr idx v (silentIfSet := (← get).globalVersion ≥ 14) with
           | .ok c1' =>
               set { st with regs := { st.regs with c1 := c1' } }
           | .error e => throw e
@@ -115,7 +115,7 @@ def execInstrContChangeExt (i : Instr) (next : VM Unit) : VM Unit := do
             | .ok v => pure v
             | .error .rangeChk => pure .null
             | .error e => throw e
-          match st.regs.c1.defineCtr idx v with
+          match st.regs.c1.defineCtr idx v (silentIfSet := (← get).globalVersion ≥ 14) with
           | .ok c1' => set { st with regs := { st.regs with c1 := c1' } }
           | .error e => throw e
       | .saveBothCtr idx =>

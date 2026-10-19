@@ -25,7 +25,7 @@ def execInstrContSaveCtr (i : Instr) (next : VM Unit) : VM Unit := do
         | 7 => .tuple st.regs.c7
         | _ => .null
       let c0 ←
-        match st.regs.c0.defineCtr idx v with
+        match st.regs.c0.defineCtr idx v (silentIfSet := (← get).globalVersion ≥ 14) with
         | .ok k => pure k
         | .error e => throw e
       set { st with regs := { st.regs with c0 := c0 } }

@@ -12,7 +12,7 @@ def execInstrContSetContCtr (i : Instr) (next : VM Unit) : VM Unit := do
       let cont ← VM.popCont
       let v ← VM.pop
       let cont ←
-        match cont.defineCtr idx v with
+        match cont.defineCtr idx v (silentIfSet := (← get).globalVersion ≥ 14) with
         | .ok k => pure k
         | .error e => throw e
       VM.push (.cont cont)
