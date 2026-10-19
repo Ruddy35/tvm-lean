@@ -119,14 +119,6 @@ def applyCregsCdata (st : VmState) (cregs : OrdCregs) (cdata : OrdCdata) : VmSta
     let newStack := cdata.stack ++ stack1
     ({ st1' with stack := newStack }).consumeStackGas newStack.size
 
-def tryCommit (st : VmState) : Bool × VmState :=
-  let c4Level0 : Bool := LevelMask.getLevel st.regs.c4.levelMask = 0
-  let c5Level0 : Bool := LevelMask.getLevel st.regs.c5.levelMask = 0
-  if st.regs.c4.depthLe st.maxDataDepth && st.regs.c5.depthLe st.maxDataDepth && c4Level0 && c5Level0 then
-    (true, { st with cstate := { c4 := st.regs.c4, c5 := st.regs.c5, committed := true } })
-  else
-    (false, st)
-
 def cp0InvOpcodeGasBitsRunvm (code : Slice) : Nat :=
   -- Mirror the main-step fallback (`cp0InvOpcodeGasBits`) for child VM decode errors.
   -- For dummy invalid-opcode dispatches C++ charges only `gas_per_instr` (no per-bit addend),
@@ -461,7 +453,7 @@ def childRun (host : Host) (fuel : Nat) (st : VmState) : Int × VmState :=
           childRun host fuel st'
       | .halt exitCode st' =>
           if exitCode = -1 ∨ exitCode = -2 then
-            let (ok, st'') := tryCommit st'
+            let (ok, st'') := st'.tryCommit
             if ok then
               (exitCode, st'')
             else

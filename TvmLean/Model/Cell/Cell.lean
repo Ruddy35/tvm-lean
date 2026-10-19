@@ -90,8 +90,10 @@ instance : BEq Cell := ⟨Cell.beq⟩
 def Cell.ofUInt (bits : Nat) (n : Nat) : Cell :=
   Cell.mkOrdinary (natToBits n bits) #[]
 
+/-- The depth of `c` (C++ `get_depth()`, at the maximum level: one more than the deepest reference)
+is at most `limit`; references below `limit` are not visited. -/
 def Cell.depthLe (c : Cell) : Nat → Bool
-  | 0 => false
+  | 0 => c.refs.isEmpty
   | limit + 1 =>
       c.refs.all (fun r => r.depthLe limit)
 

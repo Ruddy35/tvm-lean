@@ -2,13 +2,6 @@ import TvmLean.Semantics.Step.Step
 
 namespace TvmLean
 
-def VmState.tryCommit (st : VmState) : Bool × VmState :=
-  -- C++ also checks `level == 0`; our MVP has only ordinary cells (level 0).
-  if st.regs.c4.depthLe st.maxDataDepth && st.regs.c5.depthLe st.maxDataDepth then
-    (true, { st with cstate := { c4 := st.regs.c4, c5 := st.regs.c5, committed := true } })
-  else
-    (false, st)
-
 def VmState.run (host : Host) (fuel : Nat) (st : VmState) : StepResult :=
   match fuel with
   | 0 => .halt (Excno.fatal.toInt) st
@@ -16,7 +9,7 @@ def VmState.run (host : Host) (fuel : Nat) (st : VmState) : StepResult :=
       match st.step host with
       | .continue st' => VmState.run host fuel st'
       | .halt exitCode st' =>
-          -- Mirror the C++ commit wrapper shape; precise commit checks come later.
+          -- C++ `run_inner`: after exit code 0 or 1 (`(res | 1) == -1`), `try_commit`.
           if exitCode = -1 ∨ exitCode = -2 then
             let (ok, st'') := st'.tryCommit
             if ok then

@@ -25,6 +25,15 @@ def VmState.excHandlerNeedsMoreArgs (st : VmState) : Bool :=
   | .ordinary _ _ _ cdata | .envelope _ _ cdata => decide (2 < cdata.nargs)
   | _ => false
 
+/-- C++ `VmState::try_commit` (vm.cpp): c4 and c5 become the committed state only if both are at
+most `max_data_depth` (512) deep and of level 0. -/
+def VmState.tryCommit (st : VmState) : Bool × VmState :=
+  if st.regs.c4.depthLe st.maxDataDepth && st.regs.c5.depthLe st.maxDataDepth &&
+      LevelMask.getLevel st.regs.c4.levelMask == 0 && LevelMask.getLevel st.regs.c5.levelMask == 0 then
+    (true, { st with cstate := { c4 := st.regs.c4, c5 := st.regs.c5, committed := true } })
+  else
+    (false, st)
+
 def VmState.ret (st : VmState) : VmState :=
   -- Mirrors C++ `VmState::ret()` as a jump to old `c0` after swapping `c0 := quit0`.
   let cont := st.regs.c0

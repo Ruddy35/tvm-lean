@@ -1456,7 +1456,7 @@ def runLean (code : Cell) (initStack : Array Value) (fuel : Nat := 2_000_000) : 
     | .continue st' =>
         .halt (Excno.fatal.toInt) st'
     | .halt exitCode st' =>
-        -- Mirror the C++ commit wrapper shape; precise commit checks come later.
+        -- C++ `run_inner`: after exit code 0 or 1 (`(res | 1) == -1`), `try_commit`.
         if exitCode = -1 ∨ exitCode = -2 then
           let (ok, st'') := st'.tryCommit
           if ok then
