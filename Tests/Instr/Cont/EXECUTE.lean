@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 
@@ -417,7 +418,7 @@ def suite : InstrSuite where
           throw (IO.userError
             s!"err/type-top-cell-over-cont: expected remaining #[K], got {reprStr stTypeDeep.stack}") }
   ]
-  oracle := oracleCases
+  oracle := oracleCases ++ Tests.Gen.VmCore.casesFor "EXECUTE"
   fuzz := #[
     { seed := fuzzSeedForInstr executeId
       count := 500

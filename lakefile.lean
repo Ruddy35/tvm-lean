@@ -83,7 +83,8 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Gen.Control,
     `Tests.Harness.Gen.Msg,
     `Tests.Harness.Gen.CryptoVectors,
-    `Tests.Harness.Gen.Crypto
+    `Tests.Harness.Gen.Crypto,
+    `Tests.Harness.Gen.VmCore
   ]
 
 target tvmlean_hash.o pkg : FilePath := do

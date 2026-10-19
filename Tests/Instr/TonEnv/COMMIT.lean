@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.TonEnv
 import TvmLean.Spec.Index
 
@@ -10,7 +11,7 @@ namespace Tests.Instr.TonEnv.COMMIT
 def suite : InstrSuite where
   id := { name := "COMMIT" }
   unit := #[]
-  oracle := Tests.Gen.TonEnv.casesFor "COMMIT"
+  oracle := Tests.Gen.TonEnv.casesFor "COMMIT" ++ Tests.Gen.VmCore.casesFor "COMMIT"
   fuzz := #[]
 
 initialize registerSuite suite
