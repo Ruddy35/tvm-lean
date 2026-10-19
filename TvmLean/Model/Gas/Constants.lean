@@ -17,6 +17,10 @@ def hashExtEntryGasPrice : Int := 1
 def runvmGasPrice : Int := 40
 def chksgnFreeCount : Nat := 10
 def chksgnGasPrice : Int := 4000
+/-- C++ `VmState::get_extra_balance_cheap_count`: GETEXTRABALANCE calls with capped cell-load gas. -/
+def getExtraBalanceCheapCount : Nat := 5
+/-- C++ `VmState::get_extra_balance_cheap_max_gas_price`: the cap of one cheap call. -/
+def getExtraBalanceCheapMaxGasPrice : Int := 200
 def p256ChksgnGasPrice : Int := 3500
 def ecrecoverGasPrice : Int := 1500
 def secp256k1XonlyPubkeyTweakAddGasPrice : Int := 1250
