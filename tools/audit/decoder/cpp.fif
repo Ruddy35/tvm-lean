@@ -1,0 +1,14 @@
+// Decoder audit: the C++ side (dispatch table of codepage 0 via the fift builtins
+// (vmoplen) and (vmopdump), the same ones Disasm.fif uses).
+// usage: fift -s cpp.fif <len|name> <tail0|tail1> <lo> <hi>
+// The slice is v (24 bits) ++ tail (480 bits) ++ 4 empty refs, as in Apps/AuditDecoder.lean.
+$1 =: mode   $2 "tail1" $= =: t1   $3 (number) drop =: lo   $4 (number) drop =: hi
+{ <b swap 24 u, t1 { -1 } { 0 } cond 480 i, <b b> ref, <b b> ref, <b b> ref, <b b> ref, b> <s } : mk
+{ mk 0 (vmoplen) dup 0> { } { drop 0 } cond } : len
+mode "len" $= {
+  lo hi lo - { dup len . cr 1+ } swap times drop
+} {
+  lo hi lo - { dup 256 mod 0= {
+      dup . dup mk dup 0 (vmoplen) dup 0> { dup . 65536 /mod swap sr@+ drop 0 (vmopdump) type drop } { 2drop ."0 INVALID" } cond cr
+    } if 1+ } swap times drop
+} cond

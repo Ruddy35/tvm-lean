@@ -129,6 +129,9 @@ lean_exe "tvm-lean-tests-subset" where
 lean_exe "tvm-lean-diff-test" where
   root := `Apps.DiffTest
 
+lean_exe "tvm-lean-audit-decoder" where
+  root := `Apps.AuditDecoder
+
 lean_exe "tvm-lean-actions-debug" where
   root := `Apps.ActionsDebug
 
