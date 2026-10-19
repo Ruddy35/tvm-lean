@@ -10,7 +10,7 @@ with `decodeCp0WithBits`, exactly as `tools/audit/decoder/cpp.fif` asks the C++ 
     tvm-lean-audit-decoder len  <tail0|tail1> <lo> <hi>   one line per v: bits + 65536*refs, 0 if invalid
     tvm-lean-audit-decoder name <tail0|tail1> <lo> <hi>   one line per v with v % 256 = 0: v, length, instruction
     tvm-lean-audit-decoder reasm <tail0|tail1> <lo> <hi>  for v % 256 = 0: a fift script that makes C++ print the
-                                                         model's re-encoding (encodeCp0) of the decoded instruction
+                                                         model's re-encoding (encodeCp0Code) of the decoded instruction
 -/
 
 open TvmLean
@@ -37,8 +37,8 @@ def main (args : List String) : IO UInt32 := do
           if v % 256 == 0 then
             match lenCode (mkSlice v tailBit) with
             | .ok (i, _) =>
-                match encodeCp0 i with
-                | .ok bs =>
+                match encodeCp0Code i with
+                | .ok (bs, _) =>
                     let bits := String.mk (bs.toList.map (fun b => if b then '1' else '0'))
                     buf := buf ++ s!"{v} b\{{bits}} rd\n"
                 | .error _ => buf := buf ++ s!"{v} noenc\n"

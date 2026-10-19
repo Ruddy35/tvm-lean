@@ -1792,6 +1792,94 @@ def encodeCp0 (i : Instr) : Except Excno BitString := do
       let w16 : Nat := base + (if unsigned then 1 else 0) + (if doCall then 2 else 0)
       return natToBits w16 16
 
+/-- Remaining bits and references of a slice. -/
+private def sliceBitsRefs (s : Slice) : BitString × Array Cell :=
+  (s.readBits s.bitsRemaining, s.cell.refs.extract s.refPos s.cell.refs.size)
+
+/-- The cell a ref operand stands for: the slice's own cell when it is the whole cell, otherwise a
+cell with its remaining bits and references. -/
+private def sliceRefCell (s : Slice) : Cell :=
+  if s.bitPos = 0 ∧ s.refPos = 0 ∧ s.bitsRemaining = s.cell.bits.size then s.cell
+  else
+    let (b, r) := sliceBitsRefs s
+    Cell.mkOrdinary b r
+
+/-- Inline data of `dataBits` bits: `b`, the completion tag `1`, zeros (inverse of
+`bitsStripTrailingMarker`). Requires `b.size < dataBits`. -/
+private def withMarker (b : BitString) (dataBits : Nat) : BitString :=
+  b ++ #[true] ++ Array.replicate (dataBits - b.size - 1) false
+
+/-- Smallest `x` with `8 * x + c ≥ n` (data field length in bytes for `n` bits including the tag). -/
+private def bytesFor (n c : Nat) : Nat :=
+  if n ≤ c then 0 else (n - c + 7) / 8
+
+/-- cp0 encoding of one instruction as code: opcode bits, inline data, and the instruction's own
+reference cells. The inverse of `decodeCp0WithBits` for the instructions with refs or inline data
+(PUSHSLICE 8B/8C/8D, PUSHCONT 9x/8E-8F, STSLICECONST, SDBEGINS{Q}, PUSHREF{SLICE,CONT},
+IF{NOT}{JMP}REF, IFREFELSE{REF}, IFELSEREF, CALLREF, JMPREF{DATA}, IF{N}BITJMPREF, STREF{2}CONST,
+DICTPUSHCONST, PFXDICTSWITCH); every other instruction is `encodeCp0` with no references. -/
+def encodeCp0Code (i : Instr) : Except Excno (BitString × Array Cell) := do
+  let ref1 (op bits : Nat) (c : Cell) : Except Excno (BitString × Array Cell) :=
+    pure (natToBits op bits, #[c])
+  match i with
+  | .pushSliceConst s =>
+      let (b, r) := sliceBitsRefs s
+      if r.size = 0 ∧ b.size + 1 ≤ 8 * 15 + 4 then
+        let l := bytesFor (b.size + 1) 4
+        return (natToBits 0x8b 8 ++ natToBits l 4 ++ withMarker b (8 * l + 4), #[])
+      if 1 ≤ r.size ∧ r.size ≤ 4 ∧ b.size + 1 ≤ 8 * 31 + 1 then
+        let x := bytesFor (b.size + 1) 1
+        return (natToBits 0x8c 8 ++ natToBits (r.size - 1) 2 ++ natToBits x 5 ++ withMarker b (8 * x + 1), r)
+      if r.size ≤ 4 ∧ b.size + 1 ≤ 8 * 127 + 6 then
+        let x := bytesFor (b.size + 1) 6
+        return (natToBits 0x8d 8 ++ natToBits r.size 3 ++ natToBits x 7 ++ withMarker b (8 * x + 6), r)
+      throw .rangeChk
+  | .pushCont code =>
+      let (b, r) := sliceBitsRefs code
+      if b.size % 8 ≠ 0 then throw .rangeChk
+      if r.size = 0 ∧ b.size / 8 ≤ 15 then
+        return (natToBits 0x9 4 ++ natToBits (b.size / 8) 4 ++ b, #[])
+      if r.size ≤ 3 ∧ b.size / 8 ≤ 127 then
+        return (natToBits 0x47 7 ++ natToBits r.size 2 ++ natToBits (b.size / 8) 7 ++ b, r)
+      throw .rangeChk
+  | .stSliceConst s =>
+      let (b, r) := sliceBitsRefs s
+      if r.size ≤ 3 ∧ b.size + 1 ≤ 8 * 7 + 2 then
+        let x := bytesFor (b.size + 1) 2
+        return (natToBits (0xcf80 >>> 7) 9 ++ natToBits r.size 2 ++ natToBits x 3 ++ withMarker b (8 * x + 2), r)
+      throw .rangeChk
+  | .sdBeginsConst quiet pref =>
+      let (b, r) := sliceBitsRefs pref
+      if r.size = 0 ∧ b.size + 1 ≤ 8 * 127 + 3 then
+        let x := bytesFor (b.size + 1) 3
+        return (natToBits (0xd728 >>> 3) 13 ++ natToBits ((if quiet then 0x80 else 0) + x) 8 ++
+          withMarker b (8 * x + 3), #[])
+      throw .rangeChk
+  | .pushRef c => ref1 0x88 8 c
+  | .pushRefSlice c => ref1 0x89 8 c
+  | .pushRefCont c => ref1 0x8a 8 c
+  | .ifref code => ref1 0xe300 16 (sliceRefCell code)
+  | .ifnotref code => ref1 0xe301 16 (sliceRefCell code)
+  | .ifjmpref code => ref1 0xe302 16 (sliceRefCell code)
+  | .ifnotjmpref code => ref1 0xe303 16 (sliceRefCell code)
+  | .ifrefElse code => ref1 0xe30d 16 (sliceRefCell code)
+  | .ifelseRef code => ref1 0xe30e 16 (sliceRefCell code)
+  | .ifrefElseRef t f => return (natToBits 0xe30f 16, #[sliceRefCell t, sliceRefCell f])
+  | .callRef code => ref1 0xdb3c 16 (sliceRefCell code)
+  | .jmpRef code => ref1 0xdb3d 16 (sliceRefCell code)
+  | .jmpRefData code => ref1 0xdb3e 16 (sliceRefCell code)
+  | .contExt (.ifbitjmpref n code) =>
+      if n < 32 then ref1 (0xe3c0 + n) 16 (sliceRefCell code) else throw .rangeChk
+  | .contExt (.ifnbitjmpref n code) =>
+      if n < 32 then ref1 (0xe3e0 + n) 16 (sliceRefCell code) else throw .rangeChk
+  | .cellExt (.stRefConst c) => ref1 0xcf20 16 c
+  | .cellExt (.stRef2Const c1 c2) => return (natToBits 0xcf21 16, #[c1, c2])
+  | .dictPushConst dict n =>
+      if n < 1024 then return (natToBits 0x3d29 14 ++ natToBits n 10, #[dict]) else throw .rangeChk
+  | .dictExt (.pfxSwitch dict n) =>
+      if n < 1024 then return (natToBits 0x3d2b 14 ++ natToBits n 10, #[dict]) else throw .rangeChk
+  | _ => return (← encodeCp0 i, #[])
+
 def assembleCp0 (code : List Instr) : Except Excno Cell := do
   let mut bits : BitString := #[]
   for i in code do
