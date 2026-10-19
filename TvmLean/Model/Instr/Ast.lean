@@ -233,7 +233,6 @@ inductive DebugInstr : Type
   | debug1 (t : Nat)   -- DEBUG_1 <t> (0x15..0x1f)
   | debug2 (t : Nat)   -- DEBUG_2 <t> (0x30..0xef)
   | debugStr (s : Slice) -- DEBUGSTR <s> (inline bytes)
-  | extCall (id : Nat) -- EXTCALL <id>
   deriving Repr
 
 inductive ContExtInstr : Type
@@ -303,6 +302,11 @@ inductive ArithExtInstr : Type
   | qeqInt (n : Int) -- QEQINT <tinyint8>
   | qneqInt (n : Int) -- QNEQINT <tinyint8>
   | qgtInt (n : Int) -- QGTINT <tinyint8>
+  /-- A division-family entry of the C++ dispatch table whose argument is rejected only when it is
+  executed: `opcode` (`len` bits) decodes, charges the instruction's gas, then raises `inv_opcode`
+  (C++ `exec_divmod`, `exec_shrmod`, `exec_muldivmod`, `exec_mulshrmod`, `exec_shldivmod` with
+  rounding mode 3). -/
+  | invalidArgs (opcode len : Nat)
   | fitsConst (unsigned : Bool) (quiet : Bool) (bits : Nat) -- {Q}{U}FITS <tinyint8+1>
   | lshiftVar (quiet : Bool) -- QLSHIFT_VAR
   | rshiftVar (quiet : Bool) -- QRSHIFT_VAR
@@ -725,7 +729,6 @@ def DebugInstr.pretty : DebugInstr → String
   | .debug1 t => s!"DEBUG_1 {t}"
   | .debug2 t => s!"DEBUG_2 {t}"
   | .debugStr s => s!"DEBUGSTR(bytes={s.bitsRemaining / 8})"
-  | .extCall id => s!"EXTCALL {id}"
 
 def TupleInstr.pretty : TupleInstr → String
   | .mktuple n => s!"TUPLE {n}"
@@ -833,6 +836,7 @@ def ArithExtInstr.pretty : ArithExtInstr → String
   | .qeqInt n => s!"QEQINT {n}"
   | .qneqInt n => s!"QNEQINT {n}"
   | .qgtInt n => s!"QGTINT {n}"
+  | .invalidArgs _ _ => ""  -- C++ prints nothing for these (`dump_divmod` & co. return "")
   | .fitsConst unsigned quiet bits =>
       let u := if unsigned then "U" else ""
       let q := if quiet then "Q" else ""

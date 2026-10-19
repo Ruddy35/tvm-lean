@@ -24,9 +24,6 @@ def execInstrDebug (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
           pure ()
       | .debugStr _ =>
           pure ()
-      | .extCall _ =>
-          -- Not supported by TON `runvmx` (treated as invalid opcode).
-          throw .invOpcode
   | _ => next
 
 end TvmLean

@@ -282,6 +282,8 @@ def encodeArithExtInstr (op : ArithExtInstr) : Except Excno BitString := do
         return natToBits 0xb7c3 16 ++ natToBits imm 8
       else
         throw .rangeChk
+  | .invalidArgs opcode len =>
+      return natToBits opcode len
   | .qgtInt n =>
       if decide (-128 ≤ n ∧ n ≤ 127) then
         let imm : Nat := if n ≥ 0 then n.toNat else (256 - (-n).toNat)
@@ -599,11 +601,6 @@ def encodeDebugInstr (op : DebugInstr) : Except Excno BitString := do
       let bits4 : Nat := lenBytes - 1
       let header : Nat := 0xfef0 + bits4
       return natToBits header 16 ++ s.readBits dataBits
-  | .extCall id =>
-      if id ≤ 1_000_000 ∧ id < (1 <<< 32) then
-        return natToBits 0xfc00 16 ++ natToBits id 32
-      else
-        throw .rangeChk
 
 def encodeCp0 (i : Instr) : Except Excno BitString := do
   match i with

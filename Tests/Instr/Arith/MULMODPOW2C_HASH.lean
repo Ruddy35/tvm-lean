@@ -461,8 +461,12 @@ def suite : InstrSuite where
           (Slice.ofCell (mkMulHashRawCell 0x1 0))
           (.arithExt (.shrMod true true 3 0 false (some 1)))
           24
-        expectDecodeErr "/unit/decode/invalid-roundmode-two"
-          (Slice.ofCell (mkMulHashRawCell 0xb 0)) .invOpcode }
+        -- C++ registers 0xa9b with a 12-bit argument (mkfixed): rounding mode 3 decodes as a
+        -- 24-bit instruction and raises inv_opcode only when executed (exec_mulshrmod).
+        let _ ← expectDecodeStep "/unit/decode/invalid-roundmode-two"
+          (Slice.ofCell (mkMulHashRawCell 0xb 0))
+          (.arithExt (.invalidArgs 0xa9bb00 24))
+          24 }
     ,
     { name := "/unit/error/invalid-d-dispatch-and-fallback"
       run := do

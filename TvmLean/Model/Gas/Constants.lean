@@ -58,12 +58,9 @@ def blsPairingBaseGasPrice : Int := 20000
 def blsPairingElementGasPrice : Int := 11800
 
 def instrGas (i : Instr) (totBits : Nat) : Int :=
-  -- TON charges invalid opcodes (dummy dispatch) as `gas_per_instr` without per-bit cost.
-  -- In `runvmx`, EXTCALL falls into this bucket.
-  match i with
-  | .debugOp (.extCall _) =>
-      gasPerInstr
-  | _ => gasPerInstr + Int.ofNat totBits
+  -- C++ OpcodeInstr{Simple,Fixed,Ext}::dispatch: gas_per_instr + bits * gas_per_bit.
+  let _ := i
+  gasPerInstr + Int.ofNat totBits
 
 /-! ### Minimal cp0 decoding (Milestone 2) -/
 

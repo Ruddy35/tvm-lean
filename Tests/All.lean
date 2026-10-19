@@ -600,7 +600,6 @@ import Tests.Instr.Debug.DEBUG_1
 import Tests.Instr.Debug.DEBUG_2
 import Tests.Instr.Debug.DUMP
 import Tests.Instr.Debug.DUMPSTK
-import Tests.Instr.Debug.EXTCALL
 import Tests.Instr.Debug.STRDUMP
 import Tests.Instr.Dict.DICTADD
 import Tests.Instr.Dict.DICTADDB
@@ -1526,7 +1525,6 @@ def allInstrSuites : Array InstrSuite :=
     Tests.Instr.Debug.DEBUG_2.suite,
     Tests.Instr.Debug.DUMP.suite,
     Tests.Instr.Debug.DUMPSTK.suite,
-    Tests.Instr.Debug.EXTCALL.suite,
     Tests.Instr.Debug.STRDUMP.suite,
     Tests.Instr.Dict.DICTADD.suite,
     Tests.Instr.Dict.DICTADDB.suite,

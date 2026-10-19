@@ -89,6 +89,10 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .arithExt op =>
       match op with
+      | .invalidArgs _ _ =>
+          -- rounding mode 3 in a division family: C++ charges the instruction's gas
+          -- (OpcodeInstrFixed::dispatch), then exec_* raises inv_opcode
+          throw .invOpcode
       | .qaddInt n =>
           let x ← VM.popInt
           match x with

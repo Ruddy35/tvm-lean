@@ -52,6 +52,24 @@ def bitsToIntSignedTwos (bs : BitString) : Int :=
 set_option maxHeartbeats 1000000 in
 set_option maxRecDepth 2048 in
 def decodeCp0WithBits (s : Slice) : Except Excno (Instr × Nat × Slice) := do
+  -- Division families registered in C++ for every argument value (`mkfixed`): rounding mode 3
+  -- (two low argument bits set) decodes, and is rejected only by `exec_divmod`, `exec_shrmod`,
+  -- `exec_muldivmod`, `exec_mulshrmod`, `exec_shldivmod` (`round_mode == 2` → `inv_opcode`),
+  -- after the instruction's gas is charged (crypto/vm/arithops.cpp, opctable.cpp at ton 3d478cb).
+  if s.haveBits 16 then
+    let w16 := bitsToNat (s.readBits 16)
+    let p12 := w16 >>> 4
+    if (p12 = 0xa90 ∨ p12 = 0xa92 ∨ p12 = 0xa98 ∨ p12 = 0xa9a ∨ p12 = 0xa9c) ∧ w16 &&& 3 = 3 then
+      let (_, s16) ← s.takeBitsAsNat 16
+      return (.arithExt (.invalidArgs w16 16), 16, s16)
+  if s.haveBits 24 then
+    let w24 := bitsToNat (s.readBits 24)
+    let p12 := w24 >>> 12
+    let p20 := w24 >>> 4
+    if ((p12 = 0xa93 ∨ p12 = 0xa9b ∨ p12 = 0xa9d) ∧ (w24 >>> 8) &&& 3 = 3) ∨
+        ((p20 = 0xb7a90 ∨ p20 = 0xb7a92 ∨ p20 = 0xb7a98 ∨ p20 = 0xb7a9a ∨ p20 = 0xb7a9c) ∧ w24 &&& 3 = 3) then
+      let (_, s24) ← s.takeBitsAsNat 24
+      return (.arithExt (.invalidArgs w24 24), 24, s24)
   -- PUSHINT (tinyint4): 4-bit prefix 0x7, 4-bit immediate.
   let p4 ← s.peekBitsAsNat 4
   if p4 = 0x7 then
@@ -742,7 +760,8 @@ def decodeCp0WithBits (s : Slice) : Except Excno (Instr × Nat × Slice) := do
     -- THROW{ARG}ANY{IF,IFNOT}: 0xf2f0..0xf2f6 (16-bit, 3-bit args).
     if w16 &&& 0xfff8 = 0xf2f0 then
       let args3 : Nat := w16 &&& 0x7
-      if args3 ≤ 6 then
+      -- C++ registers mkfixedrange(0xf2f0, 0xf2f6, ...): the upper bound is excluded.
+      if args3 ≤ 5 then
         let hasParam : Bool := (args3 &&& 1) = 1
         let hasCond : Bool := (args3 &&& 6) ≠ 0
         let throwCond : Bool := (args3 &&& 2) = 2
@@ -2475,15 +2494,7 @@ def decodeCp0WithBits (s : Slice) : Except Excno (Instr × Nat × Slice) := do
     let (_, s') ← s.takeBitsAsNat 8
     return (.contExt (.againEnd false), 8, s')
 
-  -- Debug / FFI opcodes.
-  -- EXTCALL: 0xfc00 (16) + id (32).
-  if s.haveBits 48 then
-    let w16 := bitsToNat (s.readBits 16)
-    if w16 = 0xfc00 then
-      let (_, s16) ← s.takeBitsAsNat 16
-      let (id, rest) ← s16.takeBitsAsNat 32
-      return (.debugOp (.extCall id), 48, rest)
-
+  -- Debug opcodes.
   -- Debug family: 0xfe**.
   if s.haveBits 16 then
     let w16 := bitsToNat (s.readBits 16)
