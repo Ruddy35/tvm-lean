@@ -20,7 +20,9 @@ run() { # category version
     for s in $SUITES; do TVMLEAN_GLOBAL_VERSION=$2 $T --$1-only --no-progress --filter "$s"; done \
       > "$OUT/$1-v$2.log" 2>&1
   fi
-  echo "$1 v$2: $(tail -n 1 "$OUT/$1-v$2.log")" >> "$SUM"
+  echo "$1 v$2: $(awk '/^suites=/ { for (i = 1; i <= NF; i++) { split($i, a, "="); s[a[1]] += a[2] } }
+    END { printf "suites=%d oracle=%d fuzz=%d failures=%d", s["suites"], s["oracle"], s["fuzz"], s["failures"] }' \
+    "$OUT/$1-v$2.log")" >> "$SUM"
 }
 for gv in 13 16; do run oracle $gv & run fuzz $gv & done
 wait
