@@ -204,7 +204,7 @@ private def randomKeyInRange (n : Nat) (rng0 : StdGen) : Int × StdGen :=
     else if mode = 4 then
       (lo / 2, rng1)
     else if mode = 5 then
-      (1, rng1)
+      (min 1 hi, rng1)  -- 1-bit signed keys are -1 and 0
     else
       (-1, rng1)
 
