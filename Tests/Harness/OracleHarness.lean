@@ -166,6 +166,15 @@ def runOracleCase (c : OracleCase) : IO OracleRunResult := do
     | .ok toks => pure toks
     | .error e =>
         return { caseName := c.name, instr := c.instr, ok := false, error? := some e }
+  -- a case's own c7 is passed after the stack: its tokens, then SETC7 (fift uses it instead of default-c7)
+  let stackTokens ←
+    if c.initC7.isEmpty then
+      pure stackTokens
+    else
+      match valueToTokens (.tuple c.initC7) with
+      | .ok toks => pure (stackTokens ++ toks ++ ["SETC7"])
+      | .error e =>
+          return { caseName := c.name, instr := c.instr, ok := false, error? := some e }
 
   let leanCase : OracleCase := { c with initStack := initStack }
   let leanCanon ←
