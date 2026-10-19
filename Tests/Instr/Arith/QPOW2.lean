@@ -27,13 +27,14 @@ Branch counts used for this suite:
    NaN/negative/over-max range gates; quiet `pushIntQuiet` fit-vs-overflow).
 - C++: 6 branch points / 8 aligned terminal outcomes
   (`QPOW2` opcode wiring to `exec_pow2(..., quiet=true)`;
-   `check_underflow`; `pop_int` type check; `pop_smallint_range(0..1023)` range gate;
+   `check_underflow`; `pop_long` (NaN and non-64-bit integers become `LLONG_MIN`); the range gate
+   `0..1023` throws `rangeChk` only before TVM 13, since TVM 13 the quiet form pushes NaN;
    `set_pow2` magnitude path; `push_int_quiet` fit-vs-quiet-NaN behavior).
 
 Key risk areas covered:
 - quiet overflow split: `256..1023` must succeed and push NaN (not `intOv`);
 - range/type/underflow ordering (`stkUnd` → `typeChk`/`rangeChk` as applicable);
-- range gate precedence over quiet overflow (`1024` => `rangeChk`, `256` => NaN);
+- out-of-range argument (`-1`, `1024`, NaN) => NaN since TVM 13; quiet overflow (`256`) => NaN;
 - top-of-stack operand consumption with below-stack preservation;
 - exact gas cliff for `PUSHINT n; SETGASLIMIT; QPOW2`.
 -/
@@ -177,16 +178,17 @@ def suite : InstrSuite where
     ,
     { name := "unit/range-type-underflow-errors"
       run := do
-        expectErr "range/negative" (runQpow2Direct #[intV (-1)]) .rangeChk
-        expectErr "range/overmax" (runQpow2Direct #[intV 1024]) .rangeChk
-        expectErr "range/nan" (runQpow2Direct #[.int .nan]) .rangeChk
+        -- Since TVM 13 the quiet form pushes NaN for an argument outside 0..1023 (C++ exec_pow2).
+        expectOkStack "range/negative" (runQpow2Direct #[intV (-1)]) #[.int .nan]
+        expectOkStack "range/overmax" (runQpow2Direct #[intV 1024]) #[.int .nan]
+        expectOkStack "range/nan" (runQpow2Direct #[.int .nan]) #[.int .nan]
         expectErr "type/null" (runQpow2Direct #[.null]) .typeChk
         expectErr "type/cell" (runQpow2Direct #[.cell Cell.empty]) .typeChk
         expectErr "underflow/empty" (runQpow2Direct #[]) .stkUnd }
     ,
     { name := "unit/error-order-and-top-order"
       run := do
-        expectErr "range-before-overflow" (runQpow2Direct #[intV 1024]) .rangeChk
+        expectOkStack "range-before-overflow" (runQpow2Direct #[intV 1024]) #[.int .nan]
         expectOkStack "overflow-after-range-pass"
           (runQpow2Direct #[intV 256]) #[.int .nan]
         expectErr "type-before-range" (runQpow2Direct #[.null]) .typeChk
