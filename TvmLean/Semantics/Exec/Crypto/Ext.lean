@@ -41,11 +41,8 @@ def popNatInRange (min max : Nat) : VM Nat := do
       return u
 
 def blsMultiexpL (n : Nat) : Nat :=
-  Id.run do
-    let mut l : Nat := 4
-    while (1 <<< (l + 1)) ≤ n do
-      l := l + 1
-    return l
+  -- `2^(l+1) ≤ n` implies `l < n`, so bounding the counter by `n` does not change the result.
+  countWhile n (fun l => decide ((1 <<< (l + 1)) ≤ n)) 4
 
 def blsCalculateMultiexpGas (n : Nat) (base coef1 coef2 : Int) : Int :=
   let l : Nat := blsMultiexpL n
@@ -81,6 +78,8 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             | .ok bs => pure bs
             | .error e => throw e
 
+          -- TVM 14 accepts Ethereum legacy recovery ids v = 27/28 (mapped to 0/1)
+          let v : Nat := if ((← get).globalVersion ≥ 14) && (v == 27 || v == 28) then v - 27 else v
           let sig : Array UInt8 := rBytes ++ sBytes ++ #[UInt8.ofNat v]
           modify fun st => st.consumeGas ecrecoverGasPrice
 
@@ -281,72 +280,109 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let x ← VM.popInt
           let n := intValMod n0 rist255L
           modify fun st => st.consumeGas rist255MulGasPrice
-          match n with
-          | .num 0 =>
+          -- C++ exec_ristretto255_mul, including the TVM 14 changes (NaN operands rejected,
+          -- `x = 0` gives 0, the point is validated on the `n % l = 0` fast path).
+          let v14 : Bool := (← get).globalVersion ≥ 14
+          let anyNan : Bool := match n, x with | .num _, .num _ => false | _, _ => true
+          let nZero : Bool := match n with | .num 0 => true | _ => false
+          let xZero : Bool := match x with | .num 0 => true | _ => false
+          if v14 && anyNan then
+            throw .rangeChk
+          else if nZero || (v14 && xZero) then
+            let invalidPoint : Bool :=
+              !xZero && (match exportUInt256BE? x with
+                | some xb => !host.rist255IsValidPoint (ByteArray.mk xb)
+                | none => true)
+            if v14 && invalidPoint then
+              throw .rangeChk
+            else
               VM.pushSmallInt 0
-          | _ =>
-              match exportUInt256BE? x, exportUInt256BE? n with
-              | some xb, some nbBe =>
-                  let nbLe := nbBe.reverse
-                  let r := host.rist255MulBytes (ByteArray.mk nbLe) (ByteArray.mk xb)
-                  if r.size == 32 then
+          else
+            match exportUInt256BE? x, exportUInt256BE? n with
+            | some xb, some nbBe =>
+                let nbLe := nbBe.reverse
+                let r := host.rist255MulBytes (ByteArray.mk nbLe) (ByteArray.mk xb)
+                if r.size == 32 then
                     pushUInt256FromByteArrayBE r
-                  else
-                    throw .rangeChk
-              | _, _ =>
+                else
                   throw .rangeChk
+            | _, _ =>
+                throw .rangeChk
 
       | .rist255Qmul =>
           let n0 ← VM.popInt
           let x ← VM.popInt
           let n := intValMod n0 rist255L
           modify fun st => st.consumeGas rist255MulGasPrice
-          match n with
-          | .num 0 =>
+          -- C++ exec_ristretto255_mul, including the TVM 14 changes (NaN operands rejected,
+          -- `x = 0` gives 0, the point is validated on the `n % l = 0` fast path).
+          let v14 : Bool := (← get).globalVersion ≥ 14
+          let anyNan : Bool := match n, x with | .num _, .num _ => false | _, _ => true
+          let nZero : Bool := match n with | .num 0 => true | _ => false
+          let xZero : Bool := match x with | .num 0 => true | _ => false
+          if v14 && anyNan then
+            VM.pushSmallInt 0
+          else if nZero || (v14 && xZero) then
+            let invalidPoint : Bool :=
+              !xZero && (match exportUInt256BE? x with
+                | some xb => !host.rist255IsValidPoint (ByteArray.mk xb)
+                | none => true)
+            if v14 && invalidPoint then
+              VM.pushSmallInt 0
+            else
               VM.pushSmallInt 0
               VM.pushSmallInt (-1)
-          | _ =>
-              match exportUInt256BE? x, exportUInt256BE? n with
-              | some xb, some nbBe =>
-                  let nbLe := nbBe.reverse
-                  let r := host.rist255MulBytes (ByteArray.mk nbLe) (ByteArray.mk xb)
-                  if r.size == 32 then
+          else
+            match exportUInt256BE? x, exportUInt256BE? n with
+            | some xb, some nbBe =>
+                let nbLe := nbBe.reverse
+                let r := host.rist255MulBytes (ByteArray.mk nbLe) (ByteArray.mk xb)
+                if r.size == 32 then
                     pushUInt256FromByteArrayBE r
                     VM.pushSmallInt (-1)
-                  else
-                    VM.pushSmallInt 0
-              | _, _ =>
+                else
                   VM.pushSmallInt 0
+            | _, _ =>
+                VM.pushSmallInt 0
 
       | .rist255MulBase =>
           let n0 ← VM.popInt
           let n := intValMod n0 rist255L
           modify fun st => st.consumeGas rist255MulBaseGasPrice
-          let nbBe ←
-            match exportUInt256BE n with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let nbLe := nbBe.reverse
-          let r := host.rist255MulBaseBytes (ByteArray.mk nbLe)
-          if r.size != 32 then
-            throw .rangeChk
-          pushUInt256FromByteArrayBE r
+          -- TVM 14: `n % l = 0` gives 0 directly (C++ exec_ristretto255_mul_base)
+          if ((← get).globalVersion ≥ 14) && (match n with | .num 0 => true | _ => false) then
+            VM.pushSmallInt 0
+          else
+            let nbBe ←
+              match exportUInt256BE n with
+              | .ok bs => pure bs
+              | .error e => throw e
+            let nbLe := nbBe.reverse
+            let r := host.rist255MulBaseBytes (ByteArray.mk nbLe)
+            if r.size != 32 then
+              throw .rangeChk
+            pushUInt256FromByteArrayBE r
 
       | .rist255QmulBase =>
           let n0 ← VM.popInt
           let n := intValMod n0 rist255L
           modify fun st => st.consumeGas rist255MulBaseGasPrice
-          match exportUInt256BE? n with
-          | none =>
-              VM.pushSmallInt 0
-          | some nbBe =>
-              let nbLe := nbBe.reverse
-              let r := host.rist255MulBaseBytes (ByteArray.mk nbLe)
-              if r.size == 32 then
-                pushUInt256FromByteArrayBE r
-                VM.pushSmallInt (-1)
-              else
+          -- TVM 14: `n % l = 0` gives 0 directly (C++ exec_ristretto255_mul_base)
+          if ((← get).globalVersion ≥ 14) && (match n with | .num 0 => true | _ => false) then
+            VM.pushSmallInt 0
+            VM.pushSmallInt (-1)
+          else
+            match exportUInt256BE? n with
+            | none =>
                 VM.pushSmallInt 0
+            | some nbBe =>
+                let nbLe := nbBe.reverse
+                let r := host.rist255MulBaseBytes (ByteArray.mk nbLe)
+                if r.size == 32 then
+                  pushUInt256FromByteArrayBE r
+                  VM.pushSmallInt (-1)
+                else
+                  VM.pushSmallInt 0
 
       | .rist255PushL =>
           VM.push (.int (.num rist255L))

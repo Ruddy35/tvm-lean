@@ -2,6 +2,33 @@ import TvmLean.Semantics.Exec.Common
 
 namespace TvmLean
 
+/-- Total version of the message-cell counting loop of SENDMSG
+(`while todo.size > 0 && cells < maxCells do ...`). Terminates by the lexicographic measure
+`(maxCells - cells, todo.size)`: a newly seen cell increases `cells`, a seen one shrinks `todo`.
+Effects (cell-load gas) happen in the same order as in the loop. -/
+def VM.countMsgCells (maxCells : Nat) (todo : Array Cell) (seen : Array (Array UInt8))
+    (cells bits : Nat) : VM (Array (Array UInt8) × Nat × Nat) := do
+  if h : todo.size > 0 ∧ cells < maxCells then
+    let c := todo[todo.size - 1]!
+    let todo' := todo.pop
+    let hsh := Cell.hashBytes c
+    if !(seen.any (fun x => x == hsh)) then
+      VM.registerCellLoad c
+      VM.countMsgCells maxCells (todo' ++ c.refs) (seen.push hsh) (cells + 1) (bits + c.bits.size)
+    else
+      VM.countMsgCells maxCells todo' seen cells bits
+  else
+    return (seen, cells, bits)
+termination_by (maxCells - cells, todo.size)
+decreasing_by
+  all_goals
+    obtain ⟨h1, h2⟩ := h
+    first
+      | (apply Prod.Lex.left; omega)
+      | (apply Prod.Lex.right; simp [Array.size_pop]; omega)
+      | (simp_wf; apply Prod.Lex.left; omega)
+      | (simp_wf; apply Prod.Lex.right; simp [Array.size_pop]; omega)
+
 set_option maxHeartbeats 1000000 in
 def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
@@ -267,20 +294,8 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
         | none => throw .typeChk
 
       let refStart : Nat := if parsedMsg.haveExtraCurrencies then 1 else 0
-      let mut todo : Array Cell := msgCell.refs.extract refStart msgCell.refs.size
-      let mut seen : Array (Array UInt8) := #[]
-      let mut cells : Nat := 0
-      let mut bits : Nat := 0
-      while todo.size > 0 && cells < maxCells do
-        let c := todo[todo.size - 1]!
-        todo := todo.pop
-        let h := Cell.hashBytes c
-        if !(seen.any (fun x => x == h)) then
-          seen := seen.push h
-          cells := cells + 1
-          bits := bits + c.bits.size
-          VM.registerCellLoad c
-          todo := todo ++ c.refs
+      let todo0 : Array Cell := msgCell.refs.extract refStart msgCell.refs.size
+      let (_seen, cells, bits) ← VM.countMsgCells maxCells todo0 #[] 0 0
 
       let (lumpPrice, bitPrice, cellPrice, _ihrFactor, firstFrac) ← VM.getMsgPrices isMasterchain
 
@@ -324,7 +339,8 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
       let mut bitsI : Nat := bits
       let feeX0 : Int := bitPrice * Int.ofNat bitsI + cellPrice * Int.ofNat cellsI
       let fwdFeeShort0 : Int := lumpPrice + ceilDivPow2 feeX0 16
-      let mut fwdFee : Int := max fwdFeeShort0 parsedMsg.userFwdFee
+      -- TVM 14: the user-provided fwd_fee is ignored (as in the action phase).
+      let mut fwdFee : Int := (if (← get).globalVersion ≥ 14 then fwdFeeShort0 else max fwdFeeShort0 parsedMsg.userFwdFee)
       let mut ihrFee : Int := 0 -- global_version >= 11 disables IHR
 
       let msgRootBits (initRef : Bool) (bodyRef : Bool) : VM Nat := do
@@ -371,7 +387,7 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           bitsI := bitsI + parsedMsg.initInlineBits
           let feeX1 : Int := bitPrice * Int.ofNat bitsI + cellPrice * Int.ofNat cellsI
           let fwdFeeShort1 : Int := lumpPrice + ceilDivPow2 feeX1 16
-          fwdFee := max fwdFeeShort1 parsedMsg.userFwdFee
+          fwdFee := (if (← get).globalVersion ≥ 14 then fwdFeeShort1 else max fwdFeeShort1 parsedMsg.userFwdFee)
           ihrFee := 0
 
       if !bodyRef then
@@ -383,7 +399,7 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           bitsI := bitsI + parsedMsg.bodyInlineBits
           let feeX2 : Int := bitPrice * Int.ofNat bitsI + cellPrice * Int.ofNat cellsI
           let fwdFeeShort2 : Int := lumpPrice + ceilDivPow2 feeX2 16
-          fwdFee := max fwdFeeShort2 parsedMsg.userFwdFee
+          fwdFee := (if (← get).globalVersion ≥ 14 then fwdFeeShort2 else max fwdFeeShort2 parsedMsg.userFwdFee)
           ihrFee := 0
 
       VM.pushIntQuiet (.num (fwdFee + ihrFee)) false

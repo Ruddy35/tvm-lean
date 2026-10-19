@@ -16,23 +16,28 @@ private def bigintWordBits : Nat := 64
 private def bigintBase : Int := intPow2 bigintWordShift
 private def bigintHalf : Int := intPow2 (bigintWordShift - 1)
 
-private def intToBigInt52Digits (n : Int) : Array Int :=
-  if n == 0 then
-    #[0]
-  else
-    Id.run do
-      let mut q : Int := n
-      let mut out : Array Int := #[]
-      while q != 0 do
+/-- Loop body of `intToBigInt52Digits` with explicit fuel. Each step strictly decreases `|q|`
+(the digit `d` satisfies `|d| ≤ base/2`), so `n.natAbs + 1` steps always suffice. -/
+private def intToBigInt52DigitsAux (q : Int) (out : Array Int) : Nat → Array Int
+  | 0 => out
+  | fuel + 1 =>
+      if q != 0 then
         let r : Int := Int.emod q bigintBase
         let d : Int :=
           if decide (r >= bigintHalf) then
             r - bigintBase
           else
             r
-        out := out.push d
-        q := (q - d) / bigintBase
-      if out.isEmpty then #[0] else out
+        intToBigInt52DigitsAux ((q - d) / bigintBase) (out.push d) fuel
+      else
+        out
+
+private def intToBigInt52Digits (n : Int) : Array Int :=
+  if n == 0 then
+    #[0]
+  else
+    let out := intToBigInt52DigitsAux n #[] (n.natAbs + 1)
+    if out.isEmpty then #[0] else out
 
 private def addAnyNoNormalize (x y : Array Int) : Array Int :=
   if y.size <= x.size then
@@ -234,58 +239,81 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
                 if addMode then 3 else 2
             if st.stack.size < need then
               throw .stkUnd
-            let shift : Nat ←
+            -- C++ `exec_shrmod`: since TVM 14 an invalid shift in quiet mode does not throw
+            -- `range_chk`; a NaN operand or invalid shift yields NaN result(s).
+            let gv : Nat := (← get).globalVersion
+            let sv : Nat × Bool ←
               match zOpt with
-              | some z => pure z
-              | none => VM.popNatUpTo 256
+              | some z => pure (z, true)
+              | none =>
+                  if gv ≥ 14 then
+                    let raw ← popLongLike
+                    let bad := shiftOutOfRange raw 256
+                    if (!quiet) && bad then
+                      throw .rangeChk
+                    pure (if bad then 0 else raw.toNat, !bad)
+                  else
+                    let s ← VM.popNatUpTo 256
+                    pure (s, true)
+            let shift : Nat := sv.1
+            let validShift : Bool := sv.2
             let w ← if addMode then VM.popInt else pure (.num 0)
             let x ← VM.popInt
-            let roundMode' : Int :=
-              if zOpt.isNone && shift == 0 then
-                -1
-              else
-                roundMode
-            if roundMode' != -1 && roundMode' != 0 && roundMode' != 1 then
-              throw .invOpcode
-            let hasInvalid : Bool :=
+            let anyNan : Bool :=
               match x, w with
               | .num _, .num _ => false
               | _, _ => true
-            if hasInvalid then
-              let qCompat := rshiftPow2RoundInvalidCompat shift roundMode'
-              match d with
-              | 1 =>
-                  VM.pushIntQuiet qCompat quiet
-              | 2 =>
-                  VM.pushIntQuiet .nan quiet
-              | 3 =>
-                  VM.pushIntQuiet qCompat quiet
-                  VM.pushIntQuiet .nan quiet
-              | _ =>
-                  throw .invOpcode
+            if gv ≥ 14 && (!validShift || anyNan) then
+              VM.pushIntQuiet .nan quiet
+              if d == 3 then
+                VM.pushIntQuiet .nan quiet
             else
-              match x, w with
-              | .num xn, .num wn =>
-                  let tmp : Int := if addMode then xn + wn else xn
-                  let qCompat : Int :=
-                    if addMode then
-                      rshiftPow2RoundAddCompat xn wn shift roundMode'
-                    else
-                      rshiftPow2Round tmp shift roundMode'
-                  match d with
-                  | 1 =>
-                      VM.pushIntQuiet (.num qCompat) quiet
-                  | 2 =>
-                      let r := modPow2Round tmp shift roundMode'
-                      VM.pushIntQuiet (.num r) quiet
-                  | 3 =>
-                      let r := modPow2Round tmp shift roundMode'
-                      VM.pushIntQuiet (.num qCompat) quiet
-                      VM.pushIntQuiet (.num r) quiet
-                  | _ =>
-                      throw .invOpcode
-              | _, _ =>
-                  throw .invOpcode
+              let roundMode' : Int :=
+                if zOpt.isNone && shift == 0 then
+                  -1
+                else
+                  roundMode
+              if roundMode' != -1 && roundMode' != 0 && roundMode' != 1 then
+                throw .invOpcode
+              let hasInvalid : Bool :=
+                match x, w with
+                | .num _, .num _ => false
+                | _, _ => true
+              if hasInvalid then
+                let qCompat := rshiftPow2RoundInvalidCompat shift roundMode'
+                match d with
+                | 1 =>
+                    VM.pushIntQuiet qCompat quiet
+                | 2 =>
+                    VM.pushIntQuiet .nan quiet
+                | 3 =>
+                    VM.pushIntQuiet qCompat quiet
+                    VM.pushIntQuiet .nan quiet
+                | _ =>
+                    throw .invOpcode
+              else
+                match x, w with
+                | .num xn, .num wn =>
+                    let tmp : Int := if addMode then xn + wn else xn
+                    let qCompat : Int :=
+                      if addMode then
+                        rshiftPow2RoundAddCompat xn wn shift roundMode'
+                      else
+                        rshiftPow2Round tmp shift roundMode'
+                    match d with
+                    | 1 =>
+                        VM.pushIntQuiet (.num qCompat) quiet
+                    | 2 =>
+                        let r := modPow2Round tmp shift roundMode'
+                        VM.pushIntQuiet (.num r) quiet
+                    | 3 =>
+                        let r := modPow2Round tmp shift roundMode'
+                        VM.pushIntQuiet (.num qCompat) quiet
+                        VM.pushIntQuiet (.num r) quiet
+                    | _ =>
+                        throw .invOpcode
+                | _, _ =>
+                    throw .invOpcode
       | .shlDivMod d roundMode addMode quiet zOpt =>
           -- TVM `exec_shldivmod` checks arity first, then pops runtime shift
           -- (when present), then divisor.
