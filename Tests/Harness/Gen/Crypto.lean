@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.CryptoVectors
 
 /-!
 Oracle cases for the crypto instructions (C++ `tonops.cpp`).
@@ -116,6 +117,71 @@ private def hashExtCases (suite : String) (append rev : Bool) : Array OracleCase
     hashExtGasCases suite append rev
 
 
+/-! ### Ed25519 (`CHKSIGNU`, `CHKSIGNS`) -/
+
+private def hexVal (c : Char) : Nat :=
+  if '0' ≤ c ∧ c ≤ '9' then c.toNat - '0'.toNat else c.toNat - 'a'.toNat + 10
+
+private def hexBytes (h : String) : Array UInt8 := Id.run do
+  let cs := h.toList.toArray
+  let mut out : Array UInt8 := #[]
+  for i in [0:cs.size / 2] do
+    out := out.push (UInt8.ofNat (hexVal cs[2 * i]! * 16 + hexVal cs[2 * i + 1]!))
+  return out
+
+private def hexInt (h : String) : Int := Int.ofNat ((hexBytes h).foldl (fun acc b => acc * 256 + b.toNat) 0)
+
+private def hexSlice (h : String) : Value := sl (bitsOfBytes (hexBytes h))
+
+/-- CHKSIGNU/CHKSIGNS stacks for every vector of `tools/crypto/ed25519_vectors.py` (ordinary
+signatures, corrupted ones, and signatures satisfying the strict equation of OpenSSL for small-order,
+non-canonical and mixed-order keys): `hash sig key` / `data sig key`. A 32-byte message is both a
+CHKSIGNU hash and a CHKSIGNS data slice. -/
+private def chkSignVectorStacks (fromSlice : Bool) : Array (String × Array Value) :=
+  CryptoVectors.ed25519.filterMap fun (name, kind, key, sig, msg, _) =>
+    let k := iv (hexInt key)
+    if fromSlice then some (name, #[hexSlice msg, hexSlice sig, k])
+    else if kind == "U" then some (name, #[iv (hexInt msg), hexSlice sig, k])
+    else none
+
+/-- Errors in the order C++ checks them: underflow (3 entries), types of key, signature, data;
+the data (unaligned slice / hash out of range), then the signature length, then the key range. -/
+private def chkSignErrStacks (fromSlice : Bool) : Array (String × Array Value) :=
+  let (_, _, key, sig, msg, _) := CryptoVectors.ed25519[0]!
+  let k := iv (hexInt key)
+  let s := hexSlice sig
+  let d : Value := if fromSlice then hexSlice msg else iv (hexInt msg)
+  let shortSig := sl (bytes 63 1)
+  let badData : Value := if fromSlice then unaligned else iv (-(2 ^ 256))
+  #[("empty", #[]), ("two", #[s, k]), ("two-bad", #[.null, .null]),
+    ("key-null", #[d, s, .null]), ("key-slice", #[d, s, s]), ("sig-int", #[d, iv 1, k]),
+    ("data-null", #[.null, s, k]), ("data-type", #[if fromSlice then iv 1 else s, s, k]),
+    ("bad-data", #[badData, s, k]), ("bad-data-short-sig", #[badData, shortSig, k]),
+    ("short-sig", #[d, shortSig, k]), ("short-sig-bad-key", #[d, shortSig, iv (-1)]),
+    ("key-neg", #[d, s, iv (-1)]), ("key-min", #[d, s, iv (-(2 ^ 256))]), ("key-nan", #[d, s, .int .nan]),
+    ("long-sig", #[d, hexSlice (sig ++ "00ff"), k]), ("key-0", #[d, s, iv 0]), ("key-1", #[d, s, iv 1]),
+    ("key-2^255", #[d, s, iv (2 ^ 255)])] ++
+    (if fromSlice then #[("data-127", #[sl (bytes 127 9), s, k]), ("data-empty", #[sl #[], s, k])]
+     else #[("hash-nan", #[.int .nan, s, k]), ("hash-neg", #[iv (-5), s, k])])
+
+private def chkSignInstr (fromSlice : Bool) : Instr :=
+  .cryptoOp (if fromSlice then .chkSignS else .chkSignU)
+
+/-- Twelve checks in a row: the first ten are free, then each costs `chksgn_gas_price`
+(`VmState::register_chksgn_call`); weak keys count too. -/
+private def chkSignCounterCase (suite : String) (fromSlice : Bool) : OracleCase :=
+  let stacks := (chkSignVectorStacks fromSlice).extract 0 12
+  { name := "oracle/counter12", instr := { name := suite },
+    program := (Array.replicate stacks.size #[chkSignInstr fromSlice, .pop 0]).flatten,
+    initStack := (stacks.map (·.2)).reverse.flatten }
+
+private def chkSignCases (suite : String) (fromSlice : Bool) : Array OracleCase :=
+  ((chkSignVectorStacks fromSlice) ++ (chkSignErrStacks fromSlice)).map (fun (name, st) =>
+    { name := s!"oracle/{name}", instr := { name := suite }, program := #[chkSignInstr fromSlice],
+      initStack := st }) ++
+  #[chkSignCounterCase suite fromSlice]
+
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
@@ -134,6 +200,8 @@ def casesFor (suite : String) : Array OracleCase :=
   | "HASHEXTR" => hashExtCases suite false true
   | "HASHEXTA" => hashExtCases suite true false
   | "HASHEXTAR" => hashExtCases suite true true
+  | "CHKSIGNU" => chkSignCases suite false
+  | "CHKSIGNS" => chkSignCases suite true
   | _ => #[]
 
 end Tests.Gen.Crypto
