@@ -21,6 +21,11 @@ structure VmState where
   The model implements versions 13 and later; the default 13 is the behaviour the model had
   before versioning was introduced. -/
   globalVersion : Nat := 13
+  /-- C++ `VmState::free_gas_consumed`: gas of free signature checks and of the part of cheap
+  GETEXTRABALANCE calls above their cap; charged by `RUNVM` with isolated gas. -/
+  freeGasConsumed : Int := 0
+  /-- C++ `VmState::get_extra_balance_counter`. -/
+  getExtraBalanceCounter : Nat := 0
   deriving Repr
 
 def VmState.initial (code : Cell) (gasLimit : Int := 1_000_000) (gasMax : Int := GasLimits.infty)

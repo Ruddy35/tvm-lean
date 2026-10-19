@@ -600,6 +600,12 @@ def runChildVm (host : Host) (parent : VmState) (mode : Nat) : VM VmState := do
     | none => childRegs2
     | some c => { childRegs2 with c4 := c }
 
+  -- C++ `run_child_vm`: with isolated gas the parent pays its free gas now and its counters restart;
+  -- the child starts with the parent's counters (and gas limits clamped by what is left after that).
+  if isolateGas then
+    VM.consumeGas (← get).freeGasConsumed
+    modify fun st => { st with chksgnCounter := 0, getExtraBalanceCounter := 0, freeGasConsumed := 0 }
+
   let parentAfterPops ← get
 
   let parentRem : Int := parentAfterPops.gas.gasRemaining
@@ -614,7 +620,9 @@ def runChildVm (host : Host) (parent : VmState) (mode : Nat) : VM VmState := do
       cc := childCc
       gas := childGas
       loadedCells := if isolateGas then #[] else parentAfterPops.loadedCells
-      chksgnCounter := if isolateGas then 0 else parentAfterPops.chksgnCounter
+      chksgnCounter := parentAfterPops.chksgnCounter
+      getExtraBalanceCounter := parentAfterPops.getExtraBalanceCounter
+      freeGasConsumed := parentAfterPops.freeGasConsumed
       libraries := parentAfterPops.libraries
       maxDataDepth := parentAfterPops.maxDataDepth
       globalVersion := parentAfterPops.globalVersion }
@@ -628,6 +636,8 @@ def runChildVm (host : Host) (parent : VmState) (mode : Nat) : VM VmState := do
   parentAfter := { parentAfter with
     libraries := childFinal.libraries
     chksgnCounter := childFinal.chksgnCounter
+    getExtraBalanceCounter := childFinal.getExtraBalanceCounter
+    freeGasConsumed := childFinal.freeGasConsumed
     loadedCells := if isolateGas then parentAfter.loadedCells else childFinal.loadedCells }
   if decide (parentAfter.gas.gasRemaining < 0) then
     throw .outOfGas

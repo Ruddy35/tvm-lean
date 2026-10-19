@@ -6,13 +6,15 @@ namespace TvmLean
 def VmState.consumeGas (st : VmState) (amount : Int) : VmState :=
   { st with gas := st.gas.consume amount }
 
+/-- C++ `VmState::register_chksgn_call`: the first `chksgn_free_count` checks are free, their price
+counted as free gas (`consume_free_gas`). -/
 def VmState.registerChkSgnCall (st : VmState) : VmState :=
   let cnt := st.chksgnCounter + 1
   let st' := { st with chksgnCounter := cnt }
   if cnt > chksgnFreeCount then
     st'.consumeGas chksgnGasPrice
   else
-    st'
+    { st' with freeGasConsumed := st'.freeGasConsumed + chksgnGasPrice }
 
 def VmState.consumeTupleGas (st : VmState) (tupleLen : Nat) : VmState :=
   st.consumeGas (Int.ofNat tupleLen * tupleEntryGasPrice)
