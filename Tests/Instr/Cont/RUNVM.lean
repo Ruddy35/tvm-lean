@@ -79,6 +79,13 @@ private def childCodeInvalid15 : Cell :=
 private def childCodeImplicitJmpRef : Cell :=
   Cell.mkOrdinary #[] #[childCodePush7Ret]
 
+/-- Child code making the exception handler `c2` a closure expecting `nargs` arguments
+(PUSHCONT {NOP}; SETCONTARGS 0,nargs; POPCTR c2), then running `tail`. -/
+private def childCodeArgsHandler (nargs : Nat) (tail : Array Instr) : Cell :=
+  let c := assembleNoRefCell! "runvm/child/args-handler"
+    (#[Instr.setContArgs 0 (Int.ofNat nargs), .popCtr 2] ++ tail)
+  Cell.mkOrdinary (natToBits 0x9100 16 ++ c.bits) #[]
+
 private def modeNeedsRetVals (mode : Nat) : Bool := (mode &&& 256) = 256
 private def modeNeedsData (mode : Nat) : Bool := (mode &&& 4) = 4
 private def modeNeedsC7 (mode : Nat) : Bool := (mode &&& 16) = 16
@@ -385,7 +392,15 @@ private def oracleCases : Array OracleCase :=
     mkRunvmCodeCase "err/raw-opcode/truncated-23-prefix"
       #[.null, intV 6]
       runvmTruncated23Code
-  ]
+  ] ++
+  -- The child's handler `c2` expects more arguments than an exception passes: the child ends with
+  -- stk_und raised while handling the exception (vm.cpp, `run_inner`); mode 8 reports its gas.
+  ((#[2, 3] : Array Nat).flatMap fun nargs =>
+    (#[(0, "throw", #[Instr.throw 5]), (0, "stk-und", #[Instr.pop 5]),
+       (8, "throw", #[Instr.throw 5]), (8, "stk-und", #[Instr.pop 5])]).map fun (mode, name, tail) =>
+      mkRunvmOracleCase s!"err/child-args-handler/mode{mode}/{name}/nargs{nargs}"
+        (mkRunvmInit mode #[intV 1, intV 2] (childCodeArgsHandler nargs tail) (gasLimit := 500_000))
+        #[runvmInstr mode])
 
 private def pickFromPool {a : Type} [Inhabited a] (pool : Array a) (rng : StdGen) : a × StdGen :=
   let (idx, rng') := randNat rng 0 (pool.size - 1)

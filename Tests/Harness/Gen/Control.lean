@@ -114,10 +114,29 @@ private def closureHandlerCases (suite : String) : Array OracleCase :=
       codeCell? := some (Cell.mkOrdinary (pushHandler ++ rest lim) #[]),
       initStack := (Array.range 45).map (fun j => iv (Int.ofNat j)) }
 
+/-- The handler `c2` is a closure expecting `nargs` arguments (SETCONTARGS 0,nargs) while an
+exception passes two (value, number): C++ `adjust_jump_cont` raises stk_und inside
+`throw_exception`, `run_inner` handles it by `throw_exception(stk_und)`, whose jump fails again,
+and the VM ends with the second exception's number (vm.cpp, run_inner: "exception while handling
+exception"). -/
+private def closureArgsHandlerCases (suite : String) : Array OracleCase :=
+  let pushHandler : BitString := natToBits 0x9100 16
+  (#[0, 1, 2, 3, 4] : Array Nat).flatMap fun nargs =>
+    #[(s!"throw/nargs{nargs}", #[Instr.setContArgs 0 (Int.ofNat nargs), .popCtr 2, .throw 5]),
+      (s!"throwarg/nargs{nargs}", #[Instr.setContArgs 0 (Int.ofNat nargs), .popCtr 2, .pushInt (.num 7), .throwArg 5]),
+      (s!"stk-und/nargs{nargs}", #[Instr.setContArgs 0 (Int.ofNat nargs), .popCtr 2, .pop 5])].map fun (name, prog) =>
+      let code : Cell :=
+        match assembleCp0 prog.toList with
+        | .ok c => Cell.mkOrdinary (pushHandler ++ c.bits) #[]
+        | .error _ => Cell.empty
+      { name := s!"oracle/closure-args-handler/{name}", instr := { name := suite }, codeCell? := some code,
+        initStack := #[iv 1, iv 2] }
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
-  | "THROW" => cross suite (labelled .throw #[0, 63, 64, 1000, 2047]) plain ++ closureHandlerCases suite
+  | "THROW" => cross suite (labelled .throw #[0, 63, 64, 1000, 2047]) plain ++ closureHandlerCases suite ++
+      closureArgsHandlerCases suite
   | "THROW_SHORT" => cross suite (labelled .throw #[0, 1, 11, 63]) plain
   | "THROWIF" => cross suite (labelled .throwIf #[0, 64, 2047]) conds
   | "THROWIFNOT" => cross suite (labelled .throwIfNot #[0, 64, 2047]) conds
