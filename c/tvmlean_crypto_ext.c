@@ -12,11 +12,39 @@
 
 #include <blst.h>
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(__linux__)
+/* Libraries compiled against glibc >= 2.38 (C23 mode headers) call the `__isoc23_*` variants of the
+   string-to-number functions, which the older glibc of Lean's toolchain does not provide; they
+   differ only in accepting C23 prefixes (`0b`), which OpenSSL does not use. This file is compiled
+   as gnu17 (lakefile.lean), so the calls below are not redirected to the C23 variants again. */
+long __isoc23_strtol(const char *nptr, char **endptr, int base) {
+  return strtol(nptr, endptr, base);
+}
+unsigned long __isoc23_strtoul(const char *nptr, char **endptr, int base) {
+  return strtoul(nptr, endptr, base);
+}
+long long __isoc23_strtoll(const char *nptr, char **endptr, int base) {
+  return strtoll(nptr, endptr, base);
+}
+unsigned long long __isoc23_strtoull(const char *nptr, char **endptr, int base) {
+  return strtoull(nptr, endptr, base);
+}
+int __isoc23_sscanf(const char *s, const char *format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  int r = vsscanf(s, format, ap);
+  va_end(ap);
+  return r;
+}
+#endif
 
 static bool tvmlean_sodium_init(void) {
   static int initialized = 0;
