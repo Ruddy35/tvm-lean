@@ -53,15 +53,28 @@ private def valueToToken (v : Value) : Except String String := do
       if t.isEmpty then
         pure "T"
       else
-        throw "non-empty tuples are not yet supported in oracle stack token stream"
+        throw "non-empty tuples are encoded by valueToTokens"
   | .cont (.quit 0) => pure "K"
   | .cont _ => throw "only quit(0) continuations are supported in oracle stack token stream"
+
+/-- Tokens of one value. A non-empty tuple is its elements' tokens followed by `TUP:<n>`, which the
+fift side (`push-token`) turns into `n tuple`; nested tuples follow from the recursion. -/
+private partial def valueToTokens (v : Value) : Except String (List String) := do
+  match v with
+  | .tuple t =>
+      if t.isEmpty then
+        pure ["T"]
+      else
+        let mut out : List String := []
+        for x in t do
+          out := out ++ (← valueToTokens x)
+        pure (out ++ [s!"TUP:{t.size}"])
+  | _ => pure [← valueToToken v]
 
 private def stackToTokens (stack : Array Value) : Except String (List String) := do
   let mut out : List String := []
   for v in stack do
-    let tok ← valueToToken v
-    out := out.concat tok
+    out := out ++ (← valueToTokens v)
   pure out
 
 private def replaceNaNWithPlaceholders (stack : Array Value) : Array Value × Array Nat :=
