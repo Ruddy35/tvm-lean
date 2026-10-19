@@ -35,8 +35,13 @@ def execInstrTonEnvGetStorageFee (i : Instr) (next : VM Unit) : VM Unit := do
             (Int.ofNat cells * Int.ofNat cellP + Int.ofNat bits * Int.ofNat bitP) * Int.ofNat delta
           let fee : Int := ceilDivPow2 total 16
           VM.pushIntQuiet (.num fee) false
-      | some _ => throw .typeChk
-      | none => throw .typeChk
+      | some _ =>
+          -- C++ get_storage_prices: tuple_index(unpacked, 0).as_slice() is null for any non-slice
+          -- entry, which means that no StoragePrices is active: the fee is 0
+          VM.pushSmallInt 0
+      | none =>
+          -- C++ tuple_index: index out of range
+          throw .rangeChk
   | _ => next
 
 end TvmLean
