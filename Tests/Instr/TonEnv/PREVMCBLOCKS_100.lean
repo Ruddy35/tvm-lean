@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.TonEnv
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.TonEnv.PREVMCBLOCKS_100
 def suite : InstrSuite where
   id := { name := "PREVMCBLOCKS_100" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.TonEnv.casesFor "PREVMCBLOCKS_100"
   fuzz := #[]
 
 initialize registerSuite suite

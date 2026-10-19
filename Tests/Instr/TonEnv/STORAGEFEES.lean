@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.TonEnv
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.TonEnv.STORAGEFEES
 def suite : InstrSuite where
   id := { name := "STORAGEFEES" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.TonEnv.casesFor "STORAGEFEES"
   fuzz := #[]
 
 initialize registerSuite suite

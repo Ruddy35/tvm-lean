@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.TonEnv
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.TonEnv.REWRITEVARADDRQ
 def suite : InstrSuite where
   id := { name := "REWRITEVARADDRQ" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.TonEnv.casesFor "REWRITEVARADDRQ"
   fuzz := #[]
 
 initialize registerSuite suite
