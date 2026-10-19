@@ -24,15 +24,18 @@ def intValOracleSerializable : IntVal → Bool
   | .nan => false
   | .num n => intFitsSigned257 n
 
+/-- Inputs for an oracle case: the values before the first one that cannot be passed on the initial
+stack (NaN, or outside 257 bits) go on the stack; that value and the following ones are pushed by
+the program. The resulting stack is the same as pushing everything, and the code stays within one
+1023-bit cell (pushing all values made long PUSHINT sequences overflow it). -/
 def oracleIntInputsToStackOrProgram (vals : Array IntVal) : Array Value × Array Instr :=
-  if vals.all intValOracleSerializable then
-    let stack : Array Value := vals.map (fun v =>
-      match v with
-      | .num n => intV n
-      | .nan => .int .nan)
-    (stack, #[])
-  else
-    (#[], vals.map Instr.pushInt)
+  let toValue : IntVal → Value := fun v =>
+    match v with
+    | .num n => intV n
+    | .nan => .int .nan
+  match vals.findIdx? (fun v => !intValOracleSerializable v) with
+  | none => (vals.map toValue, #[])
+  | some i => ((vals.extract 0 i).map toValue, (vals.extract i vals.size).map Instr.pushInt)
 
 def int257BoundaryPool : Array Int :=
   #[
