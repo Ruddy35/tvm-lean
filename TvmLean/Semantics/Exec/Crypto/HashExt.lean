@@ -72,7 +72,8 @@ def execInstrCryptoHashExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit 
         let gasTotal : Int :=
           (Int.ofNat (i + 1) * hashExtEntryGasPrice) +
             Int.ofNat (((totalBits / 8) / bytesPerGasUnit))
-        modify fun st => st.consumeGas (gasTotal - gasConsumed)
+        -- C++ `consume_gas` throws at the first entry that overruns the limit
+        VM.consumeGas (gasTotal - gasConsumed)
         gasConsumed := gasTotal
         acc := acc.appendBits bits
 
