@@ -57,11 +57,169 @@ private def msgModeStacks (modes : Array Int) : Array (Array Value) :=
   (msgPool.flatMap (fun c => modes.map (fun m => #[.cell c, iv m]))) ++
     #[#[.null, iv 0], #[.cell (msgPool[0]!)], #[]]
 
+/-! ### SENDMSG: messages and parameters the coverage run did not reach (`exec_send_message`)
+
+Messages with a StateInit (inline, or moved into a reference when the root would overflow, or a
+reference already), bodies inline, in a reference or moved into one (more than 1023 bits or 4
+references in the root), extra currencies (their dictionary is not counted, global version >= 10),
+a masterchain destination, a user `fwd_fee` (taken as a minimum below version 14), repeated
+subtrees (counted once) and an external message. Parameters: `MYADDR` in the masterchain or not a
+slice, `BALANCE` and `INCOMINGVALUE` not tuples or without an integer, the forwarding prices
+(unpacked config 4 and 5) missing or malformed, the size limits (unpacked config 6) malformed or
+limiting the counted cells to 2. -/
+
+private def tup (xs : Array Value) : Value := .tuple xs
+private def sl (bits : BitString) : Value := .slice (Slice.ofCell (Cell.mkOrdinary bits #[]))
+
+/-- msg_forward_prices#ea lump_price bit_price cell_price ihr_price_factor first_frac next_frac -/
+private def fwdPrices (lump bit cell : Nat) : Value :=
+  sl (natToBits 0xea 8 ++ natToBits lump 64 ++ natToBits bit 64 ++ natToBits cell 64 ++ natToBits 98304 32 ++
+    natToBits 21845 16 ++ natToBits 21845 16)
+
+/-- size_limits_config#01 with `max_msg_cells` cells. -/
+private def sizeLimitsBits (maxCells : Nat) : BitString :=
+  natToBits 1 8 ++ natToBits 65535 32 ++ natToBits maxCells 32 ++ natToBits 1000 32 ++ natToBits 512 16 ++
+    natToBits 65535 32 ++ natToBits 512 16
+
+private def sizeLimits (maxCells : Nat) : Value := sl (sizeLimitsBits maxCells)
+
+private def unpackedConfig (mcPrices prices limits : Value) : Value :=
+  tup #[.null, .null, .null, .null, mcPrices, prices, limits]
+
+private def goodConfig : Value :=
+  unpackedConfig (fwdPrices 10000000 655360000 65536000000) (fwdPrices 400000 26214400 2621440000) .null
+
+/-- The parameter tuple: `Tests.Gen.TonEnv.params`-like, with what SENDMSG reads. -/
+private def sendParams (myAddr balance incoming config : Value) : Array Value :=
+  (Array.range 18).map fun i =>
+    match i with
+    | 0 => iv 0x076ef1ea
+    | 7 => balance
+    | 8 => myAddr
+    | 11 => incoming
+    | 14 => config
+    | _ => .null
+
+private def myAddrBase : Value := .slice (Slice.ofCell (Cell.mkOrdinary (addrStd 0 0x99) #[]))
+private def myAddrMc : Value := .slice (Slice.ofCell (Cell.mkOrdinary (addrStd 255 0x99) #[]))
+private def bal : Value := tup #[iv 5000000000, .null]
+
+private def sendC7 (myAddr : Value := myAddrBase) (balance : Value := bal) (incoming : Value := bal)
+    (config : Value := goodConfig) : Array Value :=
+  #[tup (sendParams myAddr balance incoming config)]
+
+private def sendC7Pool : Array (String × Array Value) :=
+  #[ ("base", sendC7),
+     ("mc-myaddr", sendC7 (myAddr := myAddrMc)),
+     ("limits-2-cells", sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPrices 400000 26214400 2621440000)
+        (sizeLimits 2))) ]
+
+private def sendC7Errors : Array (String × Array Value) :=
+  #[ ("myaddr-null", sendC7 (myAddr := .null)),
+     ("balance-null", sendC7 (balance := .null)),
+     ("balance-no-int", sendC7 (balance := tup #[.null, .null])),
+     ("incoming-null", sendC7 (incoming := .null)),
+     ("incoming-no-int", sendC7 (incoming := tup #[.null])),
+     ("prices-null", sendC7 (config := unpackedConfig .null .null .null)),
+     ("prices-malformed", sendC7 (config := unpackedConfig (sl (natToBits 0xeb 8)) (sl (natToBits 0xea 8 ++ natToBits 1 40)) .null)),
+     ("limits-malformed", sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPrices 1 2 3) (sl (natToBits 4 8)))),
+     ("limits-v1-truncated", sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPrices 1 2 3)
+        (sl (natToBits 1 8 ++ natToBits 65535 32 ++ natToBits 2 32)))),
+     ("limits-v1-trailing", sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPrices 1 2 3)
+        (sl (sizeLimitsBits 2 ++ #[true])))),
+     ("config-short", sendC7 (config := tup #[.null, .null, .null, .null, fwdPrices 1 2 3, fwdPrices 1 2 3])),
+     ("config-5", sendC7 (config := tup #[.null, .null, .null, .null, fwdPrices 1 2 3])),
+     ("config-not-tuple", sendC7 (config := iv 5)) ]
+
+/-- Size limits that apply (counted cells limited to 2): v1, v2 with and without
+`max_transaction_library_loads`, v3; and values that are not slices (the defaults apply). -/
+private def sendC7Limits : Array (String × Array Value) :=
+  let v2 (loads : Bool) : BitString :=
+    natToBits 2 8 ++ (sizeLimitsBits 2).extract 8 168 ++ natToBits 100 32 ++ natToBits 200 32 ++ natToBits 300 32 ++
+      natToBits 400 32 ++ natToBits 500 32 ++ natToBits 8 8 ++ natToBits 600 32 ++
+      (if loads then #[true] ++ natToBits 7 32 else #[false])
+  let v3 : BitString := natToBits 3 8 ++ (v2 true).extract 8 (v2 true).size ++ natToBits 1000 32 ++ natToBits 2000 32
+  let cfg (l : Value) : Array Value := sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPrices 400000 26214400 2621440000) l)
+  #[("limits-v2", cfg (sl (v2 false))), ("limits-v2-loads", cfg (sl (v2 true))), ("limits-v3", cfg (sl v3)),
+    ("limits-int", cfg (iv 2)), ("limits-cell", cfg (.cell (Cell.mkOrdinary (sizeLimitsBits 2) #[]))),
+    ("limits-tuple", cfg (tup #[]))]
+
+/-- `extra_currencies` dictionary with one entry (HashmapE 32 (VarUInteger 32)). -/
+private def extraDict : Cell :=
+  match dictSetSliceWithCells none (natToBits 7 32) (Slice.ofCell (Cell.mkOrdinary (natToBits 1 5 ++ natToBits 100 8) #[])) .set with
+  | .ok (some r, _, _, _) => r
+  | _ => Cell.empty
+
+/-- An internal message: header (src addr_none), then the StateInit and the body, each `(inline bits,
+refs)` or in a reference (`init := some (true, c)`). -/
+private def intMsgWith (wc : Nat) (value : Nat) (extra : Bool) (fwdFee : Nat)
+    (init : Option (Bool × BitString × Array Cell)) (bodyRef : Bool) (bodyBits : BitString) (bodyRefs : Array Cell) :
+    Cell :=
+  let hdr := #[false, true, true, false] ++ natToBits 0 2 ++ addrStd wc 0x1234 ++ grams value ++ #[extra] ++
+    grams 0 ++ grams fwdFee ++ natToBits 0 64 ++ natToBits 0 32
+  let hdrRefs : Array Cell := if extra then #[extraDict] else #[]
+  let (initBits, initRefs) : BitString × Array Cell :=
+    match init with
+    | none => (#[false], #[])
+    | some (false, b, rs) => (#[true, false] ++ b, rs)
+    | some (true, b, rs) => (#[true, true], #[Cell.mkOrdinary b rs])
+  let (bBits, bRefs) : BitString × Array Cell :=
+    if bodyRef then (#[true], #[Cell.mkOrdinary bodyBits bodyRefs]) else (#[false] ++ bodyBits, bodyRefs)
+  Cell.mkOrdinary (hdr ++ initBits ++ bBits) (hdrRefs ++ initRefs ++ bRefs)
+
+private def leaf (n : Nat) : Cell := Cell.mkOrdinary (natToBits n 16) #[]
+
+/-- StateInit: no prefix length, special (tick), code and data, no library. -/
+private def stateInit : BitString × Array Cell := (#[false, true, true, false, true, true, false], #[leaf 1, leaf 2])
+
+private def sendMsgPool : Array (String × Cell) :=
+  #[ ("init-inline", intMsgWith 0 100 false 0 (some (false, stateInit.1, stateInit.2)) false #[] #[]),
+     ("init-ref", intMsgWith 0 100 false 0 (some (true, stateInit.1, stateInit.2)) true (natToBits 5 8) #[]),
+     ("body-inline-refs", intMsgWith 0 100 true 0 none false #[] #[leaf 7, leaf 8, leaf 9]),
+     ("body-ref", intMsgWith 0 100 false 0 none true (natToBits 0xabcd 16) #[leaf 11]),
+     ("extra-currencies", intMsgWith 0 100 true 0 none false (natToBits 3 2) #[]),
+     ("mc-dest", intMsgWith 255 100 false 0 none false #[] #[]),
+     ("user-fwd-fee", intMsgWith 0 100 false 1000000000 none false #[] #[]),
+     -- two references to equal subtrees: counted once
+     ("shared-subtrees", intMsgWith 0 100 false 0 none true #[]
+        #[Cell.mkOrdinary (natToBits 1 8) #[leaf 12], Cell.mkOrdinary (natToBits 1 8) #[leaf 12]]),
+     ("ext-out", extOutMsg) ]
+
+/-- Inline bodies of `n` bits, with and without an inline StateInit: the message cell holds them, but
+the root SENDMSG prices (`MYADDR` instead of addr_none, the fees written) may exceed 1023 bits, and
+then the StateInit and/or the body move into references. The lengths cross both thresholds. -/
+private def movingMsgs : Array (String × Cell) :=
+  ((List.range 15).map (fun k => 560 + 5 * k)).toArray.flatMap fun n =>
+    #[(s!"body{n}", intMsgWith 0 100 false 0 none false (natToBits 0x5a5 n) #[leaf 6]),
+      (s!"init-body{n}", intMsgWith 0 100 false 0 (some (false, stateInit.1, stateInit.2)) false
+        (natToBits 0x5a5 (n - 9)) #[leaf 6])]
+
+private def sendMsgCoverageCases (suite : String) : Array OracleCase := Id.run do
+  let mut out : Array OracleCase := #[]
+  for (ml, m) in movingMsgs do
+    for (cl, c7) in #[("base", sendC7), ("mc-myaddr", sendC7 (myAddr := myAddrMc))] do
+      out := out.push
+        { name := s!"oracle/cov/moves/{cl}/{ml}", instr := { name := suite }, program := #[env .sendMsg],
+          initStack := #[.cell m, iv 1024], initC7 := c7 }
+  for (cl, c7) in sendC7Pool ++ sendC7Limits do
+    for (ml, m) in sendMsgPool do
+      for mode in (#[0, 64, 128, 1024] : Array Int) do
+        out := out.push
+          { name := s!"oracle/cov/{cl}/{ml}/mode{mode}", instr := { name := suite }, program := #[env .sendMsg],
+            initStack := #[.cell m, iv mode], initC7 := c7 }
+  for (cl, c7) in sendC7Errors do
+    for mode in (#[0, 64, 128] : Array Int) do
+      out := out.push
+        { name := s!"oracle/cov/{cl}/mode{mode}", instr := { name := suite }, program := #[env .sendMsg],
+          initStack := #[.cell (sendMsgPool[0]!).2, iv mode], initC7 := c7 }
+  return out
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
   | "SENDRAWMSG" => cross suite (env .sendRawMsg) (msgModeStacks #[0, 1, 2, 64, 128, 130, 255, 256, -1])
-  | "SENDMSG" => cross suite (env .sendMsg) (msgModeStacks #[0, 1, 64, 128, 1024, 1025, 255, 256, -1])
+  | "SENDMSG" => cross suite (env .sendMsg) (msgModeStacks #[0, 1, 64, 128, 1024, 1025, 255, 256, -1]) ++
+      sendMsgCoverageCases suite
   | "RAWRESERVE" => cross suite (env .rawReserve)
       (((#[0, 1, 1000000000, 2 ^ 120 - 1, 2 ^ 120, -1] : Array Int).flatMap
         (fun a => (#[0, 1, 2, 3, 4, 8, 15, 16, 31, 32, -1] : Array Int).map (fun m => #[iv a, iv m]))) ++
