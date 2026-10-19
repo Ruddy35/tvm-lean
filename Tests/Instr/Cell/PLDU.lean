@@ -301,20 +301,11 @@ def suite : InstrSuite where
         else
           throw (IO.userError s!"decode/raw-end: expected exhausted slice, got {s6.bitsRemaining} bits remaining")
 
-        match assembleCp0 [plduInstr 1] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/pldu-1: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/pldu-1: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/pldu-1" (plduInstr 1)
 
-        match assembleCp0 [plduInstr 256] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/pldu-256: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/pldu-256: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/pldu-256" (plduInstr 256)
 
-        match assembleCp0 [plduInstr 0] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/pldu-0: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/pldu-0: expected invOpcode, got success") }
+        expectAssembleErr "assemble/pldu-0" (plduInstr 0) .rangeChk }
     ,
     { name := "unit/dispatch/non-loadint-falls-through"
       run := do

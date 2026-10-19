@@ -364,15 +364,9 @@ def suite : InstrSuite where
         else
           throw (IO.userError s!"decode/raw-end: expected exhausted slice, got {r11.bitsRemaining} bits remaining")
 
-        match assembleCp0 [lduqInstr 8] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"asm/lduq-fixed-8: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "asm/lduq-fixed-8: expected invOpcode, got success")
+        expectAssembleRoundTrip "asm/lduq-fixed-8" (lduqInstr 8)
 
-        match assembleCp0 [lduqInstr 0] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"asm/lduq-fixed-0: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "asm/lduq-fixed-0: expected invOpcode, got success")
+        expectAssembleErr "asm/lduq-fixed-0" (lduqInstr 0) .rangeChk
 
         let proxySingle ←
           match assembleCp0 [lduxqInstr] with

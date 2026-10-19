@@ -252,6 +252,10 @@ def encodeCellExtInstr (op : CellExtInstr) : Except Excno BitString := do
       return natToBits (if quiet then 0xf940 else 0xf941) 16
   | .sdataSize quiet =>
       return natToBits (if quiet then 0xf942 else 0xf943) 16
+  | .plduz c =>
+      if c ≤ 7 then return natToBits (0xd710 + c) 16 else throw .rangeChk
+  | .xload quiet =>
+      return natToBits (if quiet then 0xd73b else 0xd73a) 16
   | _ =>
       -- Some CellExt opcodes embed refs/consts in the code cell (not supported by `encodeCp0`).
       throw .invOpcode
@@ -406,6 +410,51 @@ def encodeArithExtInstr (op : ArithExtInstr) : Except Excno BitString := do
             | some p16 => pure (p16 + roundOfs)
             | none => throw .invOpcode
           return natToBits p16Hash 16 ++ natToBits (z - 1) 8
+/-- Inverse of the cp0 decoder for `CryptoExtInstr`: 0xf912..0xf915, 0xf920..0xf926 (16 bits),
+0xb7f921..0xb7f925 and 0xf93000..0xf93031 (24 bits). -/
+def encodeCryptoExtInstr (op : CryptoExtInstr) : BitString :=
+  match op with
+  | .ecrecover => natToBits 0xf912 16
+  | .secp256k1XonlyPubkeyTweakAdd => natToBits 0xf913 16
+  | .p256ChkSignU => natToBits 0xf914 16
+  | .p256ChkSignS => natToBits 0xf915 16
+  | .rist255FromHash => natToBits 0xf920 16
+  | .rist255Validate => natToBits 0xf921 16
+  | .rist255Add => natToBits 0xf922 16
+  | .rist255Sub => natToBits 0xf923 16
+  | .rist255Mul => natToBits 0xf924 16
+  | .rist255MulBase => natToBits 0xf925 16
+  | .rist255PushL => natToBits 0xf926 16
+  | .rist255Qvalidate => natToBits 0xb7f921 24
+  | .rist255Qadd => natToBits 0xb7f922 24
+  | .rist255Qsub => natToBits 0xb7f923 24
+  | .rist255Qmul => natToBits 0xb7f924 24
+  | .rist255QmulBase => natToBits 0xb7f925 24
+  | .blsVerify => natToBits 0xf93000 24
+  | .blsAggregate => natToBits 0xf93001 24
+  | .blsFastAggregateVerify => natToBits 0xf93002 24
+  | .blsAggregateVerify => natToBits 0xf93003 24
+  | .blsG1Add => natToBits 0xf93010 24
+  | .blsG1Sub => natToBits 0xf93011 24
+  | .blsG1Neg => natToBits 0xf93012 24
+  | .blsG1Mul => natToBits 0xf93013 24
+  | .blsG1MultiExp => natToBits 0xf93014 24
+  | .blsG1Zero => natToBits 0xf93015 24
+  | .blsMapToG1 => natToBits 0xf93016 24
+  | .blsG1InGroup => natToBits 0xf93017 24
+  | .blsG1IsZero => natToBits 0xf93018 24
+  | .blsG2Add => natToBits 0xf93020 24
+  | .blsG2Sub => natToBits 0xf93021 24
+  | .blsG2Neg => natToBits 0xf93022 24
+  | .blsG2Mul => natToBits 0xf93023 24
+  | .blsG2MultiExp => natToBits 0xf93024 24
+  | .blsG2Zero => natToBits 0xf93025 24
+  | .blsMapToG2 => natToBits 0xf93026 24
+  | .blsG2InGroup => natToBits 0xf93027 24
+  | .blsG2IsZero => natToBits 0xf93028 24
+  | .blsPairing => natToBits 0xf93030 24
+  | .blsPushR => natToBits 0xf93031 24
+
 def encodeCryptoInstr (op : CryptoInstr) : Except Excno BitString := do
   match op with
   | .hashExt hashId append rev =>
@@ -427,8 +476,8 @@ def encodeCryptoInstr (op : CryptoInstr) : Except Excno BitString := do
       return natToBits 0xf910 16
   | .chkSignS =>
       return natToBits 0xf911 16
-  | .ext _ =>
-      throw .invOpcode
+  | .ext op =>
+      return encodeCryptoExtInstr op
 
 def encodeTonEnvInstr (op : TonEnvInstr) : Except Excno BitString := do
   match op with
@@ -694,7 +743,8 @@ def encodeCp0 (i : Instr) : Except Excno BitString := do
       else
         throw .rangeChk
   | .xchg x y =>
-      if x ≤ 15 ∧ y ≤ 15 ∧ 0 < x ∧ x < y then
+      -- C++ registers mkfixed(0x10, 8, 8) for every pair; invalid pairs raise inv_opcode when executed
+      if x ≤ 15 ∧ y ≤ 15 then
         let args : Nat := (x <<< 4) + y
         return natToBits 0x10 8 ++ natToBits args 8
       else
@@ -937,7 +987,8 @@ def encodeCp0 (i : Instr) : Except Excno BitString := do
           if idx = 6 ∨ idx > 7 then throw .rangeChk
           return natToBits (0xedc0 + idx) 16
       | .runvm mode =>
-          if mode ≥ 512 then throw .rangeChk
+          -- 12-bit flags in the opcode; flags ≥ 512 raise range_chk when executed (exec_runvm_common)
+          if mode ≥ 4096 then throw .rangeChk
           let word24 : Nat := (0xdb4 <<< 12) + (mode &&& 0xfff)
           return natToBits word24 24
       | .runvmx =>
@@ -987,8 +1038,14 @@ def encodeCp0 (i : Instr) : Except Excno BitString := do
   | .ldu bits =>
       if bits = 0 ∨ bits > 256 then throw .rangeChk
       return natToBits 0xd3 8 ++ natToBits (bits - 1) 8
-  | .loadInt _ _ _ _ =>
-      throw .invOpcode
+  | .loadInt unsigned prefetch quiet bits =>
+      -- LDI short form 0xd2 + (bits-1) (decodes back to `loadInt`); every other combination uses
+      -- 0xd708 + flags (C++ exec_load_int_fixed2). The LDU short form 0xd3 is the `ldu` instruction.
+      if bits = 0 ∨ bits > 256 then throw .rangeChk
+      if !unsigned ∧ !prefetch ∧ !quiet then
+        return natToBits 0xd2 8 ++ natToBits (bits - 1) 8
+      let flags3 : Nat := (if unsigned then 1 else 0) + (if prefetch then 2 else 0) + (if quiet then 4 else 0)
+      return natToBits ((0xd708 >>> 3) <<< 11 ||| (flags3 <<< 8) ||| (bits - 1)) 24
   | .loadIntVar unsigned prefetch quiet =>
       let args3 : Nat := (if unsigned then 1 else 0) + (if prefetch then 2 else 0) + (if quiet then 4 else 0)
       return natToBits (0xd700 + args3) 16

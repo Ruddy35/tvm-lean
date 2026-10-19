@@ -548,15 +548,9 @@ def suite : InstrSuite where
         else
           throw (IO.userError s!"decode/raw-neighbor-end: expected exhausted slice, got {rn4.bitsRemaining} bits remaining")
 
-        match assembleCp0 [.loadInt false true true 8] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/loadInt-fixed-ptq: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/loadInt-fixed-ptq: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/loadInt-fixed-ptq" (.loadInt false true true 8)
 
-        match assembleCp0 [.loadInt false false false 1] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/loadInt-fixed-ldi1: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/loadInt-fixed-ldi1: expected invOpcode, got success") }
+        expectAssembleRoundTrip "assemble/loadInt-fixed-ldi1" (.loadInt false false false 1) }
     ,
     { name := "unit/dispatch/fallback-for-non-loadintvar"
       run := do

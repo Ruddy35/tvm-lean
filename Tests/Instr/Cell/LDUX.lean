@@ -471,10 +471,7 @@ def suite : InstrSuite where
         else
           throw (IO.userError s!"decode/raw-boundary-end: expected exhausted slice, got {b3.bitsRemaining} bits remaining")
 
-        match assembleCp0 [.loadInt true false false 8] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/loadInt-fixed: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/loadInt-fixed: expected invOpcode, got success") }
+        expectAssembleRoundTrip "assemble/loadInt-fixed" (.loadInt true false false 8) }
     ,
     { name := "unit/dispatch/fallback"
       run := do

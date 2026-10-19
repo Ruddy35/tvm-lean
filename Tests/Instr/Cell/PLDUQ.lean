@@ -332,10 +332,7 @@ def suite : InstrSuite where
         else
           throw (IO.userError s!"decode/raw-end: expected exhausted slice, got {r8.bitsRemaining} bits remaining")
 
-        match assembleCp0 [plduqInstr 8] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"asm/plduq-fixed: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "asm/plduq-fixed: expected invOpcode, got success")
+        expectAssembleRoundTrip "asm/plduq-fixed" (plduqInstr 8)
 
         let proxyCode ←
           match assembleCp0 [plduxqInstr, .add] with

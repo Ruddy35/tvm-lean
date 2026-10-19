@@ -388,20 +388,11 @@ def suite : InstrSuite where
         else
           throw (IO.userError s!"assemble/proxy-ldix: expected 0xd700 encoding, got {proxyOnly.bits}")
 
-        match assembleCp0 [ldiAltInstr 1] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/ldi-alt-1: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/ldi-alt-1: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/ldi-alt-1" (ldiAltInstr 1)
 
-        match assembleCp0 [ldiAltInstr 256] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/ldi-alt-256: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/ldi-alt-256: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/ldi-alt-256" (ldiAltInstr 256)
 
-        match assembleCp0 [ldiAltInstr 0] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/ldi-alt-0: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/ldi-alt-0: expected invOpcode, got success")
+        expectAssembleErr "assemble/ldi-alt-0" (ldiAltInstr 0) .rangeChk
 
         let addCell ←
           match assembleCp0 [.add] with

@@ -662,15 +662,9 @@ def suite : InstrSuite where
             throw (IO.userError
               s!"decode/invalid-0xd73c: expected failure, got instr={reprStr instr} bits={bits}")
 
-        match assembleCp0 [xloadInstr] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"asm/xload: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "asm/xload: expected invOpcode, got success")
+        expectAssembleRoundTrip "asm/xload" (xloadInstr)
 
-        match assembleCp0 [xloadqInstr] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"asm/xloadq: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "asm/xloadq: expected invOpcode, got success")
+        expectAssembleRoundTrip "asm/xloadq" (xloadqInstr)
 
         expectOkStack "dispatch/non-cellext-add"
           (runXloadqDispatchFallback .add #[.null])

@@ -609,18 +609,8 @@ def suite : InstrSuite where
           throw (IO.userError s!"assemble/xctos: expected 0xd739, got bits {xctosOnly.bits}")
 
         -- Current assembler boundary: XLOAD/XLOADQ are decode-only in `encodeCellExtInstr`.
-        match assembleCp0 [xloadInstr] with
-        | .error .invOpcode => pure ()
-        | .error e =>
-            throw (IO.userError s!"assemble/xload: expected invOpcode, got {e}")
-        | .ok cell =>
-            throw (IO.userError s!"assemble/xload: unexpectedly encodable with bits {cell.bits}")
-        match assembleCp0 [xloadqInstr] with
-        | .error .invOpcode => pure ()
-        | .error e =>
-            throw (IO.userError s!"assemble/xloadq: expected invOpcode, got {e}")
-        | .ok cell =>
-            throw (IO.userError s!"assemble/xloadq: unexpectedly encodable with bits {cell.bits}")
+        expectAssembleRoundTrip "assemble/xload" (xloadInstr)
+        expectAssembleRoundTrip "assemble/xloadq" (xloadqInstr)
 
         -- Decode boundary around contiguous opcodes XCTOS/XLOAD/XLOADQ.
         let codeBits : BitString :=

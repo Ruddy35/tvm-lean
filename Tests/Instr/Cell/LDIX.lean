@@ -526,20 +526,11 @@ def suite : InstrSuite where
         else
           throw (IO.userError s!"decode/raw-fixed-boundary-end: expected exhausted slice, got {b3.bitsRemaining} bits remaining")
 
-        match assembleCp0 [.loadInt false false false 8] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/loadInt-fixed-8: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/loadInt-fixed-8: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/loadInt-fixed-8" (.loadInt false false false 8)
 
-        match assembleCp0 [.loadInt false false false 256] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/loadInt-fixed-256: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/loadInt-fixed-256: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/loadInt-fixed-256" (.loadInt false false false 256)
 
-        match assembleCp0 [.loadInt false false false 257] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/loadInt-fixed-257: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/loadInt-fixed-257: expected invOpcode, got success") }
+        expectAssembleErr "assemble/loadInt-fixed-257" (.loadInt false false false 257) .rangeChk }
     ,
     { name := "unit/proxy/fixed2-loadint-aligns-on-shared-domain"
       run := do

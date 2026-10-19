@@ -473,20 +473,11 @@ def suite : InstrSuite where
         else
           throw (IO.userError s!"decode/raw-end: expected exhausted slice, got {r11.bitsRemaining} bits remaining")
 
-        match assembleCp0 [ldiqInstr 8] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"asm/ldiq-fixed: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "asm/ldiq-fixed: expected invOpcode, got success")
+        expectAssembleRoundTrip "asm/ldiq-fixed" (ldiqInstr 8)
 
-        match assembleCp0 [ldiqInstr 256] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"asm/ldiq-fixed-256: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "asm/ldiq-fixed-256: expected invOpcode, got success")
+        expectAssembleRoundTrip "asm/ldiq-fixed-256" (ldiqInstr 256)
 
-        match assembleCp0 [ldiqInstr 0] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"asm/ldiq-fixed-0: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "asm/ldiq-fixed-0: expected invOpcode, got success")
+        expectAssembleErr "asm/ldiq-fixed-0" (ldiqInstr 0) .rangeChk
 
         let proxySingle ←
           match assembleCp0 [ldixqInstr] with

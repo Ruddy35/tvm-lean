@@ -484,10 +484,7 @@ private def plduzBaseUnitCases : Array UnitCase :=
         let after2 ← expectDecodeStep "decode/boundary/after-plduz-tail-add" after1 .add 8
         ensureExhausted "decode/boundary/after-plduz/end" after2
 
-        match assembleCp0 [plduzInstr 0] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/plduz: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/plduz: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/plduz" (plduzInstr 0)
 
         let decodedInstr ←
           match decodeCp0WithBits (mkSliceFromBits (natToBits (plduzWord 6) 16)) with

@@ -360,20 +360,11 @@ def suite : InstrSuite where
         | .error e => throw (IO.userError s!"assemble/ldu-257: expected rangeChk, got {e}")
         | .ok _ => throw (IO.userError "assemble/ldu-257: expected rangeChk, got success")
 
-        match assembleCp0 [lduAltInstr 1] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/alt-1: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/alt-1: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/alt-1" (lduAltInstr 1)
 
-        match assembleCp0 [lduAltInstr 256] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/alt-256: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/alt-256: expected invOpcode, got success")
+        expectAssembleRoundTrip "assemble/alt-256" (lduAltInstr 256)
 
-        match assembleCp0 [lduAltInstr 0] with
-        | .error .invOpcode => pure ()
-        | .error e => throw (IO.userError s!"assemble/alt-0: expected invOpcode, got {e}")
-        | .ok _ => throw (IO.userError "assemble/alt-0: expected invOpcode, got success")
+        expectAssembleErr "assemble/alt-0" (lduAltInstr 0) .rangeChk
 
         let addCell ←
           match assembleCp0 [.add] with

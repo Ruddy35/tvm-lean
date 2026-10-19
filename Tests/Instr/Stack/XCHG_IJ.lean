@@ -268,7 +268,9 @@ def suite : InstrSuite where
       run := do
         expectAssembleRangeErr "unit/asm/range-x-overflow" (.xchg 16 1)
         expectAssembleRangeErr "unit/asm/range-y-overflow" (.xchg 1 16)
-        expectAssembleRangeErr "unit/asm/range-invalid-x0" (.xchg 0 1) },
+        -- C++ registers 0x10 with every 8-bit argument: XCHG s0,s1 has an opcode (10 01) and
+        -- raises inv_opcode when executed
+        expectAssembleRoundTrip "unit/asm/invalid-x0-encodes" (.xchg 0 1) },
     { name := "unit/decode/valid"
       run := do
         expectDecodeOk "unit/decode/valid" (xchgCode 14 15) (.xchg 14 15) 16 },

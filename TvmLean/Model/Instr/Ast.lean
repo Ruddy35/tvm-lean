@@ -812,7 +812,7 @@ def CellInstr.pretty : CellInstr → String
 
 def CellExtInstr.pretty : CellExtInstr → String
   | .btos => "BTOS"
-  | .plduz c => s!"PLDUZ {c}"
+  | .plduz c => s!"PLDUZ {32 * (c + 1)}"
   | .ldVarInt signed lenBits =>
       let iu := if signed then "INT" else "UINT"
       s!"LDVAR{iu}(lenBits={lenBits})"

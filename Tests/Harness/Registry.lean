@@ -115,4 +115,26 @@ def mkContMutationFuzzSpecWithProfile
     mutateOracle := true
     contProfile := profile }
 
+/-- `instr` assembles (cp0) and the code decodes back to the same instruction. The decoder is checked
+against the C++ dispatch table over the whole opcode space (tools/audit/decoder), so this means the
+assembler emits the C++ opcode of `instr`. -/
+def expectAssembleRoundTrip (label : String) (instr : Instr) : IO Unit := do
+  match TvmLean.assembleCp0 [instr] with
+  | .error e => throw (IO.userError s!"{label}: expected successful assembly, got {e}")
+  | .ok cell =>
+      match TvmLean.decodeCp0WithBits (TvmLean.Slice.ofCell cell) with
+      | .error e => throw (IO.userError s!"{label}: assembled code does not decode: {e}")
+      | .ok (i', _, _) =>
+          if reprStr i' == reprStr instr then pure ()
+          else throw (IO.userError s!"{label}: round trip gave {reprStr i'}, expected {reprStr instr}")
+
+/-- `instr` does not assemble, with error `err` (e.g. `rangeChk` for an argument outside the opcode's
+field: there is no C++ opcode for it). -/
+def expectAssembleErr (label : String) (instr : Instr) (err : TvmLean.Excno) : IO Unit := do
+  match TvmLean.assembleCp0 [instr] with
+  | .error e =>
+      if e == err then pure ()
+      else throw (IO.userError s!"{label}: expected {err}, got {e}")
+  | .ok _ => throw (IO.userError s!"{label}: expected {err}, got successful assembly")
+
 end Tests
