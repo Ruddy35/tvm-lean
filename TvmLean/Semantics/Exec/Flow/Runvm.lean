@@ -223,12 +223,6 @@ def outOfGasHalt (st : VmState) : ChildStepResult :=
   -- then parent `restore_parent_vm(~res)` applies the inversion once.
   ChildStepResult.halt Excno.outOfGas.toInt st'
 
-/-- Mirror C++ gas.check() → throw_exception(out_of_gas) for child VM. -/
-private def gasCheckFailed (st : VmState) : ChildStepResult :=
-  let stExc := st.throwException Excno.outOfGas.toInt
-  let stExcGas := stExc.consumeGas exceptionGasPrice
-  outOfGasHalt stExcGas
-
 /-- `VmState.raiseException` for the child VM. -/
 private def childRaiseException (st : VmState) (e : Int) : ChildStepResult :=
   let stExc := (st.throwException e).consumeGas exceptionGasPrice

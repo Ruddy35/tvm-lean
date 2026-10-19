@@ -16,15 +16,6 @@ def VmState.outOfGasHalt (st : VmState) : StepResult :=
   let st' := { st with stack := #[.int (.num consumed)] }
   StepResult.halt Excno.outOfGas.toInt st'
 
-/-- Mirror C++ gas.check() → VmNoGas → throw_exception(out_of_gas) path:
-    treat gas exhaustion as an out-of-gas exception, charge exception_gas_price,
-    then halt with 13 (Fift `runvmx` observes `~13 = -14`).
-    Used for non-error paths where gas went negative. -/
-def VmState.gasCheckFailed (st : VmState) : StepResult :=
-  let stExc := st.throwException Excno.outOfGas.toInt
-  let stExcGas := stExc.consumeGas exceptionGasPrice
-  stExcGas.outOfGasHalt
-
 /-- C++ `run_inner` handling an exception `e` raised in a step: `throw_exception(e)` makes the stack
 `[0, e]`, charges the exception gas (out of gas at once) and jumps to `c2`. If that jump fails
 (`c2` expects more arguments), the VM ends with stk_und ("exception while handling exception"). -/
