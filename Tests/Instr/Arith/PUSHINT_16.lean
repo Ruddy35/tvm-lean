@@ -279,11 +279,17 @@ def suite : InstrSuite where
           failUnit s!"serializable stack mismatch: got {reprStr stackSer}"
         else if !progSer.isEmpty then
           failUnit s!"serializable prelude expected empty, got {reprStr progSer}"
+        -- values before the first non-passable one stay on the stack; from it on, the program pushes
         let (stackNan, progNan) := oracleIntInputsToStackOrProgram #[.num 9, .nan]
-        if !stackNan.isEmpty then
-          failUnit s!"nan prelude stack expected empty, got {reprStr stackNan}"
-        else if progNan != #[.pushInt (.num 9), .pushInt .nan] then
+        if stackNan != #[intV 9] then
+          failUnit s!"nan prelude stack expected #[9], got {reprStr stackNan}"
+        else if progNan != #[.pushInt .nan] then
           failUnit s!"nan prelude mismatch: got {reprStr progNan}"
+        let (stackMid, progMid) := oracleIntInputsToStackOrProgram #[.num 1, .nan, .num 2]
+        if stackMid != #[intV 1] then
+          failUnit s!"mid-nan stack expected #[1], got {reprStr stackMid}"
+        else if progMid != #[.pushInt .nan, .pushInt (.num 2)] then
+          failUnit s!"mid-nan prelude mismatch: got {reprStr progMid}"
         let oor := maxInt257 + 1
         let (stackOor, progOor) := oracleIntInputsToStackOrProgram #[.num oor]
         if !stackOor.isEmpty then
