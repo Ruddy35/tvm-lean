@@ -93,10 +93,31 @@ private def dataSizeStacks (asSlice : Bool) : Array (Array Value) :=
 private def dbg (o : DebugInstr) : Instr := .debugOp o
 private def two : Array (Array Value) := #[#[], #[iv 1, iv 2]]
 
+
+/-- The exception handler `c2` is a closure holding 45 stack values (three SETCONTARGS 15).
+C++ `throw_exception` charges exception_gas_price and jumps to `c2` at once; the jump merges the
+closure stack with the two exception values and charges stack gas (adjust_jump_cont ->
+consume_stack_gas, 47 - 32 = 15) in the same step. Limits around those charges
+(`PUSHINT lim; SETGASLIMIT; THROW 5` after installing the handler). -/
+private def closureHandlerCases (suite : String) : Array OracleCase :=
+  -- `PUSHCONT { NOP }` (short form 9x, one byte of code), assembled by hand: assembleCp0 has no
+  -- inline continuations
+  let pushHandler : BitString := natToBits 0x9100 16
+  let rest (lim : Nat) : BitString :=
+    match assembleCp0 [.setContArgs 15 (-1), .setContArgs 15 (-1), .setContArgs 15 (-1), .popCtr 2,
+        .pushInt (.num (Int.ofNat lim)), .tonEnvOp .setGasLimit, .throw 5] with
+    | .ok c => c.bits
+    | .error _ => #[]
+  (Array.range 91).map fun k =>
+    let lim := 220 + k
+    { name := s!"oracle/closure-handler/limit{lim}", instr := { name := suite },
+      codeCell? := some (Cell.mkOrdinary (pushHandler ++ rest lim) #[]),
+      initStack := (Array.range 45).map (fun j => iv (Int.ofNat j)) }
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
-  | "THROW" => cross suite (labelled .throw #[0, 63, 64, 1000, 2047]) plain
+  | "THROW" => cross suite (labelled .throw #[0, 63, 64, 1000, 2047]) plain ++ closureHandlerCases suite
   | "THROW_SHORT" => cross suite (labelled .throw #[0, 1, 11, 63]) plain
   | "THROWIF" => cross suite (labelled .throwIf #[0, 64, 2047]) conds
   | "THROWIFNOT" => cross suite (labelled .throwIfNot #[0, 64, 2047]) conds

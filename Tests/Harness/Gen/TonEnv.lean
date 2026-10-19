@@ -202,7 +202,13 @@ def casesFor (suite : String) : Array OracleCase :=
       ((#[0, 1, 2, 5, 31, 254, 255, -1] : Array Int).map (fun k => #[iv 42, iv k]) ++ #[#[iv 42], #[]])
   | "RANDU256" => one .randu256
   | "RAND" => cross suite #[("rand", env .rand)] c7Pool (ints1 #[0, 1, 1000, -5, 2 ^ 256 - 1])
-  | "SETRAND" => cross suite #[("setrand", env (.setRand false))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)])
+  | "SETRAND" => cross suite #[("setrand", env (.setRand false))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)]) ++
+      -- a parameter tuple shorter than 7 is extended (consume_tuple_gas(tpay)), then c7 is charged
+      -- (consume_tuple_gas(tuple)): gas may run out at the first charge (exec_set_rand)
+      ((Array.range 14).map fun k =>
+        { name := s!"oracle/gas/short-params/limit{72 + k}", instr := { name := suite },
+          program := #[.pushInt (.num (Int.ofNat (72 + k))), .tonEnvOp .setGasLimit, env (.setRand false)],
+          initStack := #[iv 5], initC7 := #[tup #[iv 1, iv 2]] })
   | "ADDRAND" => cross suite #[("addrand", env (.setRand true))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)])
   | "SETGASLIMIT" => cross suite #[("setgaslimit", env .setGasLimit)] #[("default", #[])]
       (ints1 #[0, 1, 100, 1000000, -1, 2 ^ 63, 2 ^ 64])

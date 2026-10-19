@@ -613,7 +613,15 @@ def suite : InstrSuite where
     mkEndxcCase "gas/exact-minus-one-out-of-gas"
       #[.builder Builder.empty, intV 0]
       #[.pushInt (.num endxcSetGasExactMinusOne), .tonEnvOp .setGasLimit, endxcInstr]
-  ]
+  ] ++
+    -- An invalid special cell: C++ charges the cell creation (`finalize_copy` ->
+    -- `register_cell_create`, consume_gas) before the cell is checked, so when the charge runs out
+    -- of gas there is no cell_ov exception; limits around the charge.
+    ((Array.range 12).map fun k =>
+      let lim : Int := endxcSetGasExact - 11 + Int.ofNat k
+      mkEndxcCase s!"gas/invalid-special/limit-exact-minus-{11 - k}"
+        #[.builder Builder.empty, intV (-1)]
+        #[.pushInt (.num lim), .tonEnvOp .setGasLimit, endxcInstr])
   fuzz := #[
     { seed := 2026021106
       count := 500

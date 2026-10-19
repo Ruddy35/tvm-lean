@@ -105,6 +105,22 @@ private def nopTrunc4Code : Cell :=
 private def nopTrunc7Code : Cell :=
   Cell.mkOrdinary (nopCode8.take 7) #[]
 
+/-- `PUSHINT lim; SETGASLIMIT`, then raw opcode bits. C++ charges an invalid or too short opcode with
+`consume_gas` before throwing inv_opcode (`opctable.cpp`), so that charge may itself run out of
+gas, and then there is no exception (and no exception gas). -/
+private def gasThenRawCode (lim : Nat) (tail : BitString) : Cell :=
+  match assembleCp0 [.pushInt (.num (Int.ofNat lim)), .tonEnvOp .setGasLimit] with
+  | .ok c => Cell.mkOrdinary (c.bits ++ tail) #[]
+  | .error _ => Cell.empty
+
+private def invalidOpcodeGasCases : Array OracleCase :=
+  (Array.range 26).flatMap fun k =>
+    let lim := 50 + k
+    #[mkRawCase s!"oracle/raw/gas/invalid-ff/limit{lim}" (gasThenRawCode lim invCode8),
+      mkRawCase s!"oracle/raw/gas/truncated-4/limit{lim}" (gasThenRawCode lim (nopCode8.take 4)),
+      -- the first 8 bits of a 16-bit opcode (F800 ACCEPT), cut short
+      mkRawCase s!"oracle/raw/gas/truncated-f8/limit{lim}" (gasThenRawCode lim (natToBits 0xf8 8))]
+
 private def genNopFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
   let (shape, rng1) := randNat rng0 0 9
   match shape with
@@ -226,7 +242,7 @@ def suite : InstrSuite where
     mkRawCase "oracle/raw/decode/truncated-7-mixed" nopTrunc7Code #[.null, intV 1], -- [B10]
     mkRawCase "oracle/raw/decode/00-00-01" (Cell.mkOrdinary (nopCode8 ++ nopCode8 ++ swapCode8) #[]) #[intV 4, intV 5], -- [B8]
     mkRawCase "oracle/raw/decode/00-ff-noise" nopInvRawCode #[.cell Cell.empty] -- [B11]
-  ]
+  ] ++ invalidOpcodeGasCases
   fuzz := #[
     { seed := fuzzSeedForInstr nopId
       count := 500

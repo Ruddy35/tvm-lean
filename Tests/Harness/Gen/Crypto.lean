@@ -471,6 +471,103 @@ private def blsPairingCases (suite : String) : Array OracleCase :=
       ("swapped", #[g2v "gen", g1v "gen", iv 1])]
 
 
+/-! ### Gas running out at the fixed price
+
+C++ charges the fixed price of these instructions with `consume_gas` before (or while) parsing the
+operands (tonops.cpp), so with a limit one short of the price there is only out of gas, even for
+operands that would fail afterwards. `PUSHINT lim; SETGASLIMIT; i` with the limit one short, exact
+and one above, and operands that fail after the charge. -/
+
+private def chargeLimitCases (suite tag : String) (i : Instr) (st : Array Value) (price : Nat) :
+    Array OracleCase := Id.run do
+  -- the gas before the price: the three instructions as charged by the decoder (`instrGas` of the
+  -- decoded bits; the charged length of PUSHINT depends on lim and is not its full length)
+  let progGas (lim : Nat) : Nat := Id.run do
+    match assembleCp0 [.pushInt (.num (Int.ofNat lim)), .tonEnvOp .setGasLimit, i] with
+    | .error _ => return 0
+    | .ok c =>
+        let mut code := Slice.ofCell c
+        let mut gas : Int := 0
+        for _ in [0:3] do
+          match decodeCp0WithBits code with
+          | .ok (instr, bits, rest) =>
+              gas := gas + instrGas instr bits
+              code := rest
+          | .error _ => pure ()
+        return gas.toNat
+  let mut lim : Nat := price + 100
+  for _ in [0:4] do
+    lim := progGas lim + price
+  let mut out : Array OracleCase := #[]
+  for l in [lim - 1, lim, lim + 1] do
+    out := out.push
+      { name := s!"oracle/gas-at-price/{tag}/limit{l}", instr := { name := suite },
+        program := #[.pushInt (.num (Int.ofNat l)), .tonEnvOp .setGasLimit, i], initStack := st }
+  return out
+
+private def ristVal (k : Nat) : Value := iv (ristValid[k]!.2)
+
+/-- `(tag, operands failing after the charge, price)` per suite. -/
+private def chargeLimitInputs (suite : String) : Array (String × Array Value × Nat) :=
+  match suite with
+  | "RIST255_FROMHASH" => #[("x1-neg", #[iv (-1), iv 0], 600), ("ok", #[iv 1, iv 2], 600)]
+  | "RIST255_VALIDATE" => #[("neg", #[iv (-1)], 200), ("invalid", #[iv ristInvalid[0]!.2], 200)]
+  | "RIST255_ADD" | "RIST255_SUB" => #[("invalid", #[iv ristInvalid[0]!.2, ristVal 1], 600)]
+  | "RIST255_MUL" => #[("invalid", #[iv ristInvalid[0]!.2, iv 3], 2000)]
+  | "RIST255_MULBASE" => #[("n0", #[iv 0], 750)]
+  | "BLS_VERIFY" => #[("short-sig", #[pkv 0, msgv "m1", sl (bytes 95 1)], 61000)]
+  | "BLS_AGGREGATE" => #[("bad-sig", #[sigv 0 1, g2v "offCurve", iv 2], 6050)]
+  | "BLS_FASTAGGREGATEVERIFY" => #[("unaligned-msg", #[pkv 0, iv 1, unaligned, sigv 0 1], 61000)]
+  | "BLS_AGGREGATEVERIFY" => #[("unaligned-msg", #[pkv 0, unaligned, iv 1, sigv 0 1], 61000)]
+  | "BLS_G1_ADD" | "BLS_G1_SUB" => #[("bad", #[g1v "gen", g1v "offCurve"], 3900)]
+  | "BLS_G2_ADD" | "BLS_G2_SUB" => #[("bad", #[g2v "gen", g2v "offCurve"], 6100)]
+  | "BLS_G1_NEG" => #[("short", #[sl (bytes 47 1)], 750)]
+  | "BLS_G2_NEG" => #[("short", #[sl (bytes 95 1)], 1550)]
+  | "BLS_G1_MUL" => #[("bad", #[g1v "offCurve", iv 1], 5200)]
+  | "BLS_G2_MUL" => #[("bad", #[g2v "offCurve", iv 1], 10550)]
+  | "BLS_G1_MULTIEXP" => #[("bad", #[g1v "gen", iv 1, g1v "offCurve", iv 2, iv 2], 17045)]
+  | "BLS_G2_MULTIEXP" => #[("bad", #[g2v "gen", iv 1, g2v "offCurve", iv 2, iv 2], 44368)]
+  | "BLS_MAP_TO_G1" => #[("short", #[sl (bytes 47 1)], 2350)]
+  | "BLS_MAP_TO_G2" => #[("short", #[sl (bytes 95 1)], 7950)]
+  | "BLS_G1_INGROUP" => #[("short", #[sl (bytes 47 1)], 2950)]
+  | "BLS_G2_INGROUP" => #[("short", #[sl (bytes 95 1)], 4250)]
+  | "BLS_PAIRING" => #[("bad", #[g1v "offCurve", g2v "gen", iv 1], 31800)]
+  | _ => #[]
+
+private def chargeLimitInstr (suite : String) : Option Instr :=
+  match suite with
+  | "RIST255_FROMHASH" => some (ext .rist255FromHash)
+  | "RIST255_VALIDATE" => some (ext .rist255Validate)
+  | "RIST255_ADD" => some (ext .rist255Add)
+  | "RIST255_SUB" => some (ext .rist255Sub)
+  | "RIST255_MUL" => some (ext .rist255Mul)
+  | "RIST255_MULBASE" => some (ext .rist255MulBase)
+  | "BLS_VERIFY" => some (ext .blsVerify)
+  | "BLS_AGGREGATE" => some (ext .blsAggregate)
+  | "BLS_FASTAGGREGATEVERIFY" => some (ext .blsFastAggregateVerify)
+  | "BLS_AGGREGATEVERIFY" => some (ext .blsAggregateVerify)
+  | "BLS_G1_ADD" => some (ext .blsG1Add)
+  | "BLS_G1_SUB" => some (ext .blsG1Sub)
+  | "BLS_G2_ADD" => some (ext .blsG2Add)
+  | "BLS_G2_SUB" => some (ext .blsG2Sub)
+  | "BLS_G1_NEG" => some (ext .blsG1Neg)
+  | "BLS_G2_NEG" => some (ext .blsG2Neg)
+  | "BLS_G1_MUL" => some (ext .blsG1Mul)
+  | "BLS_G2_MUL" => some (ext .blsG2Mul)
+  | "BLS_G1_MULTIEXP" => some (ext .blsG1MultiExp)
+  | "BLS_G2_MULTIEXP" => some (ext .blsG2MultiExp)
+  | "BLS_MAP_TO_G1" => some (ext .blsMapToG1)
+  | "BLS_MAP_TO_G2" => some (ext .blsMapToG2)
+  | "BLS_G1_INGROUP" => some (ext .blsG1InGroup)
+  | "BLS_G2_INGROUP" => some (ext .blsG2InGroup)
+  | "BLS_PAIRING" => some (ext .blsPairing)
+  | _ => none
+
+private def chargeLimitCasesFor (suite : String) : Array OracleCase :=
+  match chargeLimitInstr suite with
+  | none => #[]
+  | some i => (chargeLimitInputs suite).flatMap fun (tag, st, price) => chargeLimitCases suite tag i st price
+
 /-! ### Unit checks against the independent references
 
 The oracle cases compare the model with C++; these unit checks pin the results themselves to the
@@ -583,8 +680,8 @@ def unitFor (suite : String) : Array UnitCase :=
       expectRun "e(a,b)" #[ext .blsPairing] #[g1v "gen", g2v "gen", iv 1] (.ok #[iv 0])
   | _ => #[]
 
-/-- Oracle cases of the suite named `suite`. -/
-def casesFor (suite : String) : Array OracleCase :=
+/-- Oracle cases of the suite named `suite`, before the gas-at-price cases. -/
+private def casesBase (suite : String) : Array OracleCase :=
   match suite with
   | "HASHCU" => cross suite #[("hashcu", .cryptoOp .hashCU)]
       ((cellPool.map (fun c => #[.cell c])) ++ #[#[sl #[]], #[.null], #[]])
@@ -631,5 +728,9 @@ def casesFor (suite : String) : Array OracleCase :=
       if suite.startsWith "BLS_G1_" then blsGroupCases suite false
       else if suite.startsWith "BLS_G2_" then blsGroupCases suite true
       else #[]
+
+/-- Oracle cases of the suite named `suite`. -/
+def casesFor (suite : String) : Array OracleCase :=
+  casesBase suite ++ chargeLimitCasesFor suite
 
 end Tests.Gen.Crypto
