@@ -66,6 +66,38 @@ private def mkDivOracle (name : String) (initStack : Array Value)
     gasLimits := gasLimits
     fuel := fuel }
 
+/-- Raw cp0 code `opcode` (`bits` bits), for opcodes the assembler does not produce. -/
+private def mkRawOracle (name : String) (opcode bits : Nat) (initStack : Array Value) : OracleCase :=
+  { name := name
+    instr := divId
+    codeCell? := some (Cell.mkOrdinary (natToBits opcode bits) #[])
+    initStack := initStack }
+
+/-- Rounding mode 3 in the division families. C++ registers every argument value (`mkfixed`):
+the opcode decodes, `OpcodeInstrFixed::dispatch` charges `10 + length`, then `exec_divmod`,
+`exec_shrmod`, `exec_muldivmod`, `exec_mulshrmod`, `exec_shldivmod` raise `inv_opcode`. When fewer
+bits than the declared length are present, C++ charges the declared length and raises
+`inv_opcode` without executing. -/
+private def invalidRoundModeOracle : Array OracleCase :=
+  let st : Array Value := #[intV 7, intV 3, intV 2]
+  #[ mkRawOracle "invalid-round-mode/divmod-a903" 0xa903 16 st,
+     mkRawOracle "invalid-round-mode/divmod-a907" 0xa907 16 st,
+     mkRawOracle "invalid-round-mode/divmod-a90b" 0xa90b 16 st,
+     mkRawOracle "invalid-round-mode/divmod-a90f" 0xa90f 16 st,
+     mkRawOracle "invalid-round-mode/shrmod-a923" 0xa923 16 st,
+     mkRawOracle "invalid-round-mode/muldivmod-a983" 0xa983 16 st,
+     mkRawOracle "invalid-round-mode/mulshrmod-a9a3" 0xa9a3 16 st,
+     mkRawOracle "invalid-round-mode/shldivmod-a9c3" 0xa9c3 16 st,
+     mkRawOracle "invalid-round-mode/shrmod-const-a93305" 0xa93305 24 st,
+     mkRawOracle "invalid-round-mode/mulshrmod-const-a9b305" 0xa9b305 24 st,
+     mkRawOracle "invalid-round-mode/shldivmod-const-a9d305" 0xa9d305 24 st,
+     mkRawOracle "invalid-round-mode/qdivmod-b7a903" 0xb7a903 24 st,
+     mkRawOracle "invalid-round-mode/qshrmod-b7a923" 0xb7a923 24 st,
+     mkRawOracle "invalid-round-mode/qmuldivmod-b7a983" 0xb7a983 24 st,
+     mkRawOracle "invalid-round-mode/qmulshrmod-b7a9a3" 0xb7a9a3 24 st,
+     mkRawOracle "invalid-round-mode/qshldivmod-b7a9c3" 0xb7a9c3 24 st,
+     mkRawOracle "invalid-round-mode/truncated-a933-16-of-24" 0xa933 16 st ]
+
 private def failUnit (msg : String) : IO α :=
   throw (IO.userError msg)
 
@@ -150,7 +182,7 @@ def suite : InstrSuite where
         let _ ← expectExit "unit/gas-zero-out-of-gas" Excno.outOfGas.toInt res
         pure () }
   ]
-  oracle := #[
+  oracle := invalidRoundModeOracle ++ #[
     mkDivOracle "floor/pos-pos-inexact" #[intV 7, intV 3],
     mkDivOracle "floor/neg-pos-inexact" #[intV (-7), intV 3],
     mkDivOracle "floor/pos-neg-inexact" #[intV 7, intV (-3)],
