@@ -75,8 +75,6 @@ private def cross (suite : String) (variants : Array (String × Instr)) (c7s : A
   return out
 
 private def noArgs : Array (Array Value) := #[#[], #[iv 1]]
-private def bigInts : Array Int := #[0, 1, 7, 255, 65536, -1, 2 ^ 63, 2 ^ 256, -(2 ^ 256)]
-private def intArgs : Array (Array Value) := bigInts.map (fun n => #[iv n]) ++ #[#[.null], #[]]
 
 /-- One integer argument per stack, plus wrong types. -/
 private def ints1 (xs : Array Int) : Array (Array Value) := xs.map (fun n => #[iv n]) ++ #[#[.null], #[]]
@@ -131,8 +129,8 @@ def casesFor (suite : String) : Array OracleCase :=
       ((#[0, 1, 2, 5, 31, 254, 255, -1] : Array Int).map (fun k => #[iv 42, iv k]) ++ #[#[iv 42], #[]])
   | "RANDU256" => one .randu256
   | "RAND" => cross suite #[("rand", env .rand)] c7Pool (ints1 #[0, 1, 1000, -5, 2 ^ 256 - 1])
-  | "SETRAND" => cross suite #[("setrand", env (.setRand false))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, 2 ^ 256, -1])
-  | "ADDRAND" => cross suite #[("addrand", env (.setRand true))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, 2 ^ 256, -1])
+  | "SETRAND" => cross suite #[("setrand", env (.setRand false))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)])
+  | "ADDRAND" => cross suite #[("addrand", env (.setRand true))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)])
   | "SETGASLIMIT" => cross suite #[("setgaslimit", env .setGasLimit)] #[("default", #[])]
       (ints1 #[0, 1, 100, 1000000, -1, 2 ^ 63, 2 ^ 64])
   | "CONFIGDICT" => one .configDict
