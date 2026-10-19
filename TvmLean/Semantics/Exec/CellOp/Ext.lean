@@ -72,8 +72,9 @@ def execCellOpExt (op : CellInstr) (next : VM Unit) : VM Unit := do
       let special ← VM.popBool
       let b ← VM.popBuilder
       -- Match C++: charge cell-create gas when finalization is attempted (after stack/type checks),
-      -- even if `finalizeCopy` then throws (e.g. invalid special-cell request).
-      modify fun st => st.consumeGas cellCreateGasPrice
+      -- even if `finalizeCopy` then throws (e.g. invalid special-cell request); the charge is
+      -- `consume_gas` (`register_cell_create`), out of gas before the cell is checked.
+      VM.consumeGas cellCreateGasPrice
       let c ←
         match b.finalizeCopy special with
         | .ok c => pure c
