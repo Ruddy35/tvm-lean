@@ -424,6 +424,10 @@ LEAN_EXPORT lean_obj_res tvmlean_bls_aggregate(b_lean_obj_arg sigs_arr) {
       blst_p2_from_affine(&acc, &sig);
       acc_set = true;
     } else {
+      /* blst::P2::aggregate (crypto/vm/bls.cpp, aggregate): BLST_POINT_NOT_IN_GROUP */
+      if (!blst_p2_affine_in_g2(&sig)) {
+        return tvmlean_empty_byte_array();
+      }
       blst_p2_add_or_double_affine(&acc, &acc, &sig);
     }
   }
@@ -564,6 +568,11 @@ LEAN_EXPORT lean_obj_res tvmlean_bls_g1_add(b_lean_obj_arg a48, b_lean_obj_arg b
     return tvmlean_empty_byte_array();
   }
 
+  /* generic_add (crypto/vm/bls.cpp): blst::P1::aggregate requires b in G1 */
+  if (!blst_p1_affine_in_g1(&b)) {
+    return tvmlean_empty_byte_array();
+  }
+
   blst_p1 acc;
   blst_p1_from_affine(&acc, &a);
   blst_p1_add_or_double_affine(&acc, &acc, &b);
@@ -583,6 +592,11 @@ LEAN_EXPORT lean_obj_res tvmlean_bls_g1_sub(b_lean_obj_arg a48, b_lean_obj_arg b
   blst_p1_affine a;
   blst_p1_affine b;
   if (blst_p1_uncompress(&a, a_bytes) != BLST_SUCCESS || blst_p1_uncompress(&b, b_bytes) != BLST_SUCCESS) {
+    return tvmlean_empty_byte_array();
+  }
+
+  /* generic_sub (crypto/vm/bls.cpp): blst::P1::aggregate requires a in G1 */
+  if (!blst_p1_affine_in_g1(&a)) {
     return tvmlean_empty_byte_array();
   }
 
@@ -761,6 +775,11 @@ LEAN_EXPORT lean_obj_res tvmlean_bls_g2_add(b_lean_obj_arg a96, b_lean_obj_arg b
     return tvmlean_empty_byte_array();
   }
 
+  /* generic_add (crypto/vm/bls.cpp): blst::P2::aggregate requires b in G2 */
+  if (!blst_p2_affine_in_g2(&b)) {
+    return tvmlean_empty_byte_array();
+  }
+
   blst_p2 acc;
   blst_p2_from_affine(&acc, &a);
   blst_p2_add_or_double_affine(&acc, &acc, &b);
@@ -780,6 +799,11 @@ LEAN_EXPORT lean_obj_res tvmlean_bls_g2_sub(b_lean_obj_arg a96, b_lean_obj_arg b
   blst_p2_affine a;
   blst_p2_affine b;
   if (blst_p2_uncompress(&a, a_bytes) != BLST_SUCCESS || blst_p2_uncompress(&b, b_bytes) != BLST_SUCCESS) {
+    return tvmlean_empty_byte_array();
+  }
+
+  /* generic_sub (crypto/vm/bls.cpp): blst::P2::aggregate requires a in G2 */
+  if (!blst_p2_affine_in_g2(&a)) {
     return tvmlean_empty_byte_array();
   }
 
