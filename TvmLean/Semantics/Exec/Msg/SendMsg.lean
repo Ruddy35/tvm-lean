@@ -83,36 +83,38 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           throw .rangeChk
 
       let parseAddrWorkchain (cs0 : Slice) : VM Int := do
-        -- Mirrors `parse_addr_workchain` (tonops.cpp): expects MsgAddressInt (addr_std / addr_var).
-        let parsed : Except Excno Int := do
-          let (b0, cs1) ← cs0.takeBitsAsNatCellUnd 1
-          if b0 != 1 then
-            throw .rangeChk
-          let (isVarNat, cs2) ← cs1.takeBitsAsNatCellUnd 1
-          let isVar : Bool := isVarNat = 1
-          let (hasAnycastNat, cs3) ← cs2.takeBitsAsNatCellUnd 1
-          let cs4 ←
-            if hasAnycastNat = 0 then
-              pure cs3
-            else
-              let lenBits : Nat := natLenBits 30
-              let (depth, csD) ← cs3.takeBitsAsNatCellUnd lenBits
-              if depth = 0 ∨ depth > 30 then
-                throw .cellUnd
-              if csD.haveBits depth then
-                pure (csD.advanceBits depth)
-              else
-                throw .cellUnd
-          if isVar then
-            let (_, csLen) ← cs4.takeBitsAsNatCellUnd 9 -- addr_len
-            let (wcNat, _) ← csLen.takeBitsAsNatCellUnd 32
-            return natToIntSignedTwos wcNat 32
+        -- C++ `parse_addr_workchain` (tonops.cpp) reads without validating: a field cut short
+        -- is not consumed (`fetch_ulong` / `fetch_long` return their eof values, `skip_first`
+        -- fails); only a first bit other than 1 is an error (range_chk).
+        let b : BitString := cs0.readBits cs0.bitsRemaining
+        let fetch (pos n : Nat) : Option Nat × Nat :=
+          if pos + n ≤ b.size then (some (bitsToNat (b.extract pos (pos + n))), pos + n) else (none, pos)
+        let (b0, p1) := fetch 0 1
+        if b0 != some 1 then
+          throw .rangeChk
+        -- `fetch_ulong(1)` at the end is eof (not 0): addr_var
+        let (isVarBit, p2) := fetch p1 1
+        let isVar : Bool := isVarBit != some 0
+        let (anycastBit, p3) := fetch p2 1
+        -- anycast: `fetch_uint_leq(30, depth)` consumes the 5 bits even if depth > 30, and the
+        -- prefix is skipped only when it is there
+        let p4 : Nat :=
+          if anycastBit == some 1 then
+            match fetch p3 5 with
+            | (some depth, p) => if depth ≤ 30 ∧ p + depth ≤ b.size then p + depth else p
+            | (none, p) => p
           else
-            let (wcNat, _) ← cs4.takeBitsAsNatCellUnd 8
-            return natToIntSignedTwos wcNat 8
-        match parsed with
-        | .ok wc => pure wc
-        | .error e => throw e
+            p3
+        -- `(int)fetch_long(n)`: the eof value (-2^63) truncates to 0
+        if isVar then
+          let p5 : Nat := if p4 + 9 ≤ b.size then p4 + 9 else p4
+          match (fetch p5 32).1 with
+          | some w => pure (natToIntSignedTwos w 32)
+          | none => pure 0
+        else
+          match (fetch p4 8).1 with
+          | some w => pure (natToIntSignedTwos w 8)
+          | none => pure 0
 
       let parsedMsg : SendMsgParsed ←
         match (show Except Excno SendMsgParsed from do
@@ -123,9 +125,11 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
             let (_, s2) ← s1.takeBitsAsNatCellUnd 1 -- ihr_disabled (ignored for gv>=11)
             let (_, s3) ← s2.takeBitsAsNatCellUnd 1 -- bounce
             let (_, s4) ← s3.takeBitsAsNatCellUnd 1 -- bounced
-            let afterSrc ← s4.skipMessageAddr
+            -- src:MsgAddress dest:MsgAddressInt, as the generated block.tlb unpacker
+            -- (t_MessageRelaxed_Any) validates them: anycasts and addr_var are valid
+            let afterSrc ← s4.skipMsgAddressTlb
             let destStart := afterSrc
-            let destStop ← destStart.skipMessageAddr
+            let destStop ← destStart.skipMsgAddressIntTlb
             let destCell := Slice.prefixCell destStart destStop
             let dest := Slice.ofCell destCell
 
@@ -182,7 +186,10 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
             let (bodyRefNat, afterBodyTag) ← bodyStart.takeBitsAsNatCellUnd 1
             let (bodyRef, bodyStop) ←
               if bodyRefNat = 1 then
-                if afterBodyTag.haveRefs 1 then
+                -- `Either X ^X` in a reference ends the message: `type_unpack_cell` requires the
+                -- slice to be empty after it (`empty_ext`)
+                if afterBodyTag.haveRefs 1 && afterBodyTag.bitsRemaining == 0 &&
+                    afterBodyTag.refsRemaining == 1 then
                   pure (true, { afterBodyTag with refPos := afterBodyTag.refPos + 1 })
                 else
                   throw .cellUnd
@@ -213,9 +220,10 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
             let (b1, s2) ← s1.takeBitsAsNatCellUnd 1
             if b1 != 1 then
               throw .unknown
-            let afterSrc ← s2.skipMessageAddr
+            -- src:MsgAddress dest:MsgAddressExt
+            let afterSrc ← s2.skipMsgAddressTlb
             let destStart := afterSrc
-            let destStop ← destStart.skipMessageAddr
+            let destStop ← destStart.skipMsgAddressExtTlb
             let destCell := Slice.prefixCell destStart destStop
             let dest := Slice.ofCell destCell
             let (_, afterLt) ← destStop.takeBitsAsNatCellUnd 64 -- created_lt
@@ -247,7 +255,10 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
             let (bodyRefNat, afterBodyTag) ← bodyStart.takeBitsAsNatCellUnd 1
             let (bodyRef, bodyStop) ←
               if bodyRefNat = 1 then
-                if afterBodyTag.haveRefs 1 then
+                -- `Either X ^X` in a reference ends the message: `type_unpack_cell` requires the
+                -- slice to be empty after it (`empty_ext`)
+                if afterBodyTag.haveRefs 1 && afterBodyTag.bitsRemaining == 0 &&
+                    afterBodyTag.refsRemaining == 1 then
                   pure (true, { afterBodyTag with refPos := afterBodyTag.refPos + 1 })
                 else
                   throw .cellUnd

@@ -63,6 +63,48 @@ def Slice.skipMessageAddr (s : Slice) : Except Excno Slice := do
   | _ =>
       throw .cellUnd
 
+/-- `Maybe Anycast` as the TL-B schema defines it (block.tlb: `anycast_info$_ depth:(#<= 30)
+{ depth >= 1 } rewrite_pfx:(bits depth)`), for the validation of whole messages (the generated
+unpackers), unlike `skipMaybeAnycast` (C++ `skip_maybe_anycast`, which rejects anycasts). -/
+def Slice.skipMaybeAnycastTlb (s : Slice) : Except Excno Slice := do
+  let (b, s1) ← s.takeBitsAsNatCellUnd 1
+  if b = 0 then
+    return s1
+  let (depth, s2) ← s1.takeBitsAsNatCellUnd 5
+  if depth < 1 ∨ depth > 30 ∨ !s2.haveBits depth then
+    throw .cellUnd
+  return s2.advanceBits depth
+
+/-- TL-B `MsgAddressInt`: `addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256`
+or `addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) workchain_id:int32 address:(bits addr_len)`. -/
+def Slice.skipMsgAddressIntTlb (s : Slice) : Except Excno Slice := do
+  let (tag, s1) ← s.takeBitsAsNatCellUnd 2
+  if tag < 2 then
+    throw .cellUnd
+  let s2 ← s1.skipMaybeAnycastTlb
+  let (len, s3) ← if tag = 2 then pure (256, s2) else s2.takeBitsAsNatCellUnd 9
+  let need : Nat := (if tag = 2 then 8 else 32) + len
+  if !s3.haveBits need then
+    throw .cellUnd
+  return s3.advanceBits need
+
+/-- TL-B `MsgAddressExt` as the generated `MsgAddressExt::skip` (block-auto.cpp) reads it: tag `00`
+is `addr_none$00`; `get_tag` is `bselect(2, 3)`, so `01`, `10` and `11` all read as
+`addr_extern$01 len:(## 9) external_address:(bits len)` (the tag bits are not checked again). -/
+def Slice.skipMsgAddressExtTlb (s : Slice) : Except Excno Slice := do
+  let (tag, s1) ← s.takeBitsAsNatCellUnd 2
+  if tag = 0 then
+    return s1
+  let (len, s2) ← s1.takeBitsAsNatCellUnd 9
+  if !s2.haveBits len then
+    throw .cellUnd
+  return s2.advanceBits len
+
+/-- TL-B `MsgAddress`: `MsgAddressExt` or `MsgAddressInt`. -/
+def Slice.skipMsgAddressTlb (s : Slice) : Except Excno Slice := do
+  let (b, _) ← s.takeBitsAsNatCellUnd 1
+  if b = 0 then s.skipMsgAddressExtTlb else s.skipMsgAddressIntTlb
+
 def Slice.parseMaybeAnycast (s : Slice) : Except Excno (Value × Slice) := do
   -- Mirrors C++ `parse_maybe_anycast` for modern TVM (global_version >= 10):
   -- only `nothing$0` is accepted.
