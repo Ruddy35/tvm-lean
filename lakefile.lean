@@ -57,7 +57,8 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Cli,
     `Tests.Harness.Coverage,
     `Tests.Harness.Gen.Arith,
-    `Tests.Harness.Gen.Cell
+    `Tests.Harness.Gen.Cell,
+    `Tests.Harness.Gen.Tuple
   ]
 
 target tvmlean_crypto.o pkg : FilePath := do

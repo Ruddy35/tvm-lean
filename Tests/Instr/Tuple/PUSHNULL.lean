@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Tuple
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Tuple.PUSHNULL
 def suite : InstrSuite where
   id := { name := "PUSHNULL" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Tuple.casesFor "PUSHNULL"
   fuzz := #[]
 
 initialize registerSuite suite

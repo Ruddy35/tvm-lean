@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Tuple
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -9,7 +10,7 @@ namespace Tests.Instr.Tuple.NULLROTRIF
 def suite : InstrSuite where
   id := { name := "NULLROTRIF" }
   unit := #[]
-  oracle := #[]
+  oracle := Tests.Gen.Tuple.casesFor "NULLROTRIF"
   fuzz := #[]
 
 initialize registerSuite suite
