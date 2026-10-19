@@ -1,0 +1,5 @@
+// Header for the re-encoding check: rd ( v s -- ) prints "v <C++ dump of s>" where s is the
+// model's re-encoding of the instruction it decoded from v; noenc ( v -- ) marks encode failures.
+{ <b swap s, <b b> ref, <b b> ref, <b b> ref, <b b> ref, b> <s } : mk4
+{ swap . mk4 dup 0 (vmoplen) dup 0> { 65536 /mod swap sr@+ drop 0 (vmopdump) type drop } { 2drop ."INVALID" } cond cr } : rd
+{ . ."NOENC" cr } : noenc

@@ -52,3 +52,23 @@ for tail in ("tail0", "tail1"):
         for v in diff[:400]:
             print(f"| {v:06X} | `{c[v][1]}` | `{l[v][1]}` |")
         print()
+
+# re-encoding: C++ dump of the original value vs C++ dump of the model's re-encoding
+for tail in ("tail0", "tail1"):
+    c = load(f"{out}/cpp-name-{tail}.txt")
+    r = {}
+    for line in open(f"{out}/cpp-reasm-{tail}.txt"):
+        a = line.rstrip("\n").split(" ", 1)
+        if a and a[0].isdigit():
+            r[int(a[0])] = " ".join(a[1].split()) if len(a) > 1 else ""
+    checked = [v for v in r if v in c and c[v][0] > 0]
+    noenc = [v for v in checked if r[v] == "NOENC"]
+    diff = [v for v in checked if r[v] != "NOENC" and r[v] != c[v][1]]
+    print(f"## Пересборка, хвост `{tail}`: C++ печатает исходный опкод и пересобранную моделью инструкцию\n")
+    print(f"- проверено: {len(checked)}; модель не смогла пересобрать: {len(noenc)}; записи C++ различаются: **{len(diff)}**\n")
+    if diff or noenc:
+        print("| значение | C++ (исходный опкод) | C++ (пересборка модели) |")
+        print("|---|---|---|")
+        for v in (diff + noenc)[:300]:
+            print(f"| {v:06X} | `{c[v][1]}` | `{r[v]}` |")
+        print()

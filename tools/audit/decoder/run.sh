@@ -18,5 +18,9 @@ for tail in tail0 tail1; do
   "$BIN" name $tail 0 $N > "$OUT/lean-name-$tail.txt" &
   wait
 done
+for tail in tail0 tail1; do
+  { cat "$HERE/reasm_head.fif"; "$BIN" reasm $tail 0 $N; } > "$OUT/reasm-$tail.fif"
+  "$TON_FIFT_BIN" -I "$TON_FIFT_LIB" "$OUT/reasm-$tail.fif" > "$OUT/cpp-reasm-$tail.txt"
+done
 python3 "$HERE/compare.py" "$OUT" $J > "$OUT/summary.md"
 cat "$OUT/summary.md"
