@@ -21,6 +21,13 @@ def withVersion (cfg : Cell) (version caps : Nat) : Cell :=
   | .ok (some r, _, _, _) => r
   | _ => cfg
 
+/-- The configuration with parameter 5 set to `burning_config#01` with the blackhole address `addr`. -/
+def withBlackhole (cfg : Cell) (addr : BitString) : Cell :=
+  let p5 := ((((({} : W).uint 1 8).bool true).bitStr addr).uint 1 32).uint 2 32 |>.cell
+  match dictSetRefWithCells (some cfg) (natToBits 5 32) p5 .set with
+  | .ok (some r, _, _, _) => r
+  | _ => cfg
+
 /-- The code cell of `code`: `encodeCp0Code`, whose references (`PUSHREF`, `PUSHCONT` with
 references, ...) become references of the cell. -/
 def asm? (code : List Instr) : Except String Cell := do
@@ -390,6 +397,21 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (mk "frozen/int" (mkAccount 0 a (.frozen (natToBits 77 256)) 5000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
     out := out ++ extraCases mk a data
     out := out ++ tickTockCases cfg mk a data
+    -- the blackhole address burns the grams of an inbound message (masterchain only)
+    let cfgB := withBlackhole cfg a
+    let mkB (name : String) (acc msg : Cell) : TxCase := { mk name acc msg with config := cfgB }
+    let cfgAddr := (Config.decode cfg).map (·.configAddr) |>.getD a
+    for (pname, prog) in programs.filter (fun (n, _) => ["accept", "c7", "c7-v4", "throw42", "in-msg-params"].contains n) do
+      for (wname, wc) in [("mc", (-1 : Int)), ("bc", 0)] do
+        out := out.push (mkB s!"blackhole/{pname}/{wname}" (mkAccount wc a (.active (asm prog) data) 1000000000 1700000000 0 1000)
+          (intMsg wc a 100000000 false none #[] (extra := extraOf [(7, amt 3)])))
+        out := out.push (mkB s!"blackhole/{pname}/{wname}/bounce" (mkAccount wc a (.active (asm prog) data) 1000000000 1700000000 0 1000)
+          (intMsg wc a 100000000 true none #[]))
+      out := out.push (mkB s!"blackhole/{pname}/special" (mkAccount (-1) cfgAddr (.active (asm prog) data) 1000000000 1700000000 0 1000)
+        (intMsg (-1) cfgAddr 100000000 false none #[]))
+    out := out.push (mkB "blackhole/none" (mkAccount (-1) a .none 0 0 0 0) (intMsg (-1) a 100000000 false none #[]))
+    out := out.push (mkB "blackhole/ext" (mkAccount (-1) a (.active (asm [.tonEnvOp .accept]) data) 1000000000 1700000000 0 1000)
+      (extMsg (-1) a none #[]))
     -- amounts with a leading zero byte: the generated TL-B code reads them, block::tlb does not
     let code := asm [.tonEnvOp .accept]
     for k in [1, 2, 3] do

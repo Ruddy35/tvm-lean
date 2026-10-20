@@ -344,7 +344,9 @@ def Tx.unpackInputMsg (t : Tx) (sl : SizeLimits) (fwdPrices : MsgPrices) : Optio
       if c.special then return .error "exotic message body"
       some (Slice.ofCell c)
   let t := { t with inMsgState := state, inMsgBody := body, totalFees := t.totalFees + t.inFwdFee }
-  if t.account.isMasterchain && (t.cfg.blackholeAddr == some t.account.addr) then return .error "blackhole"
+  -- the blackhole address of the masterchain (parameter 5) burns the grams of the message
+  if t.account.isMasterchain && (t.cfg.blackholeAddr == some t.account.addr) then
+    return .ok { t with msgBalanceRemaining := 0 }
   return .ok t
 
 
