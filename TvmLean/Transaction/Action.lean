@@ -5,13 +5,22 @@ import TvmLean.Transaction.Run
 
 C++ `Transaction::prepare_action_phase`, `try_action_send_msg`, `try_action_reserve_currency`,
 `try_action_set_code`, `try_action_change_library`, `check_replace_src_addr`,
-`check_rewrite_dest_addr` and `prepare_bounce_phase` (`crypto/block/transaction.cpp`). Balances
-carry grams only: an extra currency anywhere is reported as not modelled.
+`check_rewrite_dest_addr` and `prepare_bounce_phase` (`crypto/block/transaction.cpp`). Extra
+currencies follow `extra_currency_v2` (version 10): before it they move with the grams (mode 128 sends
+all of them, mode 64 those of the inbound message, a reserve takes them); from it only what an
+outbound message names is sent, without zero amounts, and a reserve of extra currencies is invalid.
 -/
 
 namespace TvmLean.Tx
 
 /-! ## Validation of TL-B values (`validate_ref`, `validate_csr`) -/
+
+/-- A malformed dictionary of extra currencies: C++ throws, the path is not modelled. -/
+def liftDict (x : DictM α) : Except String α :=
+  match x with
+  | .ok a => .ok a
+  | .error _ => .error "malformed extra currencies"
+
 
 /-- `HashmapE 32 (VarUInteger 32)` (`ExtraCurrencyCollection`). -/
 def validExtraCurrencies (root : Option Cell) : Bool :=
@@ -263,7 +272,7 @@ def Tx.actionChangeLibrary (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 
   | .error _ => return (42, t, ap)
   | .ok (root, _, _, _) => return (0, { t with newLibrary := root }, { ap with specActions := ap.specActions + 1 })
 
-/-- `try_action_reserve_currency` (grams only). -/
+/-- `try_action_reserve_currency`. -/
 def Tx.actionReserve (t : Tx) (ap : ActionPhase) (mode0 : Nat) (value : Currencies) : Except String (Int × ActionPhase) := do
   let mut mode := mode0
   let mut ap := ap
@@ -271,22 +280,50 @@ def Tx.actionReserve (t : Tx) (ap : ActionPhase) (mode0 : Nat) (value : Currenci
     mode := mode - (mode &&& 16)
     ap := { ap with needBounceOnFail := true }
   if mode >>> 4 != 0 then return (-1, ap)
-  if value.extra.isSome then
-    if t.gv ≥ 10 then return (-1, ap) else throw "extra currencies"
+  -- `reserve.validate_unpack`: `block::tlb` amounts (the generated code of the action list is laxer)
+  if !value.valid then return (-1, ap)
+  if t.gv ≥ 10 && value.extra.isSome then return (-1, ap)
   let mut reserve : Int := value.grams
+  let mut resExtra := value.extra
   if mode &&& 4 != 0 then
-    reserve := if mode &&& 8 != 0 then Int.ofNat t.originalBalance - reserve else reserve + t.originalBalance
+    if t.gv ≥ 10 then
+      reserve := if mode &&& 8 != 0 then Int.ofNat t.originalBalance - reserve else reserve + t.originalBalance
+    else
+      -- `original_balance - reserve` or `reserve + original_balance` as `CurrencyCollection`s
+      if t.originalInvalid then return (-1, ap)
+      if mode &&& 8 != 0 then
+        reserve := Int.ofNat t.originalBalance - reserve
+        if reserve < 0 then return (-1, ap)
+        let some e ← liftDict (extraSub t.originalExtra resExtra) | return (-1, ap)
+        resExtra := e
+      else
+        reserve := reserve + t.originalBalance
+        let some e ← liftDict (extraAdd resExtra t.originalExtra) | return (-1, ap)
+        resExtra := e
   else if mode &&& 8 != 0 then return (-1, ap)
   if reserve < 0 then return (-1, ap)
   let mut r := reserve.toNat
-  if mode &&& 2 != 0 then r := Nat.min r ap.remainingBalance
+  if mode &&& 2 != 0 then
+    r := Nat.min r ap.remainingBalance
+    -- `clamp` (reserve_extra_enabled, version 9)
+    if t.gv ≥ 9 then
+      let some e ← liftDict (extraClamp resExtra ap.remainingExtra) | return (-1, ap)
+      resExtra := e
   if r > ap.remainingBalance then return (37, ap)
+  let some newExtra ← liftDict (extraSub ap.remainingExtra resExtra) | return (38, ap)
   let mut newc := ap.remainingBalance - r
+  let mut newExtra := newExtra
   if mode &&& 1 != 0 then
     let x := newc
     newc := r
     r := x
-  return (0, { ap with remainingBalance := newc, reservedBalance := ap.reservedBalance + r, specActions := ap.specActions + 1 })
+    if t.gv < 10 then
+      let e := newExtra
+      newExtra := resExtra
+      resExtra := e
+  let some reserved ← liftDict (extraAdd ap.reservedExtra resExtra) | return (errFailActionPhase, ap)
+  return (0, { ap with remainingBalance := newc, remainingExtra := newExtra, reservedBalance := ap.reservedBalance + r,
+                       reservedExtra := reserved, specActions := ap.specActions + 1 })
 
 /-- The distinct cells and bits referenced by `slices` (their roots not counted) and the largest
 Merkle depth, counted at most up to `maxCells` cells (`CellStorageStat` with `limit_cells`: the
@@ -330,7 +367,8 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
     | .int ihr b _ src dest v ef ff => (false, ihr, b, src, dest, v, ef, ff)
     | .ext src dest => (true, true, false, src, dest, ({ grams := 0 } : Currencies), 0, 0)
   if ext && mode >>> 2 != 0 then return (-1, t, ap)
-  if value.extra.isSome then throw "extra currencies"
+  -- `t_CurrencyCollection.validate_csr(info.value)`: `block::tlb` amounts, positive extra currencies
+  if !ext && !value.valid then return (-1, t, ap)
   let mut fwdFee : Nat := 0
   let mut ihrFee : Nat := 0
   let mut ihrDisabled := ihrDisabled0
@@ -345,6 +383,17 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
     | return if t.gv ≥ 13 then skip ap 35 else (35, t, ap)
   let some (dest, toMc) := t.checkRewriteDestAddr dest0 (t.gv < 10)
     | return skip ap 36
+  -- the extra currencies before version 10 count in the size of the message
+  let valueRoot : List Slice :=
+    match value.extra with
+    | some d => if !ext && t.gv < 10 then [Slice.ofCell (Cell.mkOrdinary #[] #[d])] else []
+    | none => []
+  -- extra_currency_v2: zero amounts removed, at most `max_msg_extra_currencies`
+  let mut value := value
+  if !ext && t.gv ≥ 10 then
+    match ← liftDict (extraRemoveZero value.extra sl.maxMsgExtraCurrencies) with
+    | none => return skip ap 44
+    | some e => value := { value with extra := e }
   let some prices := t.cfg.msgPrices (toMc || t.account.isMasterchain) | throw "msg prices"
   -- the fine for the cells of a message that fails (version 4)
   let mut maxCells := sl.maxMsgCells
@@ -360,7 +409,7 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
       funds := min funds newFunds
     if funds < maxCells * finePerCell then
       maxCells := (funds / finePerCell).toNat
-  let (cells, bits, depth) := refsStorage [init, body] maxCells
+  let (cells, bits, depth) := refsStorage ([init, body] ++ valueRoot) maxCells
   let fine := if t.gv ≥ 4 && !t.account.isSpecial then finePerCell * Nat.min maxCells cells else 0
   let collectFine (ap : ActionPhase) : ActionPhase :=
     let f := Nat.min fine ap.remainingBalance
@@ -379,24 +428,36 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
   let newMsg : Cell ← if !ext then do
       if ihrDisabled then ihrFee := 0
       let mut req : Int := value.grams
+      let mut reqExtra := value.extra
       if mode &&& 0x80 != 0 then
         req := ap.remainingBalance
+        if t.gv < 10 then reqExtra := ap.remainingExtra
         mode := mode - (mode &&& 1)
       else if mode &&& 0x40 != 0 then
         req := req + t.msgBalanceRemaining
+        -- before version 10 `req += msg_balance_remaining` adds the extra currencies too (an invalid sum
+        -- fails below like a negative one)
+        let mut reqValid := true
+        if t.gv < 10 then
+          match ← liftDict (extraAdd reqExtra t.msgExtra) with
+          | some e => reqExtra := e
+          | none => reqValid := false
         if mode &&& 1 == 0 then
           req := req - ap.actionFine - t.computePhase.gasFees
-          if req < 0 then return skip (collectFine ap) 37
+          if req < 0 || !reqValid then return skip (collectFine ap) 37
+        else if !reqValid then throw "invalid message value"
       let mut brutto := req
       let total := fwdFee + ihrFee
       if mode &&& 1 != 0 then brutto := brutto + total
       else if req < total then return skip (collectFine ap) 37
       else req := req - total
       if ap.remainingBalance < brutto then return skip (collectFine ap) 37
+      if t.gv ≥ 10 && !(← liftDict (extraWithin reqExtra sl.maxMsgExtraCurrencies)) then return skip ap 44
+      let some newExtra ← liftDict (extraSub ap.remainingExtra reqExtra) | return skip (collectFine ap) 38
       let fwdMine := fwdFee * prices.firstFrac / 0x10000
       let fwdRemain := fwdFee - fwdMine
       let w : W := (((({} : W).bool false).bool ihrDisabled).bool bounce).bool false
-      let w := ((w.bitStr src).bitStr dest).currencies { grams := req.toNat }
+      let w := ((w.bitStr src).bitStr dest).currencies { grams := req.toNat, extra := reqExtra }
       let w := (w.grams (if t.gv ≥ 12 then extraFlags else ihrFee)).grams fwdRemain
       let w := ((w.uint lt 64).uint t.now 32).slice init |>.slice body
       if w.bits.size > 1023 || w.refs.size > 4 then
@@ -405,8 +466,10 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
       if t.gv ≥ 15 then
         if ap.totMsgBits + bits + newBits > sl.maxTotalMsgBits || ap.totMsgCells + cells + 1 > sl.maxTotalMsgCells then
           return skip (collectFine ap) 47
-      if mode &&& 0xc0 != 0 then t := { t with msgBalanceRemaining := 0 }
-      ap := { ap with remainingBalance := ap.remainingBalance - brutto.toNat, totMsgBits := ap.totMsgBits + bits + newBits }
+      if mode &&& 0xc0 != 0 then
+        t := { t with msgBalanceRemaining := 0, msgExtra := if t.gv ≥ 10 then t.msgExtra else none }
+      ap := { ap with remainingBalance := ap.remainingBalance - brutto.toNat, remainingExtra := newExtra,
+                      totMsgBits := ap.totMsgBits + bits + newBits }
       feesTotal := fwdFee + ihrFee
       feesCollected := fwdMine
       pure w.cell
@@ -428,8 +491,10 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
                   totalActionFees := ap.totalActionFees + feesCollected, totalFwdFees := ap.totalFwdFees + feesTotal,
                   totMsgCells := ap.totMsgCells + cells + 1 }
   if mode &&& 0xa0 == 0xa0 then
-    if ap.remainingBalance != 0 then return (errFailActionPhase, t, ap)
-    ap := { ap with accDeleteReq := ap.reservedBalance == 0 }
+    -- before version 10 the extra currencies must be gone too
+    let v1 := t.gv < 10
+    if ap.remainingBalance != 0 || (v1 && ap.remainingExtra.isSome) then return (errFailActionPhase, t, ap)
+    ap := { ap with accDeleteReq := ap.reservedBalance == 0 && (!v1 || ap.reservedExtra.isNone) }
   if t.gv ≥ 15 then ap := { ap with failActionFine := ap.failActionFine + fine }
   return (0, t, ap)
 
@@ -441,8 +506,9 @@ returns false (the transaction fails). -/
 def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := do
   let some list0 := t.computePhase.actions | return none
   let mut ap : ActionPhase :=
-    { actionListHash := bytesToBits list0.hashBytes, remainingBalance := t.balance, endLt := t.endLt }
-  let msgBalanceBefore := t.msgBalanceRemaining
+    { actionListHash := bytesToBits list0.hashBytes, remainingBalance := t.balance, remainingExtra := t.balanceExtra,
+      endLt := t.endLt }
+  let (msgBalanceBefore, msgExtraBefore) := (t.msgBalanceRemaining, t.msgExtra)
   let (oldCode, oldData, oldLibrary) := (t.newCode, t.newData, t.newLibrary)
   -- the list, from the last action
   let mut nodes : Array Cell := #[]
@@ -519,7 +585,7 @@ def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := 
               t := { t with newCode := oldCode, newData := oldData, newLibrary := oldLibrary }
               ap := { ap with resultCode := 50, stateExceedsLimits := true }
           | some true => pure ()
-          if t.gv ≥ 14 then t := { t with msgBalanceRemaining := msgBalanceBefore }
+          if t.gv ≥ 14 then t := { t with msgBalanceRemaining := msgBalanceBefore, msgExtra := msgExtraBefore }
           if t.gv ≥ 4 then
             let fine := Nat.min (ap.actionFine + ap.failActionFine) t.balance
             ap := { ap with actionFine := fine, totalActionFees := fine }
@@ -535,7 +601,7 @@ def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := 
   | some false =>
       t := { t with newCode := oldCode, newData := oldData, newLibrary := oldLibrary }
       ap := { ap with resultCode := 50, stateExceedsLimits := true }
-      if t.gv ≥ 14 then t := { t with msgBalanceRemaining := msgBalanceBefore }
+      if t.gv ≥ 14 then t := { t with msgBalanceRemaining := msgBalanceBefore, msgExtra := msgExtraBefore }
       if t.gv ≥ 10 then
         t := { t with endLt := t.startLt + 1 }
         ap := { ap with endLt := t.startLt + 1 }
@@ -545,13 +611,16 @@ def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := 
           t := { t with balance := t.balance - fine, totalFees := t.totalFees + fine }
       return some { t with actionPhase := some ap }
   | some true => pure ()
-  ap := { ap with resultArg := 0, resultCode := 0, remainingBalance := ap.remainingBalance + ap.reservedBalance }
+  let some remainingExtra ← liftDict (extraAdd ap.remainingExtra ap.reservedExtra) | return none
+  ap := { ap with resultArg := 0, resultCode := 0, remainingBalance := ap.remainingBalance + ap.reservedBalance,
+                  remainingExtra }
   if ap.accDeleteReq then
-    if ap.remainingBalance != 0 then return none
+    if ap.remainingBalance != 0 || (t.gv < 10 && ap.remainingExtra.isSome) then return none
     ap := { ap with accStatusChange := 3 }
-    t := { t with accStatus := .deleted, wasDeleted := true }
+    t := { t with accStatus := if ap.remainingExtra.isNone then .deleted else .uninit, wasDeleted := true }
   return some { t with actionPhase := some { ap with success := true }, outMsgs := ap.outMsgs,
-                       totalFees := t.totalFees + ap.totalActionFees, balance := ap.remainingBalance }
+                       totalFees := t.totalFees + ap.totalActionFees, balance := ap.remainingBalance,
+                       balanceExtra := ap.remainingExtra }
 
 
 /-! ## The bounce phase -/
@@ -585,13 +654,19 @@ def Tx.bouncePhaseRun (t : Tx) : Except String (Option Tx) := do
     else {}
   let some (dest, toMc) := t.checkRewriteDestAddr info.src true | return none
   let some prices := t.cfg.msgPrices (toMc || t.account.isMasterchain) | throw "msg prices"
-  let (cells, bits, _) := refsStorage [Slice.ofCell body.cell] 1000000000
+  -- before version 13 the extra currencies of the inbound message count in the size
+  let valueRoot : List Slice :=
+    match info.value.extra with
+    | some d => if t.gv < 13 then [Slice.ofCell (Cell.mkOrdinary #[] #[d])] else []
+    | none => []
+  let (cells, bits, _) := refsStorage (valueRoot ++ [Slice.ofCell body.cell]) 1000000000
   let fwd := prices.fwdFees cells bits
   let fine := (t.actionPhase.map (·.actionFine)).getD 0
   let msgBalance : Int := Int.ofNat t.msgBalanceRemaining - t.computePhase.gasFees - fine
   if msgBalance < 0 || msgBalance < fwd then
     return some { t with bouncePhase := some { ok := false, msgCells := cells, msgBits := bits, fwdFees := fwd } }
-  let t : Tx := { t with balance := t.balance - msgBalance.toNat }
+  let some balanceExtra ← liftDict (extraSub t.balanceExtra t.msgExtra) | return none
+  let t : Tx := { t with balance := t.balance - msgBalance.toNat, balanceExtra }
   let value := msgBalance.toNat - fwd
   let collected := fwd * prices.firstFrac / 0x10000
   let fwdRemain := fwd - collected
@@ -600,7 +675,7 @@ def Tx.bouncePhaseRun (t : Tx) : Except String (Option Tx) := do
   let t : Tx := { t with endLt := t.endLt + 1 }
   let w : W := (({} : W).uint 5 4).bitStr info.dest |>.bitStr dest
   -- `in_msg_extra_flags` is read from version 12 (before, the field was the IHR fee)
-  let w := (w.currencies { grams := value }).grams (if t.gv ≥ 12 then t.inMsgInfo.extraFlags &&& 3 else 0) |>.grams fwdRemain
+  let w := (w.currencies { grams := value, extra := t.msgExtra }).grams (if t.gv ≥ 12 then t.inMsgInfo.extraFlags &&& 3 else 0) |>.grams fwdRemain
   let w := ((w.uint lt 64).uint t.now 32).bool false
   let w := if w.bits.size + 1 + body.bits.size ≤ 1023 && w.refs.size + body.refs.size ≤ 4 then
       -- `append_builder`: the bits and the references of the body

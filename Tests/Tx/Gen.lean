@@ -62,20 +62,40 @@ def programs : List (String × List Instr) :=
    ("accept-loop", [.tonEnvOp .accept, .contExt (.againEnd false)]),
    ("commit-throw", [.newc, .pushInt (.num 7), stur 8, .endc, .popCtr 4, .tonEnvOp .commit, .throw 5]),
    ("bad-c4", [.pushInt (.num 1), .popCtr 4]),
-   ("deep-c4", [.newc, .endc] ++ (List.replicate 20 [.newc, .stref, .endc]).flatten ++ [.popCtr 4])]
+   ("deep-c4", [.newc, .endc] ++ (List.replicate 20 [.newc, .stref, .endc]).flatten ++ [.popCtr 4]),
+   -- the extra currencies of the balance and of the inbound message (c7, version 4)
+   ("c7-extra", [.tonEnvOp .balance, .tupleOp (.index 1), .newc, .stdict, .tonEnvOp .incomingValue,
+                 .tupleOp (.index 1), .xchg0 1, .stdict, .endc, .popCtr 4]),
+   ("in-msg-extra", [.tonEnvOp (.inMsgParam 8), .newc, .stdict, .endc, .popCtr 4])]
 
 def addrStd (wc : Int) (a : BitString) : W := (((({} : W).uint 2 2).bool false).int wc 8).bitStr a
 
 def other : BitString := natToBits 0x3333333333333333333333333333333333333333333333333333333333333333 256
 
+/-- An amount of an extra currency (`VarUInteger 32`, the fewest bytes). -/
+def amt (v : Nat) : BitString := (({} : W).varUInt v 32).bits
+
+/-- `ExtraCurrencyCollection` with the given currencies and raw amounts, set in this order. -/
+def extraOf (es : List (Nat × BitString)) : Option Cell := Id.run do
+  let mut root : Option Cell := none
+  for (k, v) in es do
+    match dictSetBuilderWithCells root (natToBits k 32) { bits := v, refs := #[] } .set with
+    | .ok (r, _, _, _) => root := r
+    | .error _ => pure ()
+  return root
+
+/-- Extra currencies of the tests: 7, 100 and 4000000000 of them (amounts in units). -/
+def extra2 : Option Cell := extraOf [(7, amt 500), (100, amt 1000000)]
+def extra3 : Option Cell := extraOf [(7, amt 500), (100, amt 1000000), (4000000000, amt 3)]
+
 /-- An outbound internal message as a contract proposes it (`MessageRelaxed`): source `addr_none`
 or `src`, destination `(wc, dest)`, the value, the bounce flag, a body of `body` bits inline or in a
 reference. -/
 def relaxedInt (wc : Int) (dest : BitString) (value : Nat) (bounce : Bool := false) (body : BitString := #[])
-    (bodyRef : Bool := false) (src : Option BitString := none) (fwdFee : Nat := 0) : Cell :=
+    (bodyRef : Bool := false) (src : Option BitString := none) (fwdFee : Nat := 0) (extra : Option Cell := none) : Cell :=
   let w : W := (((({} : W).bool false).bool true).bool bounce).bool false
   let w := match src with | some a => w.bitStr (addrStd 0 a).bits | none => w.uint 0 2
-  let w := (((w.bitStr (addrStd wc dest).bits).grams value).bool false).grams 0 |>.grams fwdFee
+  let w := (((w.bitStr (addrStd wc dest).bits).grams value).maybeRef extra).grams 0 |>.grams fwdFee
   let w := ((w.uint 0 64).uint 0 32).bool false
   if bodyRef then ((w.bool true).ref (Cell.mkOrdinary body)).cell else ((w.bool false).bitStr body).cell
 
@@ -139,14 +159,14 @@ inductive AccState where
   | none
 
 /-- A `ShardAccount` at `(wc, addr)` with the storage statistics C++ computes. -/
-def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt : Nat) : Cell :=
+def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt : Nat) (extra : Option Cell := none) : Cell :=
   let stateBits : W :=
     match st with
     | .active code data => ((((({} : W).bool true).bool false).bool false).maybeRef (some code)).maybeRef (some data) |>.bool false
     | .uninit => ({} : W).uint 0 2
     | .frozen h => (({} : W).uint 1 2).bitStr h
     | .none => {}
-  let storage : W := (({} : W).uint lt 64).grams bal |>.bool false
+  let storage : W := (({} : W).uint lt 64).grams bal |>.maybeRef extra
   let storage := { storage with bits := storage.bits ++ stateBits.bits, refs := storage.refs ++ stateBits.refs }
   let sc := storage.cell
   let acc : Cell :=
@@ -163,11 +183,11 @@ def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt
 /-- An internal message to `(wc, dest)`, with an optional `StateInit` in a reference and a body of
 `body` bits inline. -/
 def intMsg (wc : Int) (dest : BitString) (value : Nat) (bounce : Bool) (init : Option Cell) (body : BitString)
-    (extraFlags : Nat := 0) (bodyRefs : Array Cell := #[]) : Cell :=
+    (extraFlags : Nat := 0) (bodyRefs : Array Cell := #[]) (extra : Option Cell := none) : Cell :=
   let src := natToBits 0x2222222222222222222222222222222222222222222222222222222222222222 256
   let w : W := (((({} : W).bool false).bool true).bool bounce).bool false
   let w := (w.bitStr (addrStd 0 src).bits).bitStr (addrStd wc dest).bits
-  let w := (((w.grams value).bool false).grams extraFlags).grams 0 |>.uint 2000 64 |>.uint 1700000100 32
+  let w := (((w.grams value).maybeRef extra).grams extraFlags).grams 0 |>.uint 2000 64 |>.uint 1700000100 32
   let w := match init with
     | some c => ((w.bool true).bool true).ref c
     | none => w.bool false
@@ -183,9 +203,86 @@ def extMsg (wc : Int) (dest : BitString) (init : Option Cell) (body : BitString)
 
 def seed : BitString := natToBits 0x5eed5eed 256
 
+/-- Contracts that move extra currencies (the balance has `extra2`). -/
+def extraPrograms : List (String × List Instr) :=
+  let rsv (v : Nat) (e : Option Cell) (mode : Nat) : List Instr :=
+    let d := (({} : W).maybeRef e).cell
+    -- RAWRESERVEX: x D y
+    [.pushInt (.num (Int.ofNat v)), .pushRef d, .ctos, .lddict true false, .pushInt (.num (Int.ofNat mode)),
+     .tonEnvOp .rawReserveX]
+  let one := extraOf [(7, amt 200)]
+  let lz := extraOf [(7, natToBits 2 5 ++ natToBits 5 16)]
+  [("x-send", sendRaw (relaxedInt 0 other 10000000 (extra := one)) 0),
+   ("x-send-pay", sendRaw (relaxedInt 0 other 10000000 (extra := one)) 1),
+   ("x-send-zero", sendRaw (relaxedInt 0 other 10000000 (extra := extraOf [(7, amt 0), (100, amt 5)])) 0),
+   ("x-send-zero-only", sendRaw (relaxedInt 0 other 10000000 (extra := extraOf [(7, amt 0)])) 0),
+   ("x-send-missing", sendRaw (relaxedInt 0 other 10000000 (extra := extraOf [(9, amt 1)])) 0),
+   ("x-send-missing-skip", sendRaw (relaxedInt 0 other 10000000 (extra := extraOf [(9, amt 1)])) 2),
+   ("x-send-too-much", sendRaw (relaxedInt 0 other 10000000 (extra := extraOf [(7, amt 501)])) 0),
+   ("x-send-all-of-one", sendRaw (relaxedInt 0 other 10000000 (extra := extraOf [(7, amt 500)])) 0),
+   ("x-send-three", sendRaw (relaxedInt 0 other 10000000 (extra := extraOf [(7, amt 1), (100, amt 1), (200, amt 0)])) 0),
+   ("x-send-three-skip", sendRaw (relaxedInt 0 other 10000000 (extra := extraOf [(7, amt 1), (100, amt 1), (200, amt 1)])) 2),
+   ("x-send-leading-zero", sendRaw (relaxedInt 0 other 10000000 (extra := lz)) 0),
+   ("x-send-leading-zero-fees", sendRaw (relaxedInt 0 other 10000000 (extra := lz)) 1),
+   ("x-send-all", sendRaw (relaxedInt 0 other 0) 128),
+   ("x-send-all-extra", sendRaw (relaxedInt 0 other 0 (extra := one)) 128),
+   ("x-send-all-delete", sendRaw (relaxedInt 0 other 0) 160),
+   ("x-send-carry", sendRaw (relaxedInt 0 other 0) 64),
+   ("x-send-carry-extra", sendRaw (relaxedInt 0 other 1000 (extra := one)) 65),
+   ("x-send-two", sendRaw (relaxedInt 0 other 1000000 (extra := one)) 1 ++ sendRaw (relaxedInt 0 other 1000000 (extra := one)) 1),
+   ("x-bounce-body", sendRaw (relaxedInt 0 other 10000000 (extra := one)) 0 ++ [.throw 77]),
+   ("x-reserve", rsv 1000 one 0),
+   ("x-reserve-all-but", rsv 1000 one 1),
+   ("x-reserve-bounded", rsv 1000 (extraOf [(7, amt 900), (9, amt 1)]) 2),
+   ("x-reserve-missing", rsv 1000 (extraOf [(9, amt 1)]) 0),
+   ("x-reserve-orig", rsv 1000 one 4 ++ sendRaw (relaxedInt 0 other 0) 128),
+   ("x-reserve-orig-minus", rsv 1000 one 12),
+   ("x-reserve-orig-grams", rsv 1000 none 4 ++ sendRaw (relaxedInt 0 other 0) 128),
+   ("x-reserve-then-delete", rsv 0 one 0 ++ sendRaw (relaxedInt 0 other 0) 160)]
+
+/-- Extra currencies: in the balance, in the inbound message, in the actions, in a bounce, in the
+storage phase. -/
+def extraCases (mk : String → Cell → Cell → TxCase) (a : BitString) (data : Cell) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let msgX := extraOf [(100, amt 5), (3, amt 77)]
+  let msgSame := extraOf [(7, amt 1), (100, amt 2)]
+  for (pname, prog) in (programs.filter fun (n, _) => n == "accept" || n == "throw42" || n.startsWith "c7" || n == "in-msg-extra") do
+    for (xname, accX) in [("acc", extra2), ("acc3", extra3), ("noacc", none)] do
+      for (mname, mX) in [("msg", msgX), ("msg-same", msgSame), ("nomsg", none)] do
+        let acc := mkAccount 0 a (.active (asm prog) data) 1000000000 1700000000 0 1000 accX
+        out := out.push (mk s!"x/{pname}/{xname}/{mname}" acc (intMsg 0 a 100000000 false none #[] (extra := mX)))
+        out := out.push (mk s!"x/{pname}/{xname}/{mname}/bounce" acc (intMsg 0 a 100000000 true none (natToBits 3 8) (extra := mX)))
+      out := out.push (mk s!"x/{pname}/{xname}/ext" (mkAccount 0 a (.active (asm prog) data) 1000000000 1700000000 0 1000 accX)
+        (extMsg 0 a none #[]))
+  for (pname, prog) in extraPrograms do
+    for (bname, bal) in [("rich", 1000000000), ("poor", 3000000)] do
+      let acc := mkAccount 0 a (.active (asm prog) data) bal 1700000000 0 1000 extra2
+      out := out.push (mk s!"{pname}/{bname}/int" acc (intMsg 0 a 100000000 false none #[]))
+      out := out.push (mk s!"{pname}/{bname}/int-extra" acc (intMsg 0 a 100000000 true none #[] (extra := msgX)))
+      out := out.push (mk s!"{pname}/{bname}/ext" acc (extMsg 0 a none #[]))
+  -- the new bounce format carries the original value
+  out := out.push (mk "x/bounce-new" (mkAccount 0 a (.active (asm [.throw 42]) data) 1000000000 1700000000 0 1000)
+    (intMsg 0 a 100000000 true none (natToBits 5 8) 1 #[] msgX))
+  -- uninitialized and absent accounts get extra currencies; a large due keeps them
+  out := out.push (mk "x/none" (mkAccount 0 a .none 0 0 0 0) (intMsg 0 a 100000000 false none #[] (extra := msgX)))
+  out := out.push (mk "x/none-bounce" (mkAccount 0 a .none 0 0 0 0) (intMsg 0 a 100000000 true none #[] (extra := msgX)))
+  out := out.push (mk "x/none-zero-grams" (mkAccount 0 a .none 0 0 0 0) (intMsg 0 a 0 false none #[] (extra := msgX)))
+  out := out.push (mk "x/uninit-old" (mkAccount 0 a .uninit 5000 1600000000 0 1000 extra2) (intMsg 0 a 1000 false none #[]))
+  out := out.push (mk "x/uninit-old-noextra" (mkAccount 0 a .uninit 5000 1600000000 0 1000) (intMsg 0 a 1000 false none #[]))
+  out := out.push (mk "x/frozen-old" (mkAccount 0 a (.frozen (natToBits 77 256)) 5000 1600000000 0 1000 extra2)
+    (intMsg 0 a 1000 false none #[]))
+  out := out.push (mk "x/active-old" (mkAccount 0 a (.active (asm []) data) 5000 1600000000 0 1000 extra2)
+    (intMsg 0 a 1000 false none #[]))
+  -- before version 9 `original_balance` is the account's balance less the fees so far: below zero it is
+  -- invalid and a reserve relative to it fails
+  for (pname, prog) in (actionPrograms ++ extraPrograms).filter (fun (n, _) => (n.splitOn "reserve-orig").length > 1) do
+    out := out.push (mk s!"{pname}/tiny-old" (mkAccount 0 a (.active (asm prog) data) 1000 1600000000 0 1000 extra2)
+      (intMsg 0 a 100000000 false none #[]))
+  return out
+
 /-- The contracts of the cases that do not assemble (none should). -/
 def programsAssemble : List String :=
-  (programs ++ actionPrograms).filterMap fun (n, p) =>
+  (programs ++ actionPrograms ++ extraPrograms).filterMap fun (n, p) =>
     match asm? p with
     | .ok _ => none
     | .error e => some s!"{n}: {e}"
@@ -246,6 +343,7 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (mk "none/int" (mkAccount 0 a .none 0 0 0 0) (intMsg 0 a 100000000 false none #[]))
     out := out.push (mk "uninit/int" (mkAccount 0 a .uninit 50000000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
     out := out.push (mk "frozen/int" (mkAccount 0 a (.frozen (natToBits 77 256)) 5000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
+    out := out ++ extraCases mk a data
   return out
 
 
@@ -273,14 +371,21 @@ def randAction (rng0 : StdGen) : List Instr × StdGen := Id.run do
   let (bodyLen, rng) := randNat rng 0 400
   let (bodyRef, rng) := randBool rng
   let (wc, rng) := pick rng #[(0 : Int), 0, 0, -1, 7]
+  let (xk, rng) := randNat rng 0 5
+  let x : Option Cell :=
+    if xk = 0 then extraOf [(7, amt 100)] else if xk = 1 then extraOf [(7, amt 0), (100, amt 999)]
+    else if xk = 2 then extraOf [(9, amt 1)] else none
   if k ≤ 4 then
     let body := natToBits 0x5a5a5a5a 32 ++ natToBits 0 (bodyLen - Nat.min bodyLen 32)
     let body := if bodyRef then body else body.extract 0 (Nat.min body.size 300)
-    return (sendRaw (relaxedInt wc other value bounce body bodyRef) mode, rng)
+    return (sendRaw (relaxedInt wc other value bounce body bodyRef (extra := x)) mode, rng)
   else if k = 5 then
     return (sendRaw (relaxedExt (natToBits 9 8)) (mode &&& 3), rng)
   else if k = 6 then
     let (rmode, rng) := randNat rng 0 18
+    if x.isSome then
+      return ([.pushInt (.num (Int.ofNat value)), .pushRef (({} : W).maybeRef x).cell, .ctos, .lddict true false,
+               .pushInt (.num (Int.ofNat rmode)), .tonEnvOp .rawReserveX], rng)
     return ([.pushInt (.num (Int.ofNat value)), .pushInt (.num (Int.ofNat rmode)), .tonEnvOp .rawReserve], rng)
   else if k = 7 then
     return ([.pushRef (asm [.tonEnvOp .accept]), .tonEnvOp .setCode], rng)
@@ -327,10 +432,12 @@ def randCase (cfg0 : Cell) (i : Nat) (rng0 : StdGen) : TxCase × StdGen := Id.ru
     else if kind = 7 then (siAddr, AccState.none, some si)
     else if kind = 8 then (siAddr, AccState.frozen siAddr, some si)
     else (a, AccState.frozen (natToBits 99 256), none)
+  let (accX, rng) := pick rng #[none, none, extra2, extra3]
+  let (msgX, rng) := pick rng #[none, none, extraOf [(7, amt 1)], extraOf [(100, amt 5), (3, amt 77)]]
   let acc := mkAccount 0 addr st (if kind = 7 then 0 else bal) (1700000200 - paidAgo) (if kind = 7 then 0 else due)
-    (if kind = 7 then 0 else 1000)
+    (if kind = 7 then 0 else 1000) (if kind = 7 then none else accX)
   let body := natToBits 0x12345678 32 ++ natToBits 0 bodyBits
-  let msg := if ext = 0 then extMsg 0 addr init body else intMsg 0 addr value bounce init body
+  let msg := if ext = 0 then extMsg 0 addr init body else intMsg 0 addr value bounce init body (extra := msgX)
   return ({ name := s!"fuzz/{i}/v{v}", config := cfg, account := acc, msg, now := 1700000200, lt := 3000000, seed }, rng)
 
 def fuzzCases (cfg0 : Cell) (count seed : Nat) : Array TxCase := Id.run do

@@ -34,14 +34,14 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
   let some gas := cfg.gasPrices mc | return .failed "gas prices"
   let some fwd := cfg.msgPrices mc | return .failed "msg prices"
   let some _ := cfg.msgPrices (!mc) | return .failed "msg prices"
-  if account.balance.extra.isSome then return .unsupported "extra currencies"
   -- the Transaction constructor
   let startLt := Nat.max lt account.lastTransEndLt
   let t : Tx :=
     { cfg, gv := cfg.globalVersion, account, now, startLt, endLt := startLt + 1,
       accStatus := if account.status == .nonexist then .uninit else account.status,
       myAddr := account.myAddr, myAddrExact := account.myAddrExact, balance := account.balance.grams,
-      originalBalance := account.balance.grams, msgBalanceRemaining := 0, duePayment := account.duePayment,
+      balanceExtra := account.balance.extra, originalBalance := account.balance.grams,
+      originalExtra := account.balance.extra, msgBalanceRemaining := 0, duePayment := account.duePayment,
       lastPaid := account.lastPaid, inMsg, inMsgInfo := { src := #[], dest := addrBits },
       inMsgBody := Slice.ofCell Cell.empty, newCode := account.code, newData := account.data,
       newLibrary := account.library, newTick := account.tick, newTock := account.tock,
@@ -53,14 +53,20 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
     | some (.ok t) => pure t
   let needCredit := !external
   -- storage and credit phases, credit first unless the message bounces
-  let t? : Option Tx :=
-    if t.bounceEnabled then do
-      let t ← t.storagePhaseRun pricing gas false
-      return if needCredit then t.creditPhaseRun else t
+  let credit (t : Tx) : Except String (Option Tx) := if needCredit then t.creditPhaseRun else .ok (some t)
+  let t? : Except String (Option Tx) :=
+    if t.bounceEnabled then
+      match t.storagePhaseRun pricing gas false with
+      | none => .ok none
+      | some t => credit t
     else
-      let t := if needCredit then t.creditPhaseRun else t
-      t.storagePhaseRun pricing gas needCredit
-  let some t := t? | return .failed "storage phase"
+      match credit t with
+      | .ok (some t) => .ok (t.storagePhaseRun pricing gas needCredit)
+      | r => r
+  let t ← match t? with
+    | .error e => return .unsupported e
+    | .ok none => return .failed "storage or credit phase"
+    | .ok (some t) => pure t
   let t ← match t.computePhaseRun gas sl randSeed with
     | .error e => return .unsupported e
     | .ok t => pure t

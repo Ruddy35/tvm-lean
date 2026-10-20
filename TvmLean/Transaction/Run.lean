@@ -1,5 +1,6 @@
 import TvmLean.Semantics
 import TvmLean.Transaction.Message
+import TvmLean.Transaction.Extra
 
 /-!
 # An ordinary transaction
@@ -11,8 +12,9 @@ credit phases (credit first unless the message bounces), the compute phase, the 
 the bounce phase, then the new state (`compute_state`), the transaction cell (`serialize`) and the
 account after it (`commit`).
 
-The action phase here handles an empty action list; actions and the bounce phase are not modelled
-yet (`Outcome.unsupported`).
+Balances are `CurrencyCollection`s: grams here, the extra currencies as the roots of their
+dictionaries beside them (`TvmLean.Transaction.Extra`). The action and bounce phases are in
+`TvmLean.Transaction.Action`.
 -/
 
 namespace TvmLean.Tx
@@ -67,7 +69,9 @@ structure ActionPhase where
   actionListInvalid : Bool := false
   accDeleteReq : Bool := false
   remainingBalance : Nat := 0
+  remainingExtra : Option Cell := none
   reservedBalance : Nat := 0
+  reservedExtra : Option Cell := none
   endLt : Nat := 0
   actionFine : Nat := 0
   failActionFine : Nat := 0
@@ -83,8 +87,8 @@ structure BouncePhase where
   fwdFees : Nat
   fwdFeesCollected : Nat := 0
 
-/-- The state of the transaction (C++ `Transaction` fields). Only grams are modelled in balances;
-an extra currency makes the run `unsupported`. -/
+/-- The state of the transaction (C++ `Transaction` fields). A `CurrencyCollection` is its grams and
+the root of its extra currencies (`balance` and `balanceExtra`, ...). -/
 structure Tx where
   cfg : Config
   gv : Nat
@@ -96,8 +100,13 @@ structure Tx where
   myAddr : Cell
   myAddrExact : Cell
   balance : Nat
+  balanceExtra : Option Cell := none
   originalBalance : Nat
+  originalExtra : Option Cell := none
+  /-- `original_balance` became invalid: below zero grams before version 9 -/
+  originalInvalid : Bool := false
   msgBalanceRemaining : Nat
+  msgExtra : Option Cell := none
   duePayment : Nat
   lastPaid : Nat
   totalFees : Nat := 0
@@ -122,7 +131,7 @@ structure Tx where
   wasCreated : Bool := false
   frozenHash : BitString
   storagePhase : Option StoragePhase := none
-  creditPhase : Option Nat := none
+  creditPhase : Option Currencies := none
   computePhase : ComputePhase := {}
   actionPhase : Option ActionPhase := none
   bouncePhase : Option BouncePhase := none
@@ -222,8 +231,8 @@ def Tx.storagePhaseRun (t : Tx) (pricing : Array StoragePrices) (gas : GasPrices
         let (t, sp) :=
           match t.accStatus with
           | .uninit | .frozen =>
-              -- extra currencies keep the account (none are modelled)
-              if due > gas.deleteDueLimit then
+              -- an account with extra currencies is kept
+              if due > gas.deleteDueLimit && t.balanceExtra.isNone then
                 ({ t with accStatus := .deleted, wasDeleted := t.wasDeleted || t.gv ≥ 13 }, { sp0 with deleted := true })
               else (t, sp0)
           | .active =>
@@ -234,9 +243,15 @@ def Tx.storagePhaseRun (t : Tx) (pricing : Array StoragePrices) (gas : GasPrices
   let t := if adjustMsgValue && t.msgBalanceRemaining > t.balance then { t with msgBalanceRemaining := t.balance } else t
   return { t with totalFees := t.totalFees + sp.feesCollected, storagePhase := some sp }
 
-/-- `Transaction::prepare_credit_phase`. -/
-def Tx.creditPhaseRun (t : Tx) : Tx :=
-  { t with creditPhase := some t.msgBalanceRemaining, balance := t.balance + t.msgBalanceRemaining }
+/-- `Transaction::prepare_credit_phase`: `.ok none` if the extra currencies do not add up (C++
+fails). -/
+def Tx.creditPhaseRun (t : Tx) : Except String (Option Tx) :=
+  match extraAdd t.balanceExtra t.msgExtra with
+  | .error _ => .error "malformed extra currencies"
+  | .ok none => .ok none
+  | .ok (some e) =>
+      .ok (some { t with creditPhase := some { grams := t.msgBalanceRemaining, extra := t.msgExtra },
+                         balance := t.balance + t.msgBalanceRemaining, balanceExtra := e })
 
 
 /-! ## The inbound message (`Transaction::unpack_input_msg`) -/
@@ -266,8 +281,7 @@ def Tx.unpackInputMsg (t : Tx) (sl : SizeLimits) (fwdPrices : MsgPrices) : Optio
   if !s.haveBits 1 then none
   let (t, s) ← if !(s.readBits 1)[0]! then do
       let (info, s) ← Reader.intMsgInfo s
-      if info.value.extra.isSome then pure (Except.error "extra currencies", s) else
-      let t := { t with inMsgInfo := info, bounceEnabled := info.bounce }
+      let t := { t with inMsgInfo := info, bounceEnabled := info.bounce, msgExtra := info.value.extra }
       let t := if t.gv ≥ 12 then t
         else { t with msgBalanceRemaining := t.msgBalanceRemaining + info.extraFlags }
       let t := { t with msgBalanceRemaining := t.msgBalanceRemaining + info.value.grams, inFwdFee := 0 }
@@ -289,7 +303,7 @@ def Tx.unpackInputMsg (t : Tx) (sl : SizeLimits) (fwdPrices : MsgPrices) : Optio
       if t.balance < fee then none
       let info : IntMsgInfo := { src, dest }
       pure (Except.ok { t with inMsgInfo := info, inMsgExtern := true, inFwdFee := fee, balance := t.balance - fee,
-                               msgBalanceRemaining := 0 }, s)
+                               msgBalanceRemaining := 0, msgExtra := none }, s)
   match t with
   | .error e => return .error e
   | .ok t =>
@@ -353,7 +367,8 @@ def Tx.checkStateLimits (t : Tx) (sl : SizeLimits) (maxPublicLibraries : Nat) : 
   return true
 
 /-- The balance as a VM tuple (`CurrencyCollection::as_vm_tuple`): `[grams, extra]`. -/
-def balanceTuple (grams : Nat) : Value := .tuple #[.int (.num (Int.ofNat grams)), .null]
+def balanceTuple (grams : Nat) (extra : Option Cell) : Value :=
+  .tuple #[.int (.num (Int.ofNat grams)), match extra with | some c => .cell c | none => .null]
 
 /-- `Config::get_unpacked_config_tuple(now)`: the storage prices valid at `now`, parameters 19, 20,
 21, 24, 25, 43 as slices (null if absent). -/
@@ -379,7 +394,8 @@ def Tx.inMsgParams (t : Tx) : Value :=
   let b (x : Bool) : Value := .int (.num (if x then -1 else 0))
   let n (x : Nat) : Value := .int (.num (Int.ofNat x))
   .tuple #[b info.bounce, b info.bounced, .slice (Slice.ofCell (Cell.mkOrdinary info.src)), n info.fwdFee,
-           n info.createdLt, n info.createdAt, n info.value.grams, n t.msgBalanceRemaining, .null,
+           n info.createdLt, n info.createdAt, n info.value.grams, n t.msgBalanceRemaining,
+           match t.msgExtra with | some c => .cell c | none => .null,
            match t.inMsgState with | some c => .cell c | none => .null]
 
 /-- `Transaction::prepare_rand_seed`: SHA-256 of the block seed and the address (before version 8:
@@ -393,10 +409,10 @@ def Tx.c7 (t : Tx) (blockSeed : BitString) : Value :=
   let n (x : Nat) : Value := .int (.num (Int.ofNat x))
   let base : Array Value :=
     #[n 0x076ef1ea, n 0, n 0, n t.now, n t.account.blockLt, n t.startLt, n (t.randSeed blockSeed),
-      balanceTuple t.balance, .slice (Slice.ofCell t.myAddr), .cell t.cfg.root]
+      balanceTuple t.balance t.balanceExtra, .slice (Slice.ofCell t.myAddr), .cell t.cfg.root]
   let v4 : Array Value :=
     if t.gv ≥ 4 then
-      #[match t.newCode with | some c => .cell c | none => .null, balanceTuple t.msgBalanceRemaining,
+      #[match t.newCode with | some c => .cell c | none => .null, balanceTuple t.msgBalanceRemaining t.msgExtra,
         n ((t.storagePhase.map (·.feesCollected)).getD 0), .null]
     else #[]
   let v6 : Array Value :=
@@ -463,8 +479,14 @@ precompiled code runs the VM with the gas limits of the configuration, its gas u
 `Except.error` for a path not modelled. -/
 def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed : BitString) :
     Except String Tx := do
-  let t := { t with originalBalance :=
-    if t.gv ≥ 9 then t.balance - t.msgBalanceRemaining else t.originalBalance - t.totalFees }
+  -- `original_balance`: from version 9 the balance less the message's value, before it the account's
+  -- balance less the fees so far (invalid below zero)
+  let t ← if t.gv ≥ 9 then
+      match extraSub t.balanceExtra t.msgExtra with
+      | .ok (some e) => pure { t with originalBalance := t.balance - t.msgBalanceRemaining, originalExtra := e }
+      | _ => throw "original balance"
+    else pure { t with originalBalance := t.originalBalance - t.totalFees,
+                       originalInvalid := t.originalBalance < t.totalFees }
   let skip (t : Tx) (reason : Nat) : Except String Tx := .ok { t with computePhase := { t.computePhase with skipReason := reason } }
   if t.balance = 0 then return ← skip t 3
   -- `compute_gas_limits`
@@ -566,8 +588,9 @@ def W.uint7 (w : W) (v : Nat) : W := w.varUInt v 7
 
 /-- `Transaction::compute_state`: the new `Account` cell. -/
 def Tx.computeState (t : Tx) (sl : SizeLimits) : Tx × Cell :=
-  let t := if t.accStatus == .uninit && !t.wasActivated && t.balance = 0 then { t with accStatus := .nonexist, wasCreated := false } else t
-  let t := if t.accStatus == .deleted && t.balance ≠ 0 then { t with accStatus := .uninit } else t
+  let zero := t.balance = 0 && t.balanceExtra.isNone
+  let t := if t.accStatus == .uninit && !t.wasActivated && zero then { t with accStatus := .nonexist, wasCreated := false } else t
+  let t := if t.accStatus == .deleted && !zero then { t with accStatus := .uninit } else t
   if t.accStatus == .nonexist || t.accStatus == .deleted then (t, (W.bool {} false).cell)
   else
     let disableAnycast := t.gv ≥ 10
@@ -577,7 +600,7 @@ def Tx.computeState (t : Tx) (sl : SizeLimits) : Tx × Cell :=
       let w := if fpl ≠ 0 then w.uint (fpl + 32) 6 else w.uint 0 1
       let w := if ticktock ≠ 0 then w.uint (ticktock ||| 4) 3 else w.uint 0 1
       ((w.maybeRef t.newCode).maybeRef t.newData).maybeRef t.newLibrary
-    let w : W := ((({} : W).uint t.endLt 64).currencies { grams := t.balance })
+    let w : W := ((({} : W).uint t.endLt 64).currencies { grams := t.balance, extra := t.balanceExtra })
     let (t, w) :=
       if t.accStatus == .uninit then (t, w.uint 0 2)
       else if t.accStatus == .frozen then
@@ -593,18 +616,22 @@ def Tx.computeState (t : Tx) (sl : SizeLimits) : Tx × Cell :=
         (t, ((w.maybeRef t.newCode).maybeRef t.newData).maybeRef t.newLibrary)
     let storage := w.cell
     -- storage statistics: recomputed when the references of the storage change, else updated by the
-    -- bits of its root (`storage_without_extra_currencies` from version 10 changes nothing here: no
-    -- extra currencies are modelled)
-    let oldRefs : Option (Array Cell) := t.account.storage.map fun s => s.cell.refs.extract s.refPos s.cell.refs.size
+    -- bits of its root; from version 10 without the extra currencies (`storage_without_extra_currencies`
+    -- replaces the dictionary of the balance, its first reference, by `hme_empty`: the same bits)
+    let withoutExtra (rs : Array Cell) (extra : Bool) : Array Cell :=
+      if t.gv ≥ 10 && extra then rs.extract 1 rs.size else rs
+    let oldRefs : Option (Array Cell) := t.account.storage.map fun s =>
+      withoutExtra (s.cell.refs.extract s.refPos s.cell.refs.size) t.account.balance.extra.isSome
+    let newRefs := withoutExtra storage.refs t.balanceExtra.isSome
     let oldBits : Nat := (t.account.storage.map (·.bitsRemaining)).getD 0
     let refsChanged : Bool :=
       match oldRefs with
       | none => true
-      | some rs => rs.size != storage.refs.size || (rs.zip storage.refs).any fun (a, b) => a.hashBytes != b.hashBytes
+      | some rs => rs.size != newRefs.size || (rs.zip newRefs).any fun (a, b) => a.hashBytes != b.hashBytes
     let storeDictHash := t.gv ≥ 11 && !t.account.isMasterchain
     let (used, dictHash) :=
       if refsChanged || (storeDictHash && t.account.storageDictHash.isNone && t.account.storageUsed.cells > 25) then
-        let m := collectCells storage.refs.toList
+        let m := collectCells newRefs.toList
         let (c, b) := cellsAndBits m
         let used : StorageUsed := { cells := c + 1, bits := b + storage.bits.size }
         let dh := if storeDictHash && used.cells ≥ sl.accStateCellsForStorageDict then storageDictHash m else none
@@ -672,7 +699,7 @@ def Tx.serialize (t : Tx) (newState : Cell) : Option Cell := do
   let d := (d.grams sp.feesCollected).maybeGramsNz sp.feesDue
   let d := if sp.deleted || sp.frozen then d.uint (if sp.deleted then 3 else 2) 2 else d.uint 0 1
   let d := match t.creditPhase with
-    | some credit => ((d.bool true).maybeGramsNz 0).currencies { grams := credit }
+    | some credit => ((d.bool true).maybeGramsNz 0).currencies credit
     | none => d.bool false
   let d := d.computePhase cp
   let d ← if act then do

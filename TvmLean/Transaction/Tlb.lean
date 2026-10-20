@@ -114,10 +114,15 @@ end W
 structure Currencies where
   grams : Nat
   extra : Option Cell := none
+  /-- the grams have no leading zero byte (`block::tlb::VarUInteger` reads only these) -/
+  gramsCanonical : Bool := true
   deriving Inhabited
 
 def Reader.currencies : Reader Currencies := do
-  return { grams := ← Reader.grams, extra := ← Reader.hashmapE }
+  let s ← Reader.peek
+  let grams ← Reader.grams
+  let len := if s.haveBits 4 then bitsToNat (s.readBits 4) else 0
+  return { grams, extra := ← Reader.hashmapE, gramsCanonical := len == 0 || grams >>> (8 * len - 8) != 0 }
 
 def W.currencies (w : W) (c : Currencies) : W := (w.grams c.grams).maybeRef c.extra
 
