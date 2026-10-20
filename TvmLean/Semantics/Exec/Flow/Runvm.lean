@@ -290,6 +290,7 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
   let pay : Int := min childConsumed (childFinal.gas.gasLimit + 1)
   let mut parentAfter : VmState := parentAfterPops.consumeGas pay
   parentAfter := { parentAfter with
+    steps := parentAfter.steps + childFinal.steps
     libraries := childFinal.libraries
     chksgnCounter := childFinal.chksgnCounter
     getExtraBalanceCounter := childFinal.getExtraBalanceCounter

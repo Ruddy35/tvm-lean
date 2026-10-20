@@ -13,7 +13,7 @@ def VmState.outOfGasHalt (st : VmState) : StepResult :=
   -- Fift `runvmx` primitive applies `~` to this return value, so the oracle
   -- observes `-14` for out-of-gas.
   let consumed := st.gas.gasConsumed
-  let st' := { st with stack := #[.int (.num consumed)] }
+  let st' := { st with stack := #[.int (.num consumed)], steps := st.steps + 1 }
   StepResult.halt Excno.outOfGas.toInt st'
 
 /-- One jump of C++ `VmState::jump_to` (vm.h:386-401): from version 9 every jump of a chain after
@@ -92,6 +92,7 @@ exception"). The jump (`VmState::jump`) applies the closure stack of `c2` at onc
 `gas.check()` follows this jump (it is made after the step's check), and the handler's first
 instruction runs. The jump to `c2` starts a new chain of jumps. -/
 def VmState.raiseException (st : VmState) (e : Int) : StepResult :=
+  let st := { st with steps := st.steps + 1 }
   let stExc := (st.throwException e).consumeGas exceptionGasPrice
   if decide (stExc.gas.gasRemaining < 0) then
     stExc.outOfGasHalt
@@ -237,7 +238,9 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
         if st2.gasExhaustedNow then st2.outOfGasHalt else
         -- Closure stack / nargs are applied once on entry.
         let cdata' : OrdCdata := { cdata with stack := #[], nargs := -1 }
-        let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata', chainJumps := 0 }
+        -- a step of C++ `VmState::step`: the next instruction, the implicit `RET` or `JMPREF`
+        let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata', chainJumps := 0,
+                                       steps := st2.steps + 1 }
         if code.bitsRemaining == 0 then
           if code.refsRemaining == 0 then
             -- Implicit RET.

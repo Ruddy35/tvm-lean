@@ -30,6 +30,10 @@ structure VmState where
   starts with a jump (an instruction, an implicit `RET` or `JMPREF`, an exception) and ends when an
   ordinary continuation is entered or the VM halts; the model makes one step per continuation. -/
   chainJumps : Nat := 0
+  /-- C++ `VmState::steps` (the `vm_steps` of a transaction): one per step that runs an instruction,
+  an implicit `RET` or `JMPREF` (`VmState::step`), one per exception handled and one for an out of gas
+  that ends the VM (`run_inner`, `run`), and the steps of a `RUNVM` child (`restore_parent_vm`). -/
+  steps : Nat := 0
   deriving Repr
 
 def VmState.initial (code : Cell) (gasLimit : Int := 1_000_000) (gasMax : Int := GasLimits.infty)
