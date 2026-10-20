@@ -87,6 +87,9 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
     else pure t
   if !t.computePhase.accepted && t.inMsgExtern then
     return .externalNotAccepted t.computePhase.exitCode
+  -- `serialize` validates the transaction with `block::tlb`: the inbound message must pass (a
+  -- `fwd_fee` or an extra currency C++ reads differently fails here, whatever happened before)
+  if !messageValid inMsg then return .failed "the transaction fails block::tlb validation"
   let (t, newState) := t.computeState sl
   let some tx := t.serialize newState | return .failed "serialize"
   return .ok tx newState

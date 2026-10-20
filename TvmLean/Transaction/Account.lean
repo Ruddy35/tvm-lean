@@ -1,4 +1,4 @@
-import TvmLean.Transaction.Config
+import TvmLean.Transaction.Extra
 
 /-!
 # Accounts
@@ -130,16 +130,19 @@ def unpackAddress (a : Account) (pfx? : Option BitString) (wc : Int) (addrOrig :
 /-- `Account::unpack_storage_info` (exact): storage used, the storage dict hash (`storage_extra_info$001`),
 last paid, due payment. -/
 def Reader.storageInfo : Reader (StorageUsed × Option BitString × Nat × Nat) := do
-  let cells ← Reader.varUInt 7
-  let bits ← Reader.varUInt 7
+  -- `block::tlb::StorageInfo` (the `t_ShardAccount.validate_csr` of `Account::unpack`): amounts
+  -- without a leading zero byte
+  let cells ← Reader.varUIntStrict 7
+  let bits ← Reader.varUIntStrict 7
   let tag ← Reader.uint 3
   let dictHash ← if tag == 1 then some <$> Reader.bits 256 else if tag == 0 then pure none else Reader.fail
   let lastPaid ← Reader.uint 32
-  let due ← Reader.maybe Reader.grams
+  let due ← Reader.maybe Reader.gramsStrict
   return ({ cells, bits }, dictHash, lastPaid, due.getD 0)
 
 /-- `Account::unpack` of a `ShardAccount` for the account at `(wc, addr)`. The validation of the whole
-structure (`t_ShardAccount.validate_csr`) is approximated by the exact reads of each part. -/
+structure (`block::tlb::t_ShardAccount.validate_csr`, `block-parse.cpp`) is the exact read of each
+part with the amounts of `block::tlb` (no leading zero byte, positive extra currencies). -/
 def unpack (shardAccount : Cell) (wc : Int) (addr : BitString) (special : Bool) : Option Account := do
   let (acc, lastTransHash, lastTransLt) ← Reader.runExact (do
     return (← Reader.ref, ← Reader.bits 256, ← Reader.uint 64)) shardAccount
@@ -157,6 +160,7 @@ def unpack (shardAccount : Cell) (wc : Int) (addr : BitString) (special : Bool) 
       return (pfx, awc, addrOrig, ← Reader.storageInfo)) s
   let a ← unpackAddress base pfx awc addrOrig
   let ((lastTransEnd, balance), state) ← (do return (← Reader.uint 64, ← Reader.currencies)) storage
+  if !balance.valid then none
   if !(Nat.max lastTransEnd 1 > lastTransLt) then none
   let a := { a with totalState := acc, origTotalState := acc, lastTransEndLt := lastTransEnd, lastPaid,
                     storageUsed := used, storageDictHash := dictHash, duePayment := due, balance,

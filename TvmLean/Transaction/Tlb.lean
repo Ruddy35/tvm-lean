@@ -47,6 +47,21 @@ def varUInt (n : Nat) : Reader Nat := do
 /-- `Grams = VarUInteger 16`. -/
 def grams : Reader Nat := varUInt 16
 
+/-- `VarUInteger n` as `block::tlb::VarUInteger` reads it (`block-parse.cpp`, `validate_skip`,
+`as_integer_skip`): no leading zero byte. The generated TL-B code (`varUInt`) accepts one. -/
+def varUIntStrict (n : Nat) : Reader Nat := do
+  let len ← lessThan n
+  let v ← uint (8 * len)
+  if len > 0 && v >>> (8 * len - 8) == 0 then fail else return v
+
+def gramsStrict : Reader Nat := varUIntStrict 16
+
+/-- `Grams` and whether it has no leading zero byte (whether `block::tlb::t_Grams` reads it). -/
+def gramsC : Reader (Nat × Bool) := do
+  let len ← lessThan 16
+  let v ← uint (8 * len)
+  return (v, len == 0 || v >>> (8 * len - 8) != 0)
+
 /-- `Maybe X`. -/
 def maybe (r : Reader α) : Reader (Option α) := do
   if ← bool then return some (← r) else return none

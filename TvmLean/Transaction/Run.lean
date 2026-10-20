@@ -281,6 +281,8 @@ def Tx.unpackInputMsg (t : Tx) (sl : SizeLimits) (fwdPrices : MsgPrices) : Optio
   if !s.haveBits 1 then none
   let (t, s) ← if !(s.readBits 1)[0]! then do
       let (info, s) ← Reader.intMsgInfo s
+      -- `msg_balance_remaining.unpack(value)`, `t_Grams.as_integer(extra_flags)`: `block::tlb` amounts
+      if !info.value.gramsCanonical || !info.extraFlagsCanonical then none
       let t := { t with inMsgInfo := info, bounceEnabled := info.bounce, msgExtra := info.value.extra }
       let t := if t.gv ≥ 12 then t
         else { t with msgBalanceRemaining := t.msgBalanceRemaining + info.extraFlags }
