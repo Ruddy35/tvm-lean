@@ -168,30 +168,23 @@ def execInstrCellExt (i : Instr) (next : VM Unit) : VM Unit := do
               VM.pushSmallInt (-1)
             return
           VM.registerCellLoadSpecial c0
-          let st ← get
-          let resolve : Except Excno Cell := do
+          let resolve : Except Excno Cell ←
             if !c0.special then
-              return c0
-            if c0.bits.size < 8 then
-              throw .cellUnd
-            let tyByte : Nat := bitsToNat (c0.bits.extract 0 8)
-            match CellSpecialType.ofByte? tyByte with
-            | some .library =>
-                if c0.bits.size != 8 * (1 + 32) || c0.refs.size != 0 then
-                  throw .cellUnd
-                let hashBits : BitString := c0.bits.extract 8 (8 + 256)
-                let mut found : Option Cell := none
-                for lib in st.libraries do
-                  match lookupLibraryIn? hashBits lib with
-                  | some c =>
-                      found := some c
-                      break
-                  | none => pure ()
-                match found with
-                | some c => return c
-                | none => throw .cellUnd
-            | _ =>
-                throw .cellUnd
+              pure (Except.ok c0)
+            else if c0.bits.size < 8 then
+              pure (Except.error .cellUnd)
+            else
+              match CellSpecialType.ofByte? (bitsToNat (c0.bits.extract 0 8)) with
+              | some .library =>
+                  if c0.bits.size != 8 * (1 + 32) || c0.refs.size != 0 then
+                    pure (Except.error .cellUnd)
+                  else
+                    -- `st->load_library` (cellops.cpp:929): refused past `max_library_loads`
+                    match ← VM.loadLibrary (c0.bits.extract 8 (8 + 256)) with
+                    | some c => pure (Except.ok c)
+                    | none => pure (Except.error .cellUnd)
+              | _ =>
+                  pure (Except.error .cellUnd)
           match resolve with
           | .ok c =>
               VM.push (.cell c)

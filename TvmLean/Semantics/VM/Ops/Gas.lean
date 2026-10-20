@@ -41,27 +41,56 @@ def VmState.registerCellLoad (st : VmState) (c : Cell) : VmState :=
       { st with loadedCells := st.loadedCells.push h }
   st'.consumeGas (if seen then cellReloadGasPrice else cellLoadGasPrice)
 
-/-- The loads C++ charges after the load of `c` when it loads `c` as a cell slice
-(`load_cell_slice_impl`): those of following a library (`libraryResolveLoads`), none from
-version 5 or for an ordinary cell. -/
-def VmState.libraryLoads (st : VmState) (c : Cell) : Array Cell :=
-  if c.special && st.globalVersion < 5 then (libraryResolveLoads st.libraries st.globalVersion c).1 else #[]
+/-- C++ `VmState::load_library` (vm.cpp:644-656) before its lookup: with `max_library_loads` set,
+once that many libraries are loaded a library not among them is refused (it reads as missing, vm.cpp:
+647-652); while fewer are, the library is recorded as loaded (vm.cpp:654), also if its lookup then
+fails. Returns whether it is refused. -/
+def VmState.admitLibrary (st : VmState) (hash : BitString) : VmState × Bool :=
+  match st.maxLibraryLoads with
+  | none => (st, false)
+  | some m =>
+      if m == st.loadedLibraries.size then
+        (st, !st.loadedLibraries.contains hash)
+      else if st.loadedLibraries.contains hash then
+        (st, false)
+      else
+        ({ st with loadedLibraries := st.loadedLibraries.push hash }, false)
 
-/-- Charges the loads of `cells` in order (`register_cell_load` each); from version 4 the first one
-that exhausts gas throws and the rest are not charged: `true` then. -/
-def VmState.registerCellLoads (st : VmState) : List Cell → VmState × Bool
+/-- The call of `load_library` for `hash` made by loading a cell whose library the resolver of the
+step (`libraryResolveLoads` with `librariesRefused`) followed unless it refused it: the libraries are
+admitted as C++ admits them (`VmState.admitLibrary`), and a refusal the resolver did not make is
+recorded in `librariesMissed`, for the step to be run again (`VmState.stepWith`). -/
+def VmState.registerLibraryLoad (st : VmState) (hash : BitString) : VmState :=
+  let (st, refused) := st.admitLibrary hash
+  if refused && !st.librariesRefused.contains hash then
+    { st with librariesMissed := st.librariesMissed.push hash }
+  else
+    st
+
+/-- What C++ does after charging the load of `c` when it loads `c` as a cell slice
+(`load_cell_slice_impl`): the loads of following a library and the calls of `load_library`
+(`libraryResolveLoads` with the libraries the step refuses); from version 5 only the call, nothing
+for an ordinary cell. -/
+def VmState.libraryLoads (st : VmState) (c : Cell) : Array LibraryLoadStep :=
+  if c.special then (libraryResolveLoads st.libraries st.globalVersion c st.librariesRefused).1 else #[]
+
+/-- Makes `steps` in order: charges each load (`register_cell_load`), registers each call of
+`load_library` (`VmState.registerLibraryLoad`); from version 4 the first load that exhausts gas
+throws and the rest are not made: `true` then. -/
+def VmState.registerCellLoads (st : VmState) : List LibraryLoadStep → VmState × Bool
   | [] => (st, false)
-  | c :: cs =>
+  | .cell c :: rest =>
       let st := st.registerCellLoad c
-      if st.gasExhaustedNow then (st, true) else st.registerCellLoads cs
+      if st.gasExhaustedNow then (st, true) else st.registerCellLoads rest
+  | .library hash :: rest => (st.registerLibraryLoad hash).registerCellLoads rest
 
 /-- VM-monad load of `c` as C++ `load_cell_slice` loads it (`load_cell_slice_impl`): `c` is
 charged (`register_cell_load` → `consume_gas`, which from version 4 throws `VmNoGas` at once,
-aborting the instruction: `VmState.gasExhaustedNow`), then the loads of following a library
+aborting the instruction: `VmState.gasExhaustedNow`), then what following a library does
 (`VmState.libraryLoads`). -/
 def VM.registerCellLoad (c : Cell) : VM Unit := do
   let st ← get
-  let (st', exhausted) := st.registerCellLoads (c :: (st.libraryLoads c).toList)
+  let (st', exhausted) := st.registerCellLoads (.cell c :: (st.libraryLoads c).toList)
   set st'
   if exhausted then
     throw .outOfGas

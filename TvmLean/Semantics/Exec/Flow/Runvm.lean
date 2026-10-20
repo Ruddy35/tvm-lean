@@ -280,6 +280,9 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
       getExtraBalanceCounter := parentAfterPops.getExtraBalanceCounter
       freeGasConsumed := parentAfterPops.freeGasConsumed
       libraries := parentAfterPops.libraries
+      -- the libraries loaded so far go to the child, with the parent's limit (vm.cpp:735-736)
+      loadedLibraries := parentAfterPops.loadedLibraries
+      maxLibraryLoads := parentAfterPops.maxLibraryLoads
       maxDataDepth := parentAfterPops.maxDataDepth
       globalVersion := parentAfterPops.globalVersion }
 
@@ -292,6 +295,8 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
   parentAfter := { parentAfter with
     steps := parentAfter.steps + childFinal.steps
     libraries := childFinal.libraries
+    -- and come back with those the child loaded (`restore_parent_vm`, vm.cpp:777)
+    loadedLibraries := childFinal.loadedLibraries
     chksgnCounter := childFinal.chksgnCounter
     getExtraBalanceCounter := childFinal.getExtraBalanceCounter
     freeGasConsumed := childFinal.freeGasConsumed

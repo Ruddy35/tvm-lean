@@ -489,7 +489,8 @@ def convertCodeCell (code : Cell) (gv : Nat) (libs : Array Cell) : Slice :=
   else Slice.ofCell code
 
 /-- The VM of the compute phase: `vm::VmState(code, global_version, stack, gas, flags = 1, data, ...)`
-with the libraries of `compute_vm_libraries`, `max_data_depth`, c7. -/
+with the libraries of `compute_vm_libraries`, `max_data_depth`, c7 and, if the configuration sets
+it, `max_transaction_library_loads` as `max_library_loads` (transaction.cpp:1995-2002). -/
 def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed : BitString)
     (sl : SizeLimits) : VmState × Int :=
   -- `prepare_vm_stack`: tick-tock gets the balance, the address, whether it is tock and -2
@@ -508,7 +509,8 @@ def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed
   let cc : Continuation := .ordinary (convertCodeCell code t.gv libs) (.quit 0) OrdCregs.empty OrdCdata.empty
   let st : VmState :=
     { base0 with stack, cc, regs := { base0.regs with c3 := cc, c4 := t.newData.getD Cell.empty, c7 := #[t.c7 blockSeed] },
-                 globalVersion := t.gv, libraries := libs, maxDataDepth := sl.maxVmDataDepth }
+                 globalVersion := t.gv, libraries := libs, maxDataDepth := sl.maxVmDataDepth,
+                 maxLibraryLoads := sl.maxTransactionLibraryLoads }
   let fuel := (st.gas.stepBound) + 16
   match VmState.run fuel st with
   | .halt ec stF => (stF, ec)
@@ -591,7 +593,6 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
         let limit := if t.account.isSpecial then gas.specialGasLimit else gas.gasLimit
         pure (limit, limit, if gc ≠ 0 then limit else 0)
   t := { t with computePhase := { t.computePhase with precompiledGasUsage := precompiled } }
-  if sl.maxTransactionLibraryLoads.isSome then throw "max_transaction_library_loads"
   let (stF, ec) := t.runVm code gl gm gc blockSeed sl
   let exitCode := ~~~ ec
   let g := stF.gas

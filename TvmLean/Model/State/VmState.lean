@@ -34,6 +34,20 @@ structure VmState where
   an implicit `RET` or `JMPREF` (`VmState::step`), one per exception handled and one for an out of gas
   that ends the VM (`run_inner`, `run`), and the steps of a `RUNVM` child (`restore_parent_vm`). -/
   steps : Nat := 0
+  /-- C++ `VmState::max_library_loads` (vm.h:100): the most distinct libraries `load_library` admits
+  (vm.cpp:646-656); `none`, no limit, unless the transaction sets it (`max_transaction_library_loads`
+  of configuration parameter 43, transaction.cpp:2000-2002). A `RUNVM` child has its parent's. -/
+  maxLibraryLoads : Option Nat := none
+  /-- C++ `VmState::loaded_libraries` (vm.h:99): the hashes `load_library` admitted while
+  `maxLibraryLoads` is set, also those whose lookup then failed. A `RUNVM` child takes them and gives
+  them back (vm.cpp:735, 777). -/
+  loadedLibraries : Array BitString := #[]
+  /-- The libraries the step being run refuses (`VmState.stepWith`): its library resolver fails on
+  them as on a missing library. Empty between steps. -/
+  librariesRefused : Array BitString := #[]
+  /-- The libraries C++ refuses in the step being run that it did not refuse
+  (`VmState.registerLibraryLoad`): the step is run again with them refused. Empty between steps. -/
+  librariesMissed : Array BitString := #[]
   deriving Repr
 
 def VmState.initial (code : Cell) (gasLimit : Int := 1_000_000) (gasMax : Int := GasLimits.infty)

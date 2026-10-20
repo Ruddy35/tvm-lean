@@ -619,8 +619,16 @@ def dictLookupVisitedCells (root : Option Cell) (key : BitString) (resolve : Cel
 (`libraryResolveLoads`). -/
 def libraryChainBound : Nat := 1024
 
+/-- What C++ `load_cell_slice_impl` (cells/CellSlice.cpp:1074-1136) does after charging the cell it
+loads, in order: the load of a further cell, charged (`register_cell_load`), or a call of
+`VmState::load_library` (CellSlice.cpp:1113, vm.cpp:644) for the hash of a library cell. -/
+inductive LibraryLoadStep where
+  | cell (c : Cell)
+  | library (hash : BitString)
+
 /-- Steps of `libraryResolveLoads`: `fuel` bounds the libraries followed in a row. -/
-def libraryResolveLoadsAux (libs : Array Cell) (gv : Nat) : Nat → Cell → Array Cell → Array Cell × Except Excno Cell
+def libraryResolveLoadsAux (libs : Array Cell) (gv : Nat) (refused : Array BitString) :
+    Nat → Cell → Array LibraryLoadStep → Array LibraryLoadStep × Except Excno Cell
   | 0, _, loads => (loads, .error .cellUnd)
   | fuel + 1, c, loads =>
       if !c.special then
@@ -629,12 +637,15 @@ def libraryResolveLoadsAux (libs : Array Cell) (gv : Nat) : Nat → Cell → Arr
         (loads, .error .cellUnd)
       else
         let hashBits : BitString := c.bits.extract 8 (8 + 256)
+        let loads := loads.push (.library hashBits)
+        -- `load_library` refuses the library before looking it up (`max_library_loads`, vm.cpp:646-652)
+        if refused.contains hashBits then (loads, .error .cellUnd) else
         -- before version 4 each lookup loads (and charges) the collection's nodes on its path
         let (loads, found) := libs.foldl (init := (loads, (none : Option Cell))) fun (ls, found) lib =>
           match found with
           | some _ => (ls, found)
           | none =>
-              let ls := if gv < 4 then ls ++ dictLookupVisitedCells (some lib) hashBits else ls
+              let ls := if gv < 4 then ls ++ (dictLookupVisitedCells (some lib) hashBits).map .cell else ls
               (ls, lookupLibraryIn? hashBits lib)
         match found with
         | none => (loads, .error .cellUnd)
@@ -642,13 +653,15 @@ def libraryResolveLoadsAux (libs : Array Cell) (gv : Nat) : Nat → Cell → Arr
             if gv ≥ 5 then
               (loads, Cell.rejectSpecial root)
             else
-              libraryResolveLoadsAux libs gv fuel root (loads.push root)
+              libraryResolveLoadsAux libs gv refused fuel root (loads.push (.cell root))
 
 /-- C++ `load_cell_slice_impl` with `VmState::load_library` (cells/CellSlice.cpp:1074-1136,
 vm.cpp:643-670) at global version `gv`, for a cell `c` whose own load the caller charges: the cell
-`c` loads as, and the further cells whose loads C++ charges (`register_cell_load`), in order, also
+`c` loads as, and what C++ does after charging `c` (`LibraryLoadStep`: the further cells whose loads
+it charges, `register_cell_load`, and the libraries it calls `load_library` for), in order, also
 when it fails. An ordinary cell loads as itself; a library cell as the root of its library; any
-other exotic cell, and a missing library, is cell_und.
+other exotic cell, a missing library and a library of `refused` (refused by `load_library` once
+`max_library_loads` libraries are loaded, vm.cpp:646-652; the caller decides which) are cell_und.
 - Before version 4 the lookup in each library collection runs with the VM's interface (vm.cpp:657),
   so the nodes of the collection it visits are charged; from version 4 it is free. (A library cell
   as a node of a collection is not followed, as from version 4: the lookup fails there.)
@@ -657,8 +670,9 @@ other exotic cell, and a missing library, is cell_und.
   not be exotic (`library_loaded`).
 A chain of libraries cannot repeat (each root's hash is the key that found it); it is followed at
 most `libraryChainBound` libraries deep, beyond which the model reads cell_und. -/
-def libraryResolveLoads (libs : Array Cell) (gv : Nat) (c : Cell) : Array Cell × Except Excno Cell :=
-  libraryResolveLoadsAux libs gv libraryChainBound c #[]
+def libraryResolveLoads (libs : Array Cell) (gv : Nat) (c : Cell) (refused : Array BitString := #[]) :
+    Array LibraryLoadStep × Except Excno Cell :=
+  libraryResolveLoadsAux libs gv refused libraryChainBound c #[]
 
 def dictMinMaxVisitedCellsAux (cell : Cell) (n pos : Nat) (firstBit restBit : Bool) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) : Array Cell :=
   let here : Array Cell := #[cell]

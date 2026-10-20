@@ -41,6 +41,21 @@ def withPrecompiled (cfg : Cell) (list : List (Cell × Nat)) : Cell := Id.run do
   | .ok (some r, _, _, _) => r
   | _ => cfg
 
+/-- The configuration with parameter 43 set to `size_limits_config_v3#03` (block.tlb:829-834) with
+`max_transaction_library_loads` = `loads` and the other fields at the defaults of C++
+`SizeLimitsConfig` (mc-config.h:394-417), which the testnet configuration, without parameter 43, has. -/
+def withLibraryLoads (cfg : Cell) (loads : Option Nat) : Cell :=
+  let w : W := (((((({} : W).uint 3 8).uint (2 ^ 21) 32).uint (2 ^ 13) 32).uint 1000 32).uint 512 16).uint 65535 32
+  let w := ((((((w.uint 512 16).uint (2 ^ 16) 32).uint (2 ^ 11) 32).uint 256 32).uint 256 32).uint 2 32)
+  let w := (w.uint 8 8).uint 26 32
+  let w := match loads with
+    | some n => (w.bool true).uint n 32
+    | none => w.bool false
+  let p43 := ((w.uint (2 ^ 21 * 5 / 2) 32).uint (2 ^ 13 * 5 / 2) 32).cell
+  match dictSetRefWithCells (some cfg) (natToBits 43 32) p43 .set with
+  | .ok (some r, _, _, _) => r
+  | _ => cfg
+
 /-- A library cell (exotic, type 2) for the cell `c`. -/
 def libraryCellOf (c : Cell) : Cell :=
   { bits := natToBits 2 8 ++ bytesToBits c.hashBytes, refs := #[], special := true, levelMask := 0 }
@@ -332,6 +347,115 @@ def extraCases (mk : String → Cell → Cell → TxCase) (a : BitString) (data 
       (intMsg 0 a 100000000 false none #[]))
   return out
 
+namespace LibLoads
+
+def lib (k : Nat) : Cell := (({} : W).uint k 16).cell
+def libA : Cell := lib 0xa1a1
+def libB : Cell := lib 0xb2b2
+def libC : Cell := lib 0xc3c3
+/-- in no library collection -/
+def missing : Cell := lib 0xdddd
+
+def accept : Instr := .tonEnvOp .accept
+def ctos (c : Cell) : List Instr := [.pushRef (libraryCellOf c), .ctos, .pop 0]
+def xload (quiet : Bool) (c : Cell) : List Instr := [.pushRef (libraryCellOf c), .cellExt (.xload quiet)]
+/-- `body` under `TRY`, its exception dropped -/
+def tryLoad (body : List Instr) : List Instr := [.pushRefCont (asm body), .pushRefCont (asm [.drop2]), .try_]
+/-- the depth of the stack in c4, committed -/
+def saveDepth : List Instr := [.depth, .newc, .stIntFixed true false false 8, .endc, .popCtr 4, .tonEnvOp .commit]
+
+/-- A dictionary with the keys 1 and 200 (8 bits): the node of key 1 is its first reference. -/
+def dict : Cell := Id.run do
+  let mut root : Option Cell := none
+  for (k, v) in [(1, 0x11), (200, 0x22)] do
+    if let .ok (r, _, _, _) := dictSetBuilderWithCells root (natToBits k 8) { bits := natToBits v 8, refs := #[] } .set then
+      root := r
+  return root.getD Cell.empty
+def node1 : Cell := dict.refs[0]!
+/-- `dict` with the node of key 1 as a library cell -/
+def dictLibNode : Cell := { dict with refs := dict.refs.set! 0 (libraryCellOf node1) }
+/-- DICTUGET -/
+def dictGet (key : Nat) (root : Cell) : List Instr :=
+  [.pushInt (.num key), .pushRef root, .pushInt (.num 8), .dictGet true true false]
+
+def child : List Instr := ctos libB ++ ctos libA
+def codeBody : List Instr := accept :: ctos libB ++ ctos libC
+def callB : List Instr := [.pushInt (.num 7), .pop 0]
+def callC : List Instr := [.pushInt (.num 8), .pop 0]
+def head : List Instr := accept :: ctos libA
+def tail : List Instr := ctos libB ++ ctos libC
+def chainEnd : List Instr := [.pushInt (.num 9), .pop 0]
+/-- a library cell whose library's root is a library cell again -/
+def inner : Cell := libraryCellOf (asm chainEnd)
+/-- a message for SENDMSG -/
+def msg : Cell := relaxedInt 0 other 1000
+/-- extra currencies for GETEXTRABALANCE -/
+def extraDict : Cell := (extraOf [(7, amt 500)]).getD Cell.empty
+/-- the extra currencies of the balance in c7 replaced by `root` -/
+def setExtra (root : Cell) : List Instr :=
+  [.pushCtr 7, .push 0, .tupleOp (.index 0), .push 0, .tupleOp (.index 7), .pushRef root, .tupleOp (.setIndex 1),
+   .tupleOp (.setIndex 7), .tupleOp (.setIndex 0), .popCtr 7]
+
+/-- The contracts (and the code of their parts). -/
+def programs : List (String × List Instr) :=
+  [("plain", [accept]),
+   ("ctos3", accept :: ctos libA ++ ctos libB ++ ctos libC),
+   ("ctos-again", accept :: ctos libA ++ ctos libA ++ ctos libB),
+   ("missing", accept :: tryLoad (ctos missing) ++ ctos libA ++ ctos libB),
+   ("after-refusal-cont", ctos libA ++ tryLoad (ctos libC) ++ ctos libB),
+   ("after-refusal", accept :: ctos libA ++ tryLoad (ctos libB) ++
+     [.callRef (Slice.ofCell (asm (ctos libA ++ tryLoad (ctos libC) ++ ctos libB)))]),
+   ("xload", accept :: xload false libA ++ xload false libB ++ xload false libC),
+   ("xloadq", accept :: xload true libA ++ xload true missing ++ xload true libB ++
+     [.callRef (Slice.ofCell (asm (xload true libC ++ xload true libA ++ saveDepth)))]),
+   ("dict", accept :: dictGet 200 (libraryCellOf dict) ++ dictGet 1 dictLibNode ++ saveDepth),
+   ("runvm", accept :: ctos libA ++ [.pushInt (.num 0), .pushRefSlice (asm child), .contExt (.runvm 0), .newc,
+     .stIntFixed false false false 32, .endc, .popCtr 4, .tonEnvOp .commit] ++ ctos libC),
+   ("child", child), ("code-body", codeBody), ("call-b", callB), ("call-c", callC), ("head", head),
+   ("tail", tail), ("chain-end", chainEnd),
+   ("callref", [accept, .callRef (Slice.ofCell (libraryCellOf (asm callB))),
+     .callRef (Slice.ofCell (libraryCellOf (asm callC)))]),
+   ("chain", accept :: [.pushRef (libraryCellOf inner), .ctos, .pop 0] ++ ctos libA),
+   ("sendmsg", accept :: [.pushRef (libraryCellOf msg), .pushInt (.num 1024), .tonEnvOp .sendMsg, .pop 0] ++ ctos libA),
+   ("extra-balance", accept :: setExtra (libraryCellOf extraDict) ++
+     [.pushInt (.num 7), .tonEnvOp .getExtraBalance, .pop 0] ++ ctos libA),
+   -- CDATASIZE loads a library cell as it is (`load_cell_slice_special`): no library
+   ("cdatasize", accept :: [.pushRef (libraryCellOf libA), .pushInt (.num 100), .cellExt (.cdataSize false)] ++
+     saveDepth ++ ctos libB)]
+
+/-- The contracts of the cases: `programs`, code that is a library cell, code whose implicit
+`JMPREF` goes to a library cell. -/
+def codes : List (String × Cell) :=
+  ["plain", "ctos3", "ctos-again", "missing", "after-refusal", "xload", "xloadq", "dict", "runvm", "callref",
+    "chain", "sendmsg", "extra-balance", "cdatasize"].map (fun n => (n, asm ((programs.lookup n).getD []))) ++
+  [("lib-code", libraryCellOf (asm codeBody)),
+   ("jmpref", Cell.mkOrdinary (asm head).bits ((asm head).refs.push (libraryCellOf (asm tail))))]
+
+/-- The roots of the libraries the cases load. -/
+def bodies : List Cell :=
+  [libA, libB, libC, dict, node1, asm codeBody, asm callB, asm callC, asm tail, asm chainEnd, msg, extraDict]
+
+end LibLoads
+
+/-- `max_transaction_library_loads` (parameter 43; C++ `VmState::load_library`, vm.cpp:643-670): a
+library not yet loaded is refused once that many are, also a missing one counts. Contracts that load
+several libraries (`CTOS` of a library cell, `XLOAD`, `XLOADQ`, a dictionary whose root or node is a
+library cell, `CALLREF`, the implicit `JMPREF`, code that is a library cell, a chain of libraries,
+loads after a refusal caught by `TRY`, a `RUNVM` child that loads more, `SENDMSG` of a library cell,
+`GETEXTRABALANCE` of extra currencies that are a library cell; `CDATASIZE` of a library cell, which
+loads no library), the libraries in the
+account (read before version 15) or in the emulator's, the limit unset, 0, 1 or 2. -/
+def libraryLoadCases (mk : String → Cell → Cell → TxCase) (a : BitString) (data : Cell) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  for (lname, loads) in [("none", none), ("0", some 0), ("1", some 1), ("2", some 2)] do
+    for (pname, code) in LibLoads.codes do
+      for (where_, accLib, glob) in [("acc", simpleLibs true LibLoads.bodies, none),
+          ("global", none, globalLibsOf (LibLoads.inner :: LibLoads.bodies))] do
+        let acc := mkAccount 0 a (.active code data) 1000000000 1700000000 0 1000 (library := accLib)
+        let c := mk s!"libloads/{pname}/{where_}/{lname}" acc (intMsg 0 a 100000000 true none #[])
+        out := out.push { c with config := withLibraryLoads c.config loads, libs := glob }
+  return out
+
 /-- Contracts for tick-tock: the stack is `balance address is_tock -2`. -/
 def tickTockPrograms : List (String × List Instr) :=
   [("tt-stack", [.newc, .stIntFixed false false false 8, .stIntFixed false false false 8,
@@ -339,7 +463,7 @@ def tickTockPrograms : List (String × List Instr) :=
 
 /-- The contracts of the cases that do not assemble (none should). -/
 def programsAssemble : List String :=
-  (programs ++ actionPrograms ++ extraPrograms ++ tickTockPrograms).filterMap fun (n, p) =>
+  (programs ++ actionPrograms ++ extraPrograms ++ tickTockPrograms ++ LibLoads.programs).filterMap fun (n, p) =>
     match asm? p with
     | .ok _ => none
     | .error e => some s!"{n}: {e}"
@@ -446,6 +570,7 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
       out := out.push (withLibs { mk s!"lib-code/{lname}/tick" acc Cell.empty with tickTock := some false } glob)
     out := out.push (withLibs (mk "lib-code/chain" (mkAccount 0 a (.active chain data) 1000000000 1700000000 0 1000)
       (intMsg 0 a 100000000 true none #[])) (globalLibsOf [inner, asm [.tonEnvOp .accept, .throw 9]]))
+    out := out ++ libraryLoadCases mk a data
     -- deploying a contract whose code is a library cell, the library in the message's StateInit
     let siLib := (((((({} : W).bool false).bool false).maybeRef (some libCode)).maybeRef (some data)).maybeRef
       (simpleLibs true [libBody])).cell

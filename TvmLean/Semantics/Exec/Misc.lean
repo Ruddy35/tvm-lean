@@ -45,8 +45,9 @@ def VM.visitDataSizeCell (limit : Nat) (c : Cell) (acc : DataSizeAcc) : VM DataS
     return acc
   if acc.cells ≥ limit then
     throw .cellOv
-  -- Match C++ `VmStorageStat::add_storage`: loading a newly visited cell charges cell-load gas.
-  VM.registerCellLoad c
+  -- Match C++ `VmStorageStat::add_storage`: loading a newly visited cell charges cell-load gas. It
+  -- is `load_cell_slice_special` (boc.cpp:1257): a library cell stays as it is, no library is loaded.
+  VM.registerCellLoadSpecial c
   let acc :=
     { visited := acc.visited.insert h
       cells := acc.cells + 1

@@ -141,9 +141,9 @@ def cp0InvOpcodeGasBits (code : Slice) : Nat :=
       0
 
 /-- One step of C++ `VmState::run`: the jump into `cc` if it is not an ordinary continuation that
-is running, else the next instruction of `cc` (run by `exec`), its implicit `RET` or `JMPREF`. The VM
-and the child VMs of `RUNVM` step with this function; they differ only in `exec`. -/
-def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
+is running, else the next instruction of `cc` (run by `exec`), its implicit `RET` or `JMPREF`; the
+libraries of `librariesRefused` are refused (`VmState.stepWith` runs it). -/
+def VmState.stepOnceWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
   match st.cc with
   | .quit n =>
       -- C++ `QuitCont::jump`: the VM ends with exit code `~n`
@@ -263,12 +263,12 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
             else
               if code.refPos < code.cell.refs.size then
                 let refCell := code.cell.refs[code.refPos]!
-                let (st1, exhausted) := st0.registerCellLoads (refCell :: (st0.libraryLoads refCell).toList)
+                let (st1, exhausted) := st0.registerCellLoads (.cell refCell :: (st0.libraryLoads refCell).toList)
                 if exhausted then
                   st1.outOfGasHalt
                 else
                   -- C++ `load_cell_slice_ref`: a library cell runs its library's root; exotic cells are cell_und
-                  match (libraryResolveLoads st1.libraries st1.globalVersion refCell).2 with
+                  match (libraryResolveLoads st1.libraries st1.globalVersion refCell st1.librariesRefused).2 with
                   | .ok root =>
                       -- `gas.check()` ends the step (the load, before version 4)
                       if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else
@@ -332,6 +332,54 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
                     else
                       -- TVM behavior: convert VM errors into an exception jump to c2.
                       st1.raiseException e.toInt
+
+/-- The state a step ends in. -/
+def StepResult.state : StepResult → VmState
+  | .continue st => st
+  | .halt _ st => st
+
+def StepResult.mapState (f : VmState → VmState) : StepResult → StepResult
+  | .continue st => .continue (f st)
+  | .halt exitCode st => .halt exitCode (f st)
+
+/-- The most times `VmState.stepWith` runs a step again. A run again refuses the libraries the run
+before found C++ refuses; C++ ends an instruction at the first library it refuses (cell_und from
+`load_cell_slice_impl`, CellSlice.cpp:1113-1122, which the dictionary loading the cell passes on), so
+the first run again finds no other: the bound only keeps the definition total. -/
+def libraryStepReruns : Nat := 8
+
+/-- Runs the step from `st` with the libraries `refused` refused, and again with those it finds C++
+refuses as well (`librariesMissed`) until it finds none, at most `reruns` times again. -/
+def VmState.stepRefusingWith (exec : Instr → VM Unit) (st : VmState) (refused : Array BitString) :
+    Nat → StepResult
+  | 0 => (VmState.stepOnceWith exec { st with librariesRefused := refused, librariesMissed := #[] }).mapState
+      fun st => { st with librariesRefused := #[], librariesMissed := #[] }
+  | reruns + 1 =>
+      let r := VmState.stepOnceWith exec { st with librariesRefused := refused, librariesMissed := #[] }
+      let missed := r.state.librariesMissed
+      if missed.isEmpty then
+        r.mapState fun st => { st with librariesRefused := #[], librariesMissed := #[] }
+      else
+        st.stepRefusingWith exec (refused ++ missed) reruns
+
+/-- One step of C++ `VmState::run` (`VmState.stepOnceWith`). The VM and the child VMs of `RUNVM`
+step with this function; they differ only in `exec`.
+
+With `max_library_loads` set (`VmState.maxLibraryLoads`), C++ `load_library` refuses a library not
+yet loaded once that many are (vm.cpp:646-656): the set of loaded libraries grows during the step,
+while the step resolves library cells with a resolver fixed for the step (`VM.cellResolver`, which
+the dictionary functions take, and `VM.loadCellSlice`). The step is therefore run with no library
+refused, its loads registered in C++ order (`VmState.registerCellLoads`, which admits each library as
+C++ does and notes the refusals the step did not make), and run again with those libraries refused
+too, until a run notes none; that run is the step of C++. A library C++ refuses was not loaded before
+in the step (it would have been admitted), so a run that refuses it is the same up to its load and
+refuses it there; from then on the set of loaded libraries is full and no longer changes, so a
+library refused once is refused at every load. Without the limit the step runs once. -/
+def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
+  if st.maxLibraryLoads.isNone then
+    st.stepOnceWith exec
+  else
+    st.stepRefusingWith exec #[] libraryStepReruns
 
 /-- Steps within which a VM with gas `g` halts, the fuel for a VM that only gas bounds (the child
 of `RUNVM`): every step charges gas (an instruction, an implicit `RET` or `JMPREF`, an exception)

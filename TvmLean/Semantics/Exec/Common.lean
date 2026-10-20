@@ -20,20 +20,32 @@ def VM.popStackCount : VM Nat := do
 
 /-- The cell loader of C++ `load_cell_slice_impl` (cells/CellSlice.cpp) in this VM: a library cell
 is replaced by the root of its library from `VmState.libraries`, any other exotic cell is cell_und
-(`libraryResolveLoads` at the VM's global version). Passed as `resolve` to the dictionary functions,
-which load every node this way; `VM.registerCellLoad` charges the loads. -/
+(`libraryResolveLoads` at the VM's global version), and so is a library the step refuses
+(`VmState.librariesRefused`, `max_library_loads`). Passed as `resolve` to the dictionary functions,
+which load every node this way; `VM.registerCellLoad` charges the loads and registers the libraries
+loaded. -/
 def VM.cellResolver : VM (Cell → Except Excno Cell) := do
   let st ← get
-  return fun c => (libraryResolveLoads st.libraries st.globalVersion c).2
+  return fun c => (libraryResolveLoads st.libraries st.globalVersion c st.librariesRefused).2
 
 /-- C++ `load_cell_slice` / `load_cell_slice_ref`: the load of `c` is charged (with the loads of
 following a library, `VM.registerCellLoad`), then `c` is resolved as by `VM.cellResolver`. -/
 def VM.loadCellSlice (c : Cell) : VM Slice := do
   VM.registerCellLoad c
   let st ← get
-  match (libraryResolveLoads st.libraries st.globalVersion c).2 with
+  match (libraryResolveLoads st.libraries st.globalVersion c st.librariesRefused).2 with
   | .ok r => return Slice.ofCell r
   | .error e => throw e
+
+/-- C++ `VmState::load_library` (vm.cpp:644-668) called by an instruction itself (`XLOAD`, from
+version 5): the library is admitted (`VmState.admitLibrary`, `max_library_loads`), then looked up in
+the VM's library collections (free from version 4); `none` if refused or not found. -/
+def VM.loadLibrary (hash : BitString) : VM (Option Cell) := do
+  let (st, refused) := (← get).admitLibrary hash
+  set st
+  if refused then
+    return none
+  return st.libraries.findSome? (lookupLibraryIn? hash ·)
 
 /-- C++ `DataCell::create` (cells/DataCell.cpp:78) of a new ordinary cell with references `refs`,
 its creation already charged: cell_ov if it would be deeper than `Cell.maxDepth` (`CellBuilder::

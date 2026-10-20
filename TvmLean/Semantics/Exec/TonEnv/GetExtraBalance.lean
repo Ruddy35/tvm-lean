@@ -6,8 +6,10 @@ namespace TvmLean
 /-- A cell load of a cheap GETEXTRABALANCE call (C++ `LocalVmState` in
 `exec_get_extra_currency_balance`): the cell is registered as loaded (`register_cell_load_free`),
 its price (new 100, reloaded 25) is charged up to what is left of the call's cap `remaining`, and
-once the cap is used up the rest is counted as free gas (`consume_free_gas`). Returns the new
-`remaining`. -/
+once the cap is used up the rest is counted as free gas (`consume_free_gas`); a library cell then
+calls `load_library` of the VM (`LocalVmState::load_library`, tonops.cpp:413-415;
+`VmState.registerLibraryLoad`; the instruction exists from version 10, where no further cell is
+charged). Returns the new `remaining`. -/
 def VM.registerCellLoadCheap (c : Cell) (remaining : Int) : VM Int := do
   let st ← get
   let h : Array UInt8 := Cell.hashBytes c
@@ -20,6 +22,9 @@ def VM.registerCellLoadCheap (c : Cell) (remaining : Int) : VM Int := do
   let remaining' := remaining - consumed
   if remaining' = 0 then
     modify fun st => { st with freeGasConsumed := st.freeGasConsumed + (gas - consumed) }
+  for step in (← get).libraryLoads c do
+    if let .library hash := step then
+      modify fun st => st.registerLibraryLoad hash
   return remaining'
 
 set_option maxHeartbeats 1000000 in
