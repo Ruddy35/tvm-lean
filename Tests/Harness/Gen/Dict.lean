@@ -1,5 +1,6 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.CellDepth
+import Tests.Harness.Gen.Control
 
 /-!
 Oracle cases for dictionary paths the full coverage run of 2026-10-19 did not reach
@@ -13,7 +14,12 @@ Oracle cases for dictionary paths the full coverage run of 2026-10-19 did not re
 - `DICT{I,U}DEL`, `DICT{I,U}DELGET{,REF}` with an integer key outside the key's range:
   `DictionaryFixed::integer_key` (`dict.cpp:418`, not quiet) throws range_chk, so the branch of
   `exec_dict_delete` / `exec_dict_deleteget` that would return the dictionary unchanged with 0 is
-  never reached; the cases pin the range_chk.
+  never reached; the cases pin the range_chk;
+- a new node that does not fit in a cell: the value next to the leaf's label (`dict.cpp:595-653`,
+  `698-758`, `809-874`), the edge of a fork merged with its surviving child when a key is deleted
+  (`dict.cpp:1182`, `993`), the root of a subdictionary with a longer label (`dict.cpp:1641`): cell_ov,
+  after the nodes loaded on the way are charged. Keys are 8 bits; a value of 1017 bits fits under a
+  leaf at depth 1 (label of 7 equal bits, 6 bits) and not at the root (label of 8, 7 bits).
 -/
 
 namespace Tests.Gen.Dict
@@ -81,6 +87,86 @@ private def intKeyCases (suite : String) (op : Instr) (unsigned : Bool) : Array 
     #[dict, .null].mapIdx fun i d =>
       { name := s!"oracle/cov/int-key/{k}/dict{i}", instr := { name := suite }, program := #[op],
         initStack := #[iv k, d, iv 4] }
+
+private def zeros (n : Nat) : Value := .slice (Slice.ofCell (Cell.mkOrdinary (Array.replicate n false) #[]))
+
+/-- A case running `prog` on the dictionary with `entries` (value, 8-bit unsigned key), built by
+`DICTUSET`s from `null`; `top` is below the entries. -/
+private def onDict (suite name : String) (entries : Array (Value × Int)) (prog : Array Instr)
+    (top : Array Value := #[]) : OracleCase :=
+  { name := s!"oracle/overflow/{name}", instr := { name := suite },
+    codeCell? := some (Tests.Gen.Control.codeOf
+      (#[Instr.pushNull] ++ (entries.map fun _ => #[Instr.pushInt (.num 8), .dictSet true true false .set]).flatten ++ prog)),
+    initStack := top ++ (entries.reverse.map fun (v, k) => #[v, iv k]).flatten }
+
+/-- The same with a prefix-code dictionary (`PFXDICTSET`, keys as bit strings). -/
+private def onPfxDict (suite name : String) (entries : Array (Value × String)) (prog : Array Instr)
+    (top : Array Value := #[]) : OracleCase :=
+  { name := s!"oracle/overflow/{name}", instr := { name := suite },
+    codeCell? := some (Tests.Gen.Control.codeOf
+      (#[Instr.pushNull] ++ (entries.map fun _ => #[Instr.pushInt (.num 8), .dictExt (.pfxSet .set), .pop 0]).flatten ++ prog)),
+    initStack := top ++ (entries.reverse.map fun (v, k) => #[v, key k]).flatten }
+
+/-- `x` pushed below the dictionary on the top of the stack, then `n` = 8 and `op`. -/
+private def withKey (x : Instr) (op : Instr) : Array Instr := #[x, .xchg0 1, .pushInt (.num 8), op]
+
+private def pushKey (k : String) : Instr := .pushSliceConst (Slice.ofCell (Cell.mkOrdinary (bitsOf k) #[]))
+
+/-- Each scenario with a value that fits and one bit more. -/
+private def sizes (base : Nat) (f : Nat → OracleCase) : Array OracleCase := #[f base, f (base + 1)]
+
+/-- The cases of a new node that does not fit, for the suite named `suite` (attached to every suite by
+`Tests.suiteOracleCases`). -/
+def overflowCasesFor (suite : String) : Array OracleCase :=
+  let set : Instr := .dictSet true true false .set
+  let setget : Instr := .dictExt (.mutGet true true false .set)
+  let del : Instr := .dictExt (.del true true)
+  let delget : Instr := .dictExt (.mutGet true true false .del)
+  -- 0x80 and 0x00 differ in the first bit (fork at the root); 0x80, 0x08, 0x00: fork at depth 1
+  -- with label 000, leaves at depth 5
+  match suite with
+  | "DICTUSET" =>
+      sizes 1016 (fun n => onDict suite s!"empty-{n}" #[] #[] |> fun c =>
+        { c with codeCell? := some (Tests.Gen.Control.codeOf #[set]), initStack := #[zeros n, iv 0, .null, iv 8] }) ++
+      sizes 1016 (fun n => onDict suite s!"replace-root-{n}" #[(zeros 8, 0), (zeros n, 0)] #[]) ++
+      sizes 1017 (fun n => onDict suite s!"split-{n}" #[(zeros 8, 128), (zeros n, 0)] #[]) ++
+      sizes 1017 (fun n => onDict suite s!"replace-depth1-{n}" #[(zeros 8, 128), (zeros 8, 0), (zeros n, 0)] #[])
+  | "DICTUSETGET" =>
+      sizes 1016 (fun n => onDict suite s!"replace-root-{n}" #[(zeros 8, 0)] (withKey (.pushInt (.num 0)) setget) #[zeros n]) ++
+      sizes 1017 (fun n => onDict suite s!"split-{n}" #[(zeros 8, 128)] (withKey (.pushInt (.num 0)) setget) #[zeros n])
+  | "DICTUSETB" =>
+      sizes 1016 fun n =>
+        { name := s!"oracle/overflow/empty-{n}", instr := { name := suite }, program := #[.dictSetB true true .set],
+          initStack := #[.builder { bits := Array.replicate n false, refs := #[] }, iv 0, .null, iv 8] }
+  | "DICTUDEL" =>
+      sizes 1016 (fun n => onDict suite s!"merge-root-{n}" #[(zeros 8, 128), (zeros n, 0)] (withKey (.pushInt (.num 128)) del)) ++
+      sizes 1017 (fun n => onDict suite s!"merge-depth1-{n}" #[(zeros 8, 128), (zeros 8, 8), (zeros n, 0)] (withKey (.pushInt (.num 8)) del))
+  | "DICTUDELGET" =>
+      sizes 1017 (fun n => onDict suite s!"merge-depth1-{n}" #[(zeros 8, 128), (zeros 8, 8), (zeros n, 0)] (withKey (.pushInt (.num 8)) delget))
+  | "DICTUREMMIN" =>
+      -- the minimum (0x00) is removed, its sibling 0x08 merged into the fork's edge: label 0001000
+      -- of 7 bits, 12 bits long
+      sizes 1011 (fun n => onDict suite s!"merge-depth1-{n}" #[(zeros 8, 128), (zeros 8, 0), (zeros n, 8)] #[.pushInt (.num 8), .dictGetMinMax 22])
+  | "DICTUSETGETOPTREF" =>
+      -- a null value deletes the key
+      sizes 1017 (fun n => onDict suite s!"delete-merge-depth1-{n}" #[(zeros 8, 128), (zeros 8, 8), (zeros n, 0)]
+        (#[.pushNull, .xchg0 1] ++ withKey (.pushInt (.num 8)) (.dictExt (.setGetOptRef true true))))
+  | "SUBDICTUGET" =>
+      let sub : Instr := .dictExt (.subdictGet true true false)
+      sizes 1016 (fun n => onDict suite s!"root-{n}" #[(zeros 8, 128), (zeros n, 0)]
+        #[.pushInt (.num 0), .xchg0 1, .pushInt (.num 1), .xchg0 1, .pushInt (.num 8), sub]) ++
+      sizes 1016 (fun n => onDict suite s!"depth1-{n}" #[(zeros 8, 128), (zeros 8, 64), (zeros n, 0)]
+        #[.pushInt (.num 0), .xchg0 1, .pushInt (.num 2), .xchg0 1, .pushInt (.num 8), sub])
+  | "PFXDICTSET" =>
+      let pset : Instr := .dictExt (.pfxSet .set)
+      sizes 1018 (fun n => onPfxDict suite s!"empty-{n}" #[] (withKey (pushKey "0") pset) #[zeros n]) ++
+      sizes 1020 (fun n => onPfxDict suite s!"split-{n}" #[(zeros 8, "1")] (withKey (pushKey "0") pset) #[zeros n]) ++
+      sizes 1018 (fun n => onPfxDict suite s!"replace-depth1-{n}" #[(zeros 8, "1"), (zeros 8, "00")] (withKey (pushKey "00") pset) #[zeros n])
+  | "PFXDICTDEL" =>
+      let pdel : Instr := .dictExt .pfxDel
+      sizes 1016 (fun n => onPfxDict suite s!"merge-root-{n}" #[(zeros 8, "1"), (zeros n, "00")] (withKey (pushKey "1") pdel)) ++
+      sizes 1016 (fun n => onPfxDict suite s!"merge-depth1-{n}" #[(zeros 8, "1"), (zeros 8, "01"), (zeros n, "000")] (withKey (pushKey "01") pdel))
+  | _ => #[]
 
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
