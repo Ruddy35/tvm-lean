@@ -2,6 +2,7 @@ import Tests.Harness.Registry
 import Tests.Harness.OracleHarness
 import Tests.Harness.FuzzHarness
 import Tests.Harness.Gen.CellDepth
+import Tests.Harness.Gen.Loops
 import Tests.Harness.Gen.OwnOpcode
 
 namespace Tests
@@ -105,10 +106,10 @@ def shortStackCases (suite : InstrSuite) : Array OracleCase :=
           { base with name := s!"sweep/short-stack/{vl}{k}", initStack := Array.replicate k v }
 
 /-- Every oracle case run for `suite`: its own, the short stacks, and the generators run for every
-suite (`Tests.Gen.CellDepth`, `Tests.Gen.OwnOpcode`). -/
+suite (`Tests.Gen.CellDepth`, `Tests.Gen.OwnOpcode`, `Tests.Gen.Loops`). -/
 def suiteOracleCases (suite : InstrSuite) : Array OracleCase :=
   suite.oracle ++ shortStackCases suite ++ Tests.Gen.CellDepth.casesFor suite.id.name ++
-    Tests.Gen.OwnOpcode.casesFor suite.id.name
+    Tests.Gen.OwnOpcode.casesFor suite.id.name ++ Tests.Gen.Loops.casesFor suite.id.name
 
 private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResult := do
   let mut out : SuiteRunResult := { suiteId := suite.id }

@@ -88,6 +88,7 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Gen.VmCore,
     `Tests.Harness.Gen.Dict,
     `Tests.Harness.Gen.CellDepth,
+    `Tests.Harness.Gen.Loops,
     `Tests.Harness.Gen.OwnOpcode
   ]
 
