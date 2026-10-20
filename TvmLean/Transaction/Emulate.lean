@@ -7,7 +7,7 @@ namespace TvmLean.Tx
 /-- `Account::unpack` of the account at `(wc, addr)`, `fetch_config_params` and the `Transaction`
 constructor (`block_lt` is `lt` rounded down to the block). -/
 def newTx (cfg : Config) (shardAccount inMsg : Cell) (kind : TxKind) (wc : Int) (addr addrBits : BitString)
-    (lt now : Nat) : Except String (Tx × Array StoragePrices × SizeLimits × GasPrices × MsgPrices) := do
+    (lt now : Nat) (libs : Option Cell) : Except String (Tx × Array StoragePrices × SizeLimits × GasPrices × MsgPrices) := do
   let special := wc == -1 && cfg.isSpecialSmc addr
   let some account := Account.unpack shardAccount wc addr special | throw "account"
   let account := { account with blockLt := lt - lt % 1000000 }
@@ -21,7 +21,7 @@ def newTx (cfg : Config) (shardAccount inMsg : Cell) (kind : TxKind) (wc : Int) 
   -- the Transaction constructor
   let startLt := Nat.max lt account.lastTransEndLt
   let t : Tx :=
-    { cfg, kind, gv := cfg.globalVersion, account, now, startLt, endLt := startLt + 1,
+    { cfg, kind, globalLibs := libs, gv := cfg.globalVersion, account, now, startLt, endLt := startLt + 1,
       accStatus := if account.status == .nonexist then .uninit else account.status,
       myAddr := account.myAddr, myAddrExact := account.myAddrExact, balance := account.balance.grams,
       balanceExtra := account.balance.extra, originalBalance := account.balance.grams,
@@ -35,8 +35,10 @@ def newTx (cfg : Config) (shardAccount inMsg : Cell) (kind : TxKind) (wc : Int) 
 /-- The run of an ordinary transaction as the transaction emulator does it: the account at the
 address of the `ShardAccount` (or of the message's destination for `account_none`), the
 configuration `configRoot`, the time `now`, the logical time `lt`, the block's random seed
-`randSeed` (256 bits, not zero). Returns the transaction and the new account. -/
-def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString) : Outcome := Id.run do
+`randSeed` (256 bits, not zero), the emulator's libraries `libs`. Returns the transaction and the new
+account. -/
+def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString) (libs : Option Cell := none) :
+    Outcome := Id.run do
   let some cfg := Config.decode configRoot | return .failed "config"
   -- the address: of the account, or of the message's destination
   let some (acc, _, _) := Reader.runExact (do return (← Reader.ref, ← Reader.bits 256, ← Reader.uint 64)) shardAccount
@@ -52,7 +54,7 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
       else (Reader.extInMsgInfo m).map (·.1.2.1)
   let some addrBits := addrBits? | return .failed "address"
   let some (wc, addr) := stdAddressOf addrBits | return .failed "address"
-  let (t, pricing, sl, gas, fwd) ← match newTx cfg shardAccount inMsg .ord wc addr addrBits lt now with
+  let (t, pricing, sl, gas, fwd) ← match newTx cfg shardAccount inMsg .ord wc addr addrBits lt now libs with
     | .ok r => pure r
     | .error e => return .failed e
   let external := (Slice.ofCell inMsg).haveBits 1 && ((Slice.ofCell inMsg).readBits 1)[0]!
@@ -109,8 +111,8 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
 /-- A tick (`isTock` false) or tock transaction of the account in `shardAccount` (not `account_none`)
 as the emulator runs it: no message, no credit, the storage phase without adjusting a message's
 value, the compute and action phases, no bounce. -/
-def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : Nat) (randSeed : BitString) :
-    Outcome := Id.run do
+def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : Nat) (randSeed : BitString)
+    (libs : Option Cell := none) : Outcome := Id.run do
   let some cfg := Config.decode configRoot | return .failed "config"
   let some (acc, _, _) := Reader.runExact (do return (← Reader.ref, ← Reader.bits 256, ← Reader.uint 64)) shardAccount
     | return .failed "shard account"
@@ -119,7 +121,7 @@ def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : N
   let some addrBits := (Reader.msgAddressInt (accS.advanceBits 1)).map (·.1) | return .failed "address"
   let some (wc, addr) := stdAddressOf addrBits | return .failed "address"
   let (t, pricing, sl, gas, _) ← match newTx cfg shardAccount Cell.empty (if isTock then .tock else .tick) wc addr
-      addrBits lt now with
+      addrBits lt now libs with
     | .ok r => pure r
     | .error e => return .failed e
   let some t := t.storagePhaseRun pricing gas false | return .failed "storage phase"

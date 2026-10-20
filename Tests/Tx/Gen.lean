@@ -41,6 +41,23 @@ def withPrecompiled (cfg : Cell) (list : List (Cell × Nat)) : Cell := Id.run do
   | .ok (some r, _, _, _) => r
   | _ => cfg
 
+/-- A library cell (exotic, type 2) for the cell `c`. -/
+def libraryCellOf (c : Cell) : Cell :=
+  { bits := natToBits 2 8 ++ bytesToBits c.hashBytes, refs := #[], special := true, levelMask := 0 }
+
+/-- A library dictionary `HashmapE 256 X` of the cells `cs`, each value made by `val`. -/
+def libDict (cs : List Cell) (val : Cell → Builder) : Option Cell := Id.run do
+  let mut root : Option Cell := none
+  for c in cs do
+    match dictSetBuilderWithCells root (bytesToBits c.hashBytes) (val c) .set with
+    | .ok (r, _, _, _) => root := r
+    | .error _ => pure ()
+  return root
+
+/-- The account's libraries (`simple_lib$_ public:Bool root:^Cell`) and the emulator's (`^Cell`). -/
+def simpleLibs (pub : Bool) (cs : List Cell) : Option Cell := libDict cs fun c => { bits := #[pub], refs := #[c] }
+def globalLibsOf (cs : List Cell) : Option Cell := libDict cs fun c => { bits := #[], refs := #[c] }
+
 /-- The code cell of `code`: `encodeCp0Code`, whose references (`PUSHREF`, `PUSHCONT` with
 references, ...) become references of the cell. -/
 def asm? (code : List Instr) : Except String Cell := do
@@ -187,10 +204,10 @@ def _root_.TvmLean.Tx.W.varUIntPadded (w : W) (v n : Nat) : W :=
 /-- A `ShardAccount` at `(wc, addr)` with the storage statistics C++ computes; `padded` stores one
 amount with a leading zero byte: 1 the balance, 2 the cells used, 3 the due payment. -/
 def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt : Nat) (extra : Option Cell := none)
-    (padded : Nat := 0) : Cell :=
+    (padded : Nat := 0) (library : Option Cell := none) : Cell :=
   let stateBits : W :=
     match st with
-    | .active code data => ((((({} : W).bool true).bool false).bool false).maybeRef (some code)).maybeRef (some data) |>.bool false
+    | .active code data => ((((({} : W).bool true).bool false).bool false).maybeRef (some code)).maybeRef (some data) |>.maybeRef library
     | .uninit => ({} : W).uint 0 2
     | .frozen h => (({} : W).uint 1 2).bitStr h
     | .none => {}
@@ -410,6 +427,30 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (mk "frozen/int" (mkAccount 0 a (.frozen (natToBits 77 256)) 5000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
     out := out ++ extraCases mk a data
     out := out ++ tickTockCases cfg mk a data
+    -- code that is a library cell (`convert_code_cell`): its library in the account (public or not,
+    -- read before version 15), in the emulator's libraries, in the message's StateInit, missing, or a
+    -- library whose root is a library cell again
+    let libBody := asm (programs.lookup "c7-v4" |>.getD [.tonEnvOp .accept])
+    let libCode := libraryCellOf libBody
+    let inner := libraryCellOf (asm [.tonEnvOp .accept, .throw 9])
+    let chain := libraryCellOf inner
+    let withLibs (c : TxCase) (libs : Option Cell) : TxCase := { c with libs }
+    for (lname, accLib, glob) in [("none", none, none), ("acc-public", simpleLibs true [libBody], none),
+        ("acc-private", simpleLibs false [libBody], none), ("global", none, globalLibsOf [libBody]),
+        ("both", simpleLibs true [libBody], globalLibsOf [libBody])] do
+      let acc := mkAccount 0 a (.active libCode data) 1000000000 1700000000 0 1000 (library := accLib)
+      out := out.push (withLibs (mk s!"lib-code/{lname}/int" acc (intMsg 0 a 100000000 true none #[])) glob)
+      out := out.push (withLibs (mk s!"lib-code/{lname}/ext" acc (extMsg 0 a none #[])) glob)
+      out := out.push (withLibs { mk s!"lib-code/{lname}/tick" acc Cell.empty with tickTock := some false } glob)
+    out := out.push (withLibs (mk "lib-code/chain" (mkAccount 0 a (.active chain data) 1000000000 1700000000 0 1000)
+      (intMsg 0 a 100000000 true none #[])) (globalLibsOf [inner, asm [.tonEnvOp .accept, .throw 9]]))
+    -- deploying a contract whose code is a library cell, the library in the message's StateInit
+    let siLib := (((((({} : W).bool false).bool false).maybeRef (some libCode)).maybeRef (some data)).maybeRef
+      (simpleLibs true [libBody])).cell
+    let siAddr := bytesToBits siLib.hashBytes
+    out := out.push (mk "lib-code/deploy" (mkAccount 0 siAddr .none 0 0 0 0) (intMsg 0 siAddr 100000000 false (some siLib) #[]))
+    out := out.push (withLibs (mk "lib-code/deploy-global" (mkAccount 0 siAddr .none 0 0 0 0)
+      (intMsg 0 siAddr 100000000 false (some siLib) #[])) (globalLibsOf [libBody]))
     -- precompiled contracts (parameter 45): the VM runs with the gas limits of the configuration and
     -- the gas usage of the list is reported; out of gas, C++ fails
     let pre := ["accept", "throw42", "c7-v6", "accept-loop", "burn", "empty"].filterMap fun n =>

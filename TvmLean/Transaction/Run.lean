@@ -100,6 +100,8 @@ the root of its extra currencies (`balance` and `balanceExtra`, ...). -/
 structure Tx where
   cfg : Config
   kind : TxKind := .ord
+  /-- the libraries of the emulator (`set_libs`, the masterchain's public libraries): `HashmapE 256 ^Cell` -/
+  globalLibs : Option Cell := none
   gv : Nat
   account : Account
   now : Nat
@@ -472,6 +474,20 @@ def Tx.checkInMsgStateHash (t : Tx) : Option Tx := do
   return { t with myAddr := Account.mkAddr t.account.workchain (some (t.account.addr.extract 0 d))
                               (h.extract 0 d ++ t.account.addr.extract d 256) }
 
+/-- `VmState::convert_code_cell`: from version 9 the code cell is loaded as a slice with the VM's
+libraries and without gas (a library cell becomes the root of its library); where that fails (a
+missing library, another exotic cell) the code is a cell with one reference to the code cell. Before
+version 9 an ordinary cell is read as it is (`NoVmOrd`) and an exotic one gets the reference too: the
+VM's implicit JMPREF then loads it, with gas. -/
+def convertCodeCell (code : Cell) (gv : Nat) (libs : Array Cell) : Slice :=
+  let wrapped := Slice.ofCell (Cell.mkOrdinary #[] #[code])
+  if gv ≥ 9 then
+    match (libraryResolveLoads libs gv code).2 with
+    | .ok c => Slice.ofCell c
+    | .error _ => wrapped
+  else if code.special then wrapped
+  else Slice.ofCell code
+
 /-- The VM of the compute phase: `vm::VmState(code, global_version, stack, gas, flags = 1, data, ...)`
 with the libraries of `compute_vm_libraries`, `max_data_depth`, c7. -/
 def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed : BitString)
@@ -484,11 +500,14 @@ def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed
     else
       #[.int (.num (Int.ofNat t.balance)), .int (.num (Int.ofNat t.msgBalanceRemaining)), .cell t.inMsg,
         .slice t.inMsgBody, .int (.num (if t.inMsgExtern then -1 else 0))]
+  -- `compute_vm_libraries`: the message's and the account's libraries before version 15, then the
+  -- emulator's
   let libs : Array Cell :=
-    (if t.gv < 15 then #[t.inMsgLibrary, t.newLibrary].filterMap id else #[])
+    (if t.gv < 15 then #[t.inMsgLibrary, t.newLibrary].filterMap id else #[]) ++ t.globalLibs.toArray
   let base0 := VmState.initial code (Int.ofNat gasLimit) (Int.ofNat gasMax) (Int.ofNat gasCredit)
+  let cc : Continuation := .ordinary (convertCodeCell code t.gv libs) (.quit 0) OrdCregs.empty OrdCdata.empty
   let st : VmState :=
-    { base0 with stack, regs := { base0.regs with c3 := base0.cc, c4 := t.newData.getD Cell.empty, c7 := #[t.c7 blockSeed] },
+    { base0 with stack, cc, regs := { base0.regs with c3 := cc, c4 := t.newData.getD Cell.empty, c7 := #[t.c7 blockSeed] },
                  globalVersion := t.gv, libraries := libs, maxDataDepth := sl.maxVmDataDepth }
   let fuel := (st.gas.stepBound) + 16
   match VmState.run fuel st with

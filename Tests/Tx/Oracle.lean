@@ -26,12 +26,14 @@ structure TxCase where
   lt : Nat
   seed : BitString
   tickTock : Option Bool := none
+  /-- the emulator's libraries (`HashmapE 256 ^Cell`) -/
+  libs : Option Cell := none
 
 /-- The model's run of a case. -/
 def TxCase.emulate (c : TxCase) : Outcome :=
   match c.tickTock with
-  | some isTock => emulateTickTock c.config c.account isTock c.now c.lt c.seed
-  | none => TvmLean.Tx.emulate c.config c.account c.msg c.now c.lt c.seed
+  | some isTock => emulateTickTock c.config c.account isTock c.now c.lt c.seed c.libs
+  | none => TvmLean.Tx.emulate c.config c.account c.msg c.now c.lt c.seed c.libs
 
 def base64Chars : Array Char :=
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toList.toArray
@@ -88,6 +90,9 @@ def runOracle (cases : Array TxCase) (workDir : String := ".") : IO (Array TxAns
         if s.length = 1 then "0" ++ s else s)))] ++
       (match c.tickTock with
        | some isTock => [("tick_tock", Lean.Json.str (if isTock then "tock" else "tick"))]
+       | none => []) ++
+      (match c.libs with
+       | some l => [("libs", Lean.Json.str (cellB64 l))]
        | none => [])))
   IO.FS.writeFile reqFile (String.intercalate "\n" lines.toList ++ "\n")
   let script := (← IO.getEnv "TVMLEAN_TXORACLE").getD "tools/txoracle/txoracle.py"
