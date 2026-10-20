@@ -88,7 +88,9 @@ private def bounds : Array Int := #[0, 1, 2, 3, 10, 1000, -1, 2 ^ 63]
 private def dataSizeStacks (asSlice : Bool) : Array (Array Value) :=
   let v (c : Cell) : Value := if asSlice then .slice (Slice.ofCell c) else .cell c
   (cellPool.flatMap (fun c => bounds.map (fun n => #[v c, iv n]))) ++
-    #[#[.null, iv 5], #[v Cell.empty], #[]]
+    -- a NaN bound (`!bound->is_valid()`: range_chk, `exec_compute_data_size`), checked after the
+    -- cell or slice is popped (type_chk first)
+    #[#[.null, iv 5], #[v Cell.empty], #[], #[v Cell.empty, .int .nan], #[iv 3, .int .nan]]
 
 private def dbg (o : DebugInstr) : Instr := .debugOp o
 private def two : Array (Array Value) := #[#[], #[iv 1, iv 2]]
