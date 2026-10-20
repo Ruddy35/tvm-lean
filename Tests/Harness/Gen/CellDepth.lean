@@ -115,6 +115,42 @@ private def endxcCases (suite : String) : Array OracleCase :=
       #[.newc, .stSlice false false, .stref, .stref, .pushInt (.num (-1)), .cellOp .endxc]
       #[.cell Cell.empty, .cell (chain d), slOf (Cell.mkOrdinary (merkleUpdateBits (chain d) Cell.empty) #[])])
 
+/-- ENDXC on exotic data that `DataCell::create` (`CellChecker`, cells/DataCell.cpp:43-255) rejects
+— fewer than 8 bits, an ordinary or unknown type byte; a pruned branch with references, cut short,
+with level 0 or above 3, or with the wrong number of hashes and depths; a library cell with
+references or of the wrong length; a Merkle proof or update with the wrong number of references,
+of the wrong length, or storing another hash or depth than its child's — and the valid forms
+(pruned branches of each level mask, a library cell, a proof, an update). All rejections are
+cell_ov after the creation is charged. -/
+private def endxcExoticCases (suite : String) : Array OracleCase :=
+  let x : Cell := Cell.mkOrdinary (natToBits 5 8) #[]
+  let y : Cell := Cell.mkOrdinary (natToBits 6 8) #[x]
+  let h (c : Cell) : BitString := bytesBits (Cell.hashBytes c)
+  let pruned (mask : Nat) (hashes : Nat) : BitString :=
+    natToBits 1 8 ++ natToBits mask 8 ++ (List.replicate hashes (natToBits 0x77 256)).foldl (· ++ ·) #[] ++
+      (List.replicate hashes (natToBits 9 16)).foldl (· ++ ·) #[]
+  let proof (hash : BitString) (d : Nat) : BitString := natToBits 3 8 ++ hash ++ natToBits d 16
+  let update (h1 h2 : BitString) (d1 d2 : Nat) : BitString := natToBits 4 8 ++ h1 ++ h2 ++ natToBits d1 16 ++ natToBits d2 16
+  let items : Array (String × BitString × Array Cell) :=
+    #[("no-bits", #[], #[]), ("seven-bits", natToBits 1 7, #[]), ("type0", natToBits 0 16, #[]),
+      ("type5", natToBits 5 8 ++ natToBits 0 256, #[]), ("type255", natToBits 255 8, #[]),
+      ("pruned-ok-mask1", pruned 1 1, #[]), ("pruned-ok-mask2", pruned 2 1, #[]), ("pruned-ok-mask3", pruned 3 2, #[]),
+      ("pruned-ok-mask5", pruned 5 2, #[]), ("pruned-ok-mask7", pruned 7 3, #[]),
+      ("pruned-refs", pruned 1 1, #[x]), ("pruned-type-only", natToBits 1 8, #[]), ("pruned-mask0", pruned 0 0, #[]),
+      ("pruned-mask0-hash", pruned 0 1, #[]), ("pruned-mask8", pruned 8 1, #[]), ("pruned-mask3-one-hash", pruned 3 1, #[]),
+      ("pruned-extra-byte", pruned 1 1 ++ natToBits 0 8, #[]), ("pruned-extra-bit", pruned 1 1 ++ #[true], #[]),
+      ("library-ok", natToBits 2 8 ++ h x, #[]), ("library-refs", natToBits 2 8 ++ h x, #[x]),
+      ("library-short", natToBits 2 8 ++ (h x).extract 0 255, #[]),
+      ("proof-ok", proof (h x) 0, #[x]), ("proof-ok-deeper", proof (h y) 1, #[y]), ("proof-no-ref", proof (h x) 0, #[]),
+      ("proof-two-refs", proof (h x) 0, #[x, x]), ("proof-wrong-hash", proof (h y) 0, #[x]),
+      ("proof-wrong-depth", proof (h y) 2, #[y]), ("proof-extra-bit", proof (h x) 0 ++ #[false], #[x]),
+      ("update-ok", update (h x) (h y) 0 1, #[x, y]), ("update-one-ref", update (h x) (h y) 0 1, #[x]),
+      ("update-wrong-hash2", update (h x) (h x) 0 1, #[x, y]), ("update-wrong-depth1", update (h x) (h y) 1 1, #[x, y]),
+      ("update-short", (update (h x) (h y) 0 1).extract 0 (8 + 2 * 256 + 24), #[x, y])]
+  items.map fun (n, bits, refs) =>
+    mk suite s!"exotic-{n}" #[.pushInt (.num (-1)), .cellOp .endxc] #[.builder { bits := bits, refs := refs }]
+
+
 /-! ### Dictionary set operations -/
 
 private inductive ValKind
@@ -187,7 +223,7 @@ def casesFor (suite : String) : Array OracleCase :=
   match suite with
   | "ENDC" => refCases suite #[.endc] ++ proofSliceCases suite #[.newc, .stSlice false false, .endc]
   | "HASHSU" => proofSliceCases suite #[.cryptoOp .hashSU]
-  | "ENDXC" => endxcCases suite
+  | "ENDXC" => endxcCases suite ++ endxcExoticCases suite
   -- the resulting builder is dropped: its reference may be 1024 deep, and the oracle prints a
   -- builder by finalizing it
   | "STBREF" => refCases suite #[.newc, .stbRef false false, .pop 0]
