@@ -282,7 +282,12 @@ private def libMsgCases (suite : String) : Array OracleCase := Id.run do
   let m := (sendMsgPool[0]!).2
   let others : Array (String × Cell × Array Cell) :=
     #[("miss", lib m, #[]), ("recursive", lib (lib m), #[lib m, m]), ("not-a-message", lib (leaf 3), #[leaf 3]),
-      ("pruned", Tests.Gen.VmCore.pruned, #[]), ("merkle-proof", Tests.Gen.VmCore.merkleProof m, #[])]
+      ("pruned", Tests.Gen.VmCore.pruned, #[]), ("merkle-proof", Tests.Gen.VmCore.merkleProof m, #[]),
+      -- exotic cells below the root are counted as they are (`VmStorageStat::add_storage`:
+      -- `load_cell_slice_special`, charged, not resolved); a pruned branch makes the message level 1
+      ("child-lib", intMsgWith 0 100 false 0 none false #[] #[lib (leaf 4)], #[leaf 4]),
+      ("child-pruned", intMsgWith 0 100 false 0 none false #[] #[Tests.Gen.VmCore.pruned], #[]),
+      ("child-merkle", intMsgWith 0 100 false 0 none true #[] #[Tests.Gen.VmCore.merkleProof (leaf 5), leaf 5], #[])]
   for (n, c, libs) in others do
     for mode in (#[0, 1024] : Array Int) do
       out := out.push (mk n c libs mode)
