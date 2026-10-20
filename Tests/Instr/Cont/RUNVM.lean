@@ -1,6 +1,7 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
+import Tests.Harness.Gen.Control
 import TvmLean.Spec.Index
 import TvmLean.Native
 
@@ -566,6 +567,32 @@ private def genRunvmFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
   let (tag, rng14) := randNat rng13 0 999_999
   ({ base with name := s!"{base.name}/{tag}" }, rng14)
 
+/-! C++ runs every VM until it halts (`VmState::run`, vm.cpp:513), a child of `RUNVM` too
+(`run_child_vm`, vm.cpp:729), and a child can run `RUNVM` itself. Children here run `RUNVM` two
+and three levels deep, with gas limits, a grandchild runs out of gas, and a child runs an `AGAIN`
+loop for 200 000 gas (80 000 steps). -/
+private def codeOfProg (prog : Array Instr) : Cell := Tests.Gen.Control.codeOf prog
+
+private def pushCode (c : Cell) : Instr := .pushSliceConst (Slice.ofCell c)
+
+/-- Code running `child` with `RUNVM mode` (mode 8: gas limit `gas`) on an empty stack. -/
+private def runvmCode (child : Cell) (mode : Nat := 0) (gas : Int := 0) (after : Array Instr := #[]) : Cell :=
+  codeOfProg (#[.pushInt (.num 0), pushCode child] ++ (if mode &&& 8 = 8 then #[.pushInt (.num gas)] else #[]) ++
+    #[runvmInstr mode] ++ after)
+
+private def childPush5 : Cell := codeOfProg #[.pushInt (.num 5)]
+
+private def childAgainLoop : Cell :=
+  codeOfProg #[.pushCont (Slice.ofCell (codeOfProg #[])), .contExt (.again false)]
+
+private def nestedCases : Array OracleCase :=
+  #[mkRunvmCodeCase "ok/nested/child-runs-runvm" #[] (runvmCode (runvmCode childPush5)),
+    mkRunvmCodeCase "ok/nested/child-runs-runvm-gas" #[] (runvmCode (runvmCode childPush5 8 300) 8 1000),
+    mkRunvmCodeCase "ok/nested/three-levels" #[] (runvmCode (runvmCode (runvmCode childPush5 8 200) 8 600) 8 2000),
+    mkRunvmCodeCase "ok/nested/grandchild-out-of-gas" #[]
+      (runvmCode (runvmCode childAgainLoop 8 500 #[.pushInt (.num 7)]) 8 5000),
+    mkRunvmCodeCase "ok/long-child/again-200k-gas" #[] (runvmCode childAgainLoop 8 200000)]
+
 def suite : InstrSuite where
   id := runvmId
   unit := #[
@@ -650,7 +677,7 @@ def suite : InstrSuite where
         if oracleCases.size < 30 then
           throw (IO.userError s!"oracle count too small: expected >=30, got {oracleCases.size}") }
   ]
-  oracle := oracleCases
+  oracle := oracleCases ++ nestedCases
   fuzz := #[ { seed := fuzzSeedForInstr runvmId, count := 500, gen := genRunvmFuzzCase } ]
 
 initialize registerSuite suite
