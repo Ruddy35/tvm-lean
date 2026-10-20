@@ -40,6 +40,10 @@ def byteToHex (b : UInt8) : String :=
   let lo : Nat := b.toNat % 16
   String.mk [hex[hi]!, hex[lo]!]
 
+/-- Addresses are read as before version 10, where anycasts and `addr_var` are valid: the tool
+shows any message. -/
+def displayVersion : Nat := 9
+
 def bytesToHex (bs : Array UInt8) : String :=
   String.join (bs.toList.map byteToHex)
 
@@ -57,7 +61,7 @@ def addrCellSummary (c : Cell) : Option String :=
       match tag with
       | 0 => return "addr_none"
       | 2 =>
-          let s3 ← s2.skipMaybeAnycast
+          let s3 ← s2.skipMaybeAnycast displayVersion
           let (wcNat, sWc) ← s3.takeBitsAsNatCellUnd 8
           if !sWc.haveBits 256 then
             throw .cellUnd
@@ -65,7 +69,7 @@ def addrCellSummary (c : Cell) : Option String :=
           let addrHex := bytesToHex (bitStringToBytesBE (sWc.readBits 256))
           return s!"addr_std wc={wc} addr=0x{addrHex}"
       | 3 =>
-          let s3 ← s2.skipMaybeAnycast
+          let s3 ← s2.skipMaybeAnycast displayVersion
           let (addrLen, sLen) ← s3.takeBitsAsNatCellUnd 9
           let (wcNat, sWc) ← sLen.takeBitsAsNatCellUnd 32
           if !sWc.haveBits addrLen then
@@ -159,11 +163,11 @@ def parseMessageSummary (msg : Cell) : Except Excno String := do
     let (bounced, s4) ← s3.takeBitsAsNatCellUnd 1
 
     let srcStart := s4
-    let srcStop ← srcStart.skipMessageAddr
+    let srcStop ← srcStart.skipMessageAddr displayVersion
     let srcCell := Slice.prefixCell srcStart srcStop
 
     let destStart := srcStop
-    let destStop ← destStart.skipMessageAddr
+    let destStop ← destStart.skipMessageAddr displayVersion
     let destCell := Slice.prefixCell destStart destStop
     let srcAddrStr := (addrCellSummary srcCell).getD s!"0x{cellHashHex srcCell}"
     let destAddrStr := (addrCellSummary destCell).getD s!"0x{cellHashHex destCell}"
@@ -223,8 +227,8 @@ def extractInitBodyRefs? (msg : Cell) : Except Excno (Option Cell × Option Cell
     if b0 = 0 then
       -- Internal message.
       let (_, s2) ← s1.takeBitsAsNatCellUnd 3 -- ihr_disabled + bounce + bounced
-      let afterSrc ← s2.skipMessageAddr
-      let afterDest ← afterSrc.skipMessageAddr
+      let afterSrc ← s2.skipMessageAddr displayVersion
+      let afterDest ← afterSrc.skipMessageAddr displayVersion
       let (_, afterValue) ← afterDest.takeCurrencyCollectionGramsCellUnd
       let (_, afterFlags) ← afterValue.takeVarUIntegerCellUnd 4
       let (_, afterFee) ← afterFlags.takeGramsCellUnd
@@ -235,8 +239,8 @@ def extractInitBodyRefs? (msg : Cell) : Except Excno (Option Cell × Option Cell
       let (b1, s2) ← s1.takeBitsAsNatCellUnd 1
       if b1 = 1 then
         -- External outbound message.
-        let afterSrc ← s2.skipMessageAddr
-        let afterDest ← afterSrc.skipMessageAddr
+        let afterSrc ← s2.skipMessageAddr displayVersion
+        let afterDest ← afterSrc.skipMessageAddr displayVersion
         let (_, afterLt) ← afterDest.takeBitsAsNatCellUnd 64
         let (_, afterAt) ← afterLt.takeBitsAsNatCellUnd 32
         pure afterAt

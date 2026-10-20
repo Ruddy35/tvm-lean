@@ -51,6 +51,10 @@ def byteToHex (b : UInt8) : String :=
   let lo : Nat := b.toNat % 16
   String.mk [hex[hi]!, hex[lo]!]
 
+/-- Addresses are read as before version 10, where anycasts and `addr_var` are valid: the tool
+shows any message. -/
+def displayVersion : Nat := 9
+
 def bytesToHex (bs : Array UInt8) : String :=
   String.join (bs.toList.map byteToHex)
 
@@ -63,7 +67,7 @@ def sliceAddrStdSummary? (s : Slice) : Option String :=
       let (tag, s2) ← s.takeBitsAsNatCellUnd 2
       if tag != 2 then
         throw .cellUnd
-      let s3 ← s2.skipMaybeAnycast
+      let s3 ← s2.skipMaybeAnycast displayVersion
       let (wcNat, sWc) ← s3.takeBitsAsNatCellUnd 8
       if !sWc.haveBits 256 then
         throw .cellUnd
@@ -80,6 +84,7 @@ def sliceAddrStdSummary? (s : Slice) : Option String :=
 def valueDebug (v : Value) : String :=
   match v with
   | .null => "null"
+  | .nullCell => "null(cell)"
   | .int .nan => "NaN"
   | .int (.num n) => s!"int({n})"
   | .cell c =>
