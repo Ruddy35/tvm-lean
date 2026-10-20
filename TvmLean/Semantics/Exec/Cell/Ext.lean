@@ -157,10 +157,16 @@ def execInstrCellExt (i : Instr) (next : VM Unit) : VM Unit := do
               VM.push (.builder (b.storeBits bs))
       | .xload quiet =>
           VM.checkUnderflow 1
-          -- Mirrors TON `exec_load_special_cell` (cellops.cpp) for modern TVM:
-          -- - Always charges a cell load for the popped cell.
-          -- - Resolves library exotic cells via the library collections in `VmState.libraries`.
+          -- Mirrors TON `exec_load_special_cell` (cellops.cpp:902-944): from version 5
+          -- - charges a cell load for the popped cell,
+          -- - resolves library exotic cells via the library collections in `VmState.libraries`;
+          -- before version 5 the cell is pushed back as it is, not loaded.
           let c0 ← VM.popCell
+          if (← get).globalVersion < 5 then
+            VM.push (.cell c0)
+            if quiet then
+              VM.pushSmallInt (-1)
+            return
           VM.registerCellLoad c0
           let st ← get
           let resolve : Except Excno Cell := do
