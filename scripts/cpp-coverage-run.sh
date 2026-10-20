@@ -2,7 +2,7 @@
 # Measured coverage run: the oracle and fuzz categories on global versions 13 and 16 against the
 # coverage fift (build-cpp-coverage.sh), then the report (cpp-coverage-report.sh). Unit tests and
 # diff fixtures do not run C++ and are not part of it. The test binary must be built
-# (verify-all.sh or `lake build tvm-lean-tests` with TVMLEAN_TON_BUILD/TVMLEAN_TON_SRC).
+# (verify-all.sh or `lake build tvm-lean-tests`).
 #   WS, TON_SRC, BUILD as in build-cpp-coverage.sh;  TON_FIFT_LIB as in verify-all.sh;
 #   OUT    directory for logs and the report                               [default: ./cpp-coverage]
 #   SUITES optional: only these suites (exact names, space-separated)

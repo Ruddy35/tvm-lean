@@ -1,5 +1,4 @@
 import Tests.Tx.Gen
-import TvmLean.Native
 
 /-!
 `tvm-lean-tx-test`: whole ordinary transactions of the model against the C++ transaction emulator
@@ -39,7 +38,7 @@ def main (args : List String) : IO UInt32 := do
   let mut same := 0
   let mut kinds : Std.HashMap String Nat := {}
   for (c, ans) in all.zip answers do
-    let model := emulate nativeHost c.config c.account c.msg c.now c.lt c.seed
+    let model := emulate c.config c.account c.msg c.now c.lt c.seed
     let verdict : Option String :=
       match model, ans with
       | .unsupported w, _ => some s!"unsupported: {w}"

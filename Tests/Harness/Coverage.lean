@@ -1,7 +1,6 @@
 import Tests.Harness.Registry
 import TvmLean.Spec.Index
 import TvmLean.Semantics.Exec.Dispatch
-import TvmLean.Native
 import TvmLean.Validation.Coverage.Report
 
 open TvmLean
@@ -38,7 +37,7 @@ private def probeImplStatus (row : InstrSpecRow) : InstrImplStatus :=
     | .error _ => .missing
     | .ok (instr, _totBits, _rest) =>
         let st0 := VmState.initial cell
-        let (res, _st1) := (execInstr nativeHost instr).run st0
+        let (res, _st1) := (execInstr instr).run st0
         match res with
         | .error .unimplemented => .stub
         | .error .invOpcode => .missing

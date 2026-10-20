@@ -18,21 +18,21 @@ import TvmLean.Semantics.Exec.Dict
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstr (host : Host) (i : Instr) : VM Unit :=
-  execInstrStack host i <|
-    execInstrCont host i <|
-      execInstrCell host i <|
-        execInstrFlow host i <|
-          execInstrArith host i <|
-            execInstrTuple host i <|
-              execInstrCellOp host i <|
-                execInstrTonEnv host i <|
-                  execInstrCrypto host i <|
-                    execInstrMsg host i <|
-                      execInstrMisc host i <|
-                      execInstrDebug host i <|
-                      execInstrException host i <|
-                        execInstrDict host i <|
+def execInstr (i : Instr) : VM Unit :=
+  execInstrStack i <|
+    execInstrCont i <|
+      execInstrCell i <|
+        execInstrFlow i <|
+          execInstrArith i <|
+            execInstrTuple i <|
+              execInstrCellOp i <|
+                execInstrTonEnv i <|
+                  execInstrCrypto i <|
+                    execInstrMsg i <|
+                      execInstrMisc i <|
+                      execInstrDebug i <|
+                      execInstrException i <|
+                        execInstrDict i <|
                           VM.unimplementedInstr { name := Instr.pretty i } "no exec handler"
 
 end TvmLean

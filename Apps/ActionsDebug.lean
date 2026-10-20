@@ -1,6 +1,5 @@
 import TvmLean.Validation.Diff.Runner
 import TvmLean.Validation.Canon.Cell
-import TvmLean.Native
 
 open TvmLean
 open Lean
@@ -400,7 +399,7 @@ def loadAndRun (opts : CliOpts) (tc : TestCase) : IO (Cell × Cell × Bool × Vm
   let st0 : VmState :=
     { base with stack := initStack, regs := { base.regs with c4 := dataCell, c7 := initC7 } }
 
-  match VmState.run nativeHost opts.fuel st0 with
+  match VmState.run opts.fuel st0 with
   | .continue _ =>
       throw (IO.userError "fuel exhausted")
   | .halt exitCode stF =>

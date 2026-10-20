@@ -83,7 +83,7 @@ def VM.popTuple : VM (Array Value) := do
   | _ => throw .typeChk
 
 set_option maxHeartbeats 1000000 in
-def execInstrFlowChildNoRunvm (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrFlowChildNoRunvm (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrFlowSetcp i <|
   execInstrFlowIfret i <|
   execInstrFlowIfnotret i <|
@@ -133,21 +133,21 @@ def execInstrFlowChildNoRunvm (_host : Host) (i : Instr) (next : VM Unit) : VM U
     next
 
 set_option maxHeartbeats 1000000 in
-def execInstrChildNoRunvm (host : Host) (i : Instr) : VM Unit :=
-  execInstrStack host i <|
-    execInstrCont host i <|
-      execInstrCell host i <|
-        execInstrFlowChildNoRunvm host i <|
-          execInstrArith host i <|
-            execInstrTuple host i <|
-              execInstrCellOp host i <|
-                execInstrTonEnv host i <|
-                  execInstrCrypto host i <|
-                    execInstrMsg host i <|
-                      execInstrMisc host i <|
-                      execInstrDebug host i <|
-                      execInstrException host i <|
-                        execInstrDict host i <|
+def execInstrChildNoRunvm (i : Instr) : VM Unit :=
+  execInstrStack i <|
+    execInstrCont i <|
+      execInstrCell i <|
+        execInstrFlowChildNoRunvm i <|
+          execInstrArith i <|
+            execInstrTuple i <|
+              execInstrCellOp i <|
+                execInstrTonEnv i <|
+                  execInstrCrypto i <|
+                    execInstrMsg i <|
+                      execInstrMisc i <|
+                      execInstrDebug i <|
+                      execInstrException i <|
+                        execInstrDict i <|
                           throw .invOpcode
 
 /-- The child VM of `RUNVM` runs with the same `VmState::run` as the parent (C++ `run_child_vm`)
@@ -369,15 +369,15 @@ its own `RUNVM` runs the child with `execInstrNested (depth - 1)` (C++ nests chi
 limit, `run_child_vm`). A VM at depth `d` has at most `runvmGasPrice * d - 1` gas: `RUNVM` charges
 `runvmGasPrice` before the child runs and gives it at most the gas left (contops.cpp:230, 260-261),
 so a VM at depth 0 is never run. -/
-def execInstrNested : Nat → Host → Instr → VM Unit
-  | 0, host => execInstrChildNoRunvm host
-  | depth + 1, host => fun i => execInstrFlowRunvmWith (execInstrNested depth host) i (execInstrChildNoRunvm host i)
+def execInstrNested : Nat → Instr → VM Unit
+  | 0 => execInstrChildNoRunvm
+  | depth + 1 => fun i => execInstrFlowRunvmWith (execInstrNested depth) i (execInstrChildNoRunvm i)
 
 -- Leaf module hook used by `TvmLean.Semantics.Exec.Flow`.
 /-- `RUNVM` and `RUNVMX` of the VM: the child gets at most the gas left, so it runs at depth
 `gas left / runvmGasPrice + 1` (`execInstrNested`). -/
-def execInstrFlowRunvm (host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrFlowRunvm (i : Instr) (next : VM Unit) : VM Unit := do
   let depth := (← get).gas.gasRemaining.toNat / runvmGasPrice.toNat + 1
-  execInstrFlowRunvmWith (execInstrNested depth host) i next
+  execInstrFlowRunvmWith (execInstrNested depth) i next
 
 end TvmLean

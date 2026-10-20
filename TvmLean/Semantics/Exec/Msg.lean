@@ -10,7 +10,7 @@ import TvmLean.Semantics.Exec.Msg.ChangeLib
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrMsg (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrMsg (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrMsgSendMsg i <|
   execInstrMsgSendRawMsg i <|
   execInstrMsgRawReserve i <|

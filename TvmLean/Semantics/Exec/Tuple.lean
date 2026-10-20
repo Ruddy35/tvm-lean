@@ -27,7 +27,7 @@ import TvmLean.Semantics.Exec.Tuple.Tpop
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrTuple (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrTuple (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tupleOp op =>
       execTupleOpMktuple op <|

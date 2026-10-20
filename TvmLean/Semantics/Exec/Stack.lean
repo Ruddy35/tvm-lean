@@ -45,7 +45,7 @@ import TvmLean.Semantics.Exec.Stack.OnlyX
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrStack (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrStack (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrStackNop i <|
   execInstrStackPushInt i <|
   execInstrStackPushPow2 i <|

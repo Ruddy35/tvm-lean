@@ -1,7 +1,6 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
-import TvmLean.Native.Host.StubHost
 
 open TvmLean
 open Tests
@@ -197,7 +196,7 @@ def suite : InstrSuite where
       run := do
         -- [B1]
         expectOkStack "dispatch-fallback-to-next"
-          (runHandlerDirectWithNext (fun i => execInstrStack stubHost i) .add (VM.push (.int (.num 77))) #[])
+          (runHandlerDirectWithNext execInstrStack .add (VM.push (.int (.num 77))) #[])
           #[.int (.num 77)]
     }
     ,

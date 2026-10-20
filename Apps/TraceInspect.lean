@@ -1,5 +1,4 @@
 import TvmLean.Validation.Diff.Runner
-import TvmLean.Native
 
 open TvmLean
 open Lean
@@ -208,7 +207,7 @@ def main (args : List String) : IO Unit := do
   let mut fuel := opts.fuel
   while fuel > 0 do
     let stBefore := st
-    let (entry, res) := stBefore.stepTrace nativeHost step
+    let (entry, res) := stBefore.stepTrace step
     let stAfter :=
       match res with
       | .continue s => s

@@ -50,7 +50,7 @@ import TvmLean.Semantics.Exec.Flow.Drop2
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrFlow (host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrFlow (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrFlowSetcp i <|
   execInstrFlowIfret i <|
   execInstrFlowIfnotret i <|
@@ -76,7 +76,7 @@ def execInstrFlow (host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrFlowRetData i <|
   execInstrFlowJmpxVarArgs i <|
   execInstrFlowJmpxData i <|
-  execInstrFlowRunvm host i <|
+  execInstrFlowRunvm i <|
   execInstrFlowIfjmp i <|
   execInstrFlowIfnotjmp i <|
   execInstrFlowIfelse i <|

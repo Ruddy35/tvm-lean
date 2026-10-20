@@ -1,5 +1,4 @@
 import TvmLean
-import TvmLean.Native
 
 structure CliOpts where
   trace : Bool := false
@@ -28,7 +27,7 @@ partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :
   | arg :: _ =>
       throw (IO.userError s!"unknown argument: {arg}")
 
-def runWithTrace (host : TvmLean.Host) (fuel : Nat) (st : TvmLean.VmState) : IO TvmLean.StepResult := do
+def runWithTrace (fuel : Nat) (st : TvmLean.VmState) : IO TvmLean.StepResult := do
   match fuel with
   | 0 =>
       pure (.halt (TvmLean.Excno.fatal.toInt) st)
@@ -66,9 +65,9 @@ def runWithTrace (host : TvmLean.Host) (fuel : Nat) (st : TvmLean.VmState) : IO 
         | .excQuit =>
             "<excQuit>"
       IO.println s!"gas={st.gas.gasRemaining} next={next} stack={TvmLean.Stack.pretty st.stack}"
-      let r := st.step host
+      let r := st.step
       match r with
-      | .continue st' => runWithTrace host fuel st'
+      | .continue st' => runWithTrace fuel st'
       | .halt _ _ => pure r
 
 def main (args : List String) : IO Unit := do
@@ -101,9 +100,9 @@ def main (args : List String) : IO Unit := do
   let st0 : TvmLean.VmState := { base with regs := { base.regs with c4 := initC4 } }
   let res ←
     if opts.trace then
-      runWithTrace TvmLean.nativeHost opts.fuel st0
+      runWithTrace opts.fuel st0
     else
-      pure (TvmLean.VmState.run TvmLean.nativeHost opts.fuel st0)
+      pure (TvmLean.VmState.run opts.fuel st0)
   match res with
   | .halt exitCode st => do
       IO.println s!"exitCode={exitCode}"

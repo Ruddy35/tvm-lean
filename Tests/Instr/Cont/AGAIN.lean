@@ -2,7 +2,6 @@ import Tests.Harness.Registry
 import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
-import TvmLean.Native.Host.StubHost
 
 open TvmLean
 open Tests
@@ -155,7 +154,7 @@ private def expectContinue (label : String) (res : StepResult) : IO VmState := d
       throw (IO.userError s!"{label}: expected continue, got halt({code}) with state {reprStr st}")
 
 private def stepOnce (st : VmState) : StepResult :=
-  VmState.step stubHost st
+  VmState.step st
 
 private def expectExtractCc3Shape
     (label : String)

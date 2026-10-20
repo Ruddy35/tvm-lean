@@ -4,7 +4,7 @@ import TvmLean.Model.Crypto.Ed25519
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCryptoChkSignU (host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCryptoChkSignU (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cryptoOp .chkSignU =>
       VM.checkUnderflow 3

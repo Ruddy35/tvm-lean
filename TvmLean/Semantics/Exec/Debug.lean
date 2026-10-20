@@ -3,7 +3,7 @@ import TvmLean.Semantics.Exec.Common
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrDebug (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrDebug (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .debugOp op =>
       match op with

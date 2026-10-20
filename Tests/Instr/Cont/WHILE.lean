@@ -1,7 +1,6 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
-import TvmLean.Native.Host.StubHost
 
 open TvmLean
 open Tests
@@ -111,7 +110,7 @@ private def runWhileCondStep
       stack := stack
       regs := { Regs.initial with c0 := c0 }
       cc := .whileCond cond body after }
-  VmState.step stubHost st0
+  VmState.step st0
 
 private def runWhileBodyStep
     (stack : Array Value)
@@ -122,7 +121,7 @@ private def runWhileBodyStep
       stack := stack
       regs := { Regs.initial with c0 := c0 }
       cc := .whileBody cond body after }
-  VmState.step stubHost st0
+  VmState.step st0
 
 private def expectRawOk (label : String) (out : Except Excno Unit × VmState) : IO VmState := do
   let (res, st) := out
@@ -417,7 +416,7 @@ def suite : InstrSuite where
         if st.cc != after then
           throw (IO.userError s!"step/whilecond-false: expected cc=after, got {reprStr st.cc}")
         -- `after` sets c0 to its saved quit77; its implicit RET then jumps there
-        match VmState.step stubHost st with
+        match VmState.step st with
         | .continue st2 =>
             if st2.cc != .quit 77 then
               throw (IO.userError s!"step/whilecond-false: expected the jump to after's saved c0, got {reprStr st2.cc}")

@@ -441,7 +441,7 @@ def Tx.checkInMsgStateHash (t : Tx) : Option Tx := do
 
 /-- The VM of the compute phase: `vm::VmState(code, global_version, stack, gas, flags = 1, data, ...)`
 with the libraries of `compute_vm_libraries`, `max_data_depth`, c7. -/
-def Tx.runVm (t : Tx) (host : Host) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed : BitString)
+def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed : BitString)
     (sl : SizeLimits) : VmState × Int :=
   let stack : Stack :=
     #[.int (.num (Int.ofNat t.balance)), .int (.num (Int.ofNat t.msgBalanceRemaining)), .cell t.inMsg,
@@ -453,7 +453,7 @@ def Tx.runVm (t : Tx) (host : Host) (code : Cell) (gasLimit gasMax gasCredit : N
     { base0 with stack, regs := { base0.regs with c3 := base0.cc, c4 := t.newData.getD Cell.empty, c7 := #[t.c7 blockSeed] },
                  globalVersion := t.gv, libraries := libs, maxDataDepth := sl.maxVmDataDepth }
   let fuel := (st.gas.stepBound) + 16
-  match VmState.run host fuel st with
+  match VmState.run fuel st with
   | .halt ec stF => (stF, ec)
   | .continue stF => (stF, Excno.fatal.toInt)
 
@@ -461,7 +461,7 @@ def Tx.runVm (t : Tx) (host : Host) (code : Cell) (gasLimit gasMax gasCredit : N
 /-- `Transaction::prepare_compute_phase` (no precompiled contract has an implementation: a
 precompiled code runs the VM with the gas limits of the configuration, its gas usage reported).
 `Except.error` for a path not modelled. -/
-def Tx.computePhaseRun (t : Tx) (host : Host) (gas : GasPrices) (sl : SizeLimits) (blockSeed : BitString) :
+def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed : BitString) :
     Except String Tx := do
   let t := { t with originalBalance :=
     if t.gv ≥ 9 then t.balance - t.msgBalanceRemaining else t.originalBalance - t.totalFees }
@@ -525,7 +525,7 @@ def Tx.computePhaseRun (t : Tx) (host : Host) (gas : GasPrices) (sl : SizeLimits
         pure (limit, limit, if gc ≠ 0 then limit else 0)
   t := { t with computePhase := { t.computePhase with precompiledGasUsage := precompiled } }
   if sl.maxTransactionLibraryLoads.isSome then throw "max_transaction_library_loads"
-  let (stF, ec) := t.runVm host code gl gm gc blockSeed sl
+  let (stF, ec) := t.runVm code gl gm gc blockSeed sl
   let exitCode := ~~~ ec
   let g := stF.gas
   let gasUsed := (min g.gasConsumed g.gasLimit).toNat

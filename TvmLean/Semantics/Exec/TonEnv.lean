@@ -38,7 +38,7 @@ import TvmLean.Semantics.Exec.TonEnv.InMsgParam
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrTonEnv (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrTonEnv (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrTonEnvBalance i <|
   execInstrTonEnvNow i <|
   execInstrTonEnvGetParamAliases i <|

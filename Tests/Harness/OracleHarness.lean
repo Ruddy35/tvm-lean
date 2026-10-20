@@ -1,5 +1,4 @@
 import Tests.Harness.Registry
-import TvmLean.Native
 import TvmLean.Validation.Canon.Result
 import TvmLean.Validation.Oracle.Report
 import TvmLean.Validation.Oracle.Runner
@@ -134,7 +133,7 @@ private def runLeanCase (code : Cell) (c : OracleCase) : StepResult :=
       regs := regs
       libraries := c.initLibraries
       gas := GasLimits.ofLimits c.gasLimits.gasLimit c.gasLimits.gasMax c.gasLimits.gasCredit }
-  VmState.run nativeHost c.fuel st0
+  VmState.run c.fuel st0
 
 private def leanCanonResult (res : StepResult) : Except String CanonResult := do
   match res with

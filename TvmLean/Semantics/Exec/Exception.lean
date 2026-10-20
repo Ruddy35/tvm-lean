@@ -11,7 +11,7 @@ import TvmLean.Semantics.Exec.Exception.Try
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrException (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrException (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrExceptionThrow i <|
   execInstrExceptionThrowIf i <|
   execInstrExceptionThrowIfNot i <|

@@ -1,6 +1,5 @@
 import Lean
 import TvmLean
-import TvmLean.Native
 import TvmLean.Validation.Canon.Value
 
 open TvmLean
@@ -1442,7 +1441,7 @@ def runLean (code : Cell) (initStack : Array Value) (fuel : Nat := 2_000_000) : 
     let mut res : StepResult := .continue stCur
 
     while fuelCur > 0 do
-      match stCur.step nativeHost with
+      match stCur.step with
       | .continue st' =>
           stCur := st'
           res := .continue st'

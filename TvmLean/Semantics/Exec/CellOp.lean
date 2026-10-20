@@ -29,7 +29,7 @@ import TvmLean.Semantics.Exec.CellOp.Bchk
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCellOp (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCellOp (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cellOp op =>
       execCellOpExt op <|

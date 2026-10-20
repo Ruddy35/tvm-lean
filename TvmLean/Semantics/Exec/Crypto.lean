@@ -10,14 +10,14 @@ import TvmLean.Semantics.Exec.Crypto.Ext
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCrypto (host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
-  execInstrCryptoHashExt host i <|
-  execInstrCryptoHashCU host i <|
-  execInstrCryptoHashSU host i <|
-  execInstrCryptoSha256U host i <|
-  execInstrCryptoChkSignU host i <|
-  execInstrCryptoChkSignS host i <|
-  execInstrCryptoExt host i <|
+def execInstrCrypto (i : Instr) (next : VM Unit) : VM Unit :=
+  execInstrCryptoHashExt i <|
+  execInstrCryptoHashCU i <|
+  execInstrCryptoHashSU i <|
+  execInstrCryptoSha256U i <|
+  execInstrCryptoChkSignU i <|
+  execInstrCryptoChkSignS i <|
+  execInstrCryptoExt i <|
     next
 
 end TvmLean

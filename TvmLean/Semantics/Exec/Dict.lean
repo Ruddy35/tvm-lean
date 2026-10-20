@@ -15,7 +15,7 @@ import TvmLean.Semantics.Exec.Dict.Lddict
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrDict (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrDict (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrDictStdict i <|
   execInstrDictSkipdict i <|
   execInstrDictDictPushConst i <|

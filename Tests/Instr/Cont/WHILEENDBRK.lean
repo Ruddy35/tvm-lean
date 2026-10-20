@@ -1,7 +1,6 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
-import TvmLean.Native.Host.StubHost
 
 open TvmLean
 open Tests
@@ -129,7 +128,7 @@ private def runStepWith
       stack := stack
       regs := { Regs.initial with c0 := c0 }
       cc := cc }
-  VmState.step stubHost st0
+  VmState.step st0
 
 private def expectRawOk (label : String) (out : Except Excno Unit × VmState) : IO VmState := do
   let (res, st) := out
@@ -237,7 +236,7 @@ private def genWhileEndBrkFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
 the next step (C++ `adjust_jump_cont` in `jump_to`). -/
 private def thenStep (res : StepResult) : StepResult :=
   match res with
-  | .continue st => VmState.step stubHost st
+  | .continue st => VmState.step st
   | r => r
 
 def suite : InstrSuite where

@@ -49,7 +49,7 @@ jobs:
 
       - name: Build Lean targets and executables
         run: |
-          lake build TvmLeanModel TvmLeanSemantics TvmLeanNative TvmLeanValidation TvmLeanTests
+          lake build TvmLeanModel TvmLeanSemantics TvmLeanValidation TvmLeanTests
           lake build tvm-lean-tests tvm-lean-diff-test tvm-lean-coverage
 
       - name: Resolve TON commit

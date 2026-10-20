@@ -7,7 +7,6 @@ Start here:
 Architecture:
 
 - `docs/architecture/overview.md`
-- `docs/architecture/host-interface.md`
 - `docs/architecture/dependency-graph.md`
 
 Development:

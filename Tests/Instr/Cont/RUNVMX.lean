@@ -2,7 +2,6 @@ import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
-import TvmLean.Native
 
 open TvmLean
 open Tests
@@ -125,7 +124,7 @@ private def gasOverInfty : Int := GasLimits.infty + 1
 private def retValsOverMax : Int := Int.ofNat ((1 <<< 30) + 1)
 
 private def runRunvmxDirect (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect (execInstrFlowRunvm nativeHost) runvmxInstr stack
+  runHandlerDirect execInstrFlowRunvm runvmxInstr stack
 
 private def oracleCases : Array OracleCase :=
   #[

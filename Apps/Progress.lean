@@ -1,7 +1,6 @@
 import Lean
 import TvmLean.Model
 import TvmLean.Semantics.Exec.Dispatch
-import TvmLean.Native
 
 open TvmLean
 
@@ -67,7 +66,7 @@ def probeImplemented (cell : Cell) : Bool :=
   | .error _ => false
   | .ok (instr, _totBits, _rest) =>
       let st0 : VmState := VmState.initial cell
-      let (res, _st1) := (execInstr nativeHost instr).run st0
+      let (res, _st1) := (execInstr instr).run st0
       match res with
       | .error .invOpcode => false
       | .error .unimplemented => false

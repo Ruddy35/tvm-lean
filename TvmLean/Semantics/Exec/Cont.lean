@@ -20,7 +20,7 @@ import TvmLean.Semantics.Exec.Cont.ChangeExt
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCont (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrCont (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrContPushCtr i <|
   execInstrContPopCtr i <|
   execInstrContSetContCtr i <|

@@ -19,15 +19,14 @@ Use the harness documented in `docs/development/writing-tests.md`.
 
 ## Style and conventions
 
-- Keep Model and Semantics free of `@[extern]`.
-- Route host-dependent behavior through `Host`.
+- Keep the model pure Lean: no `@[extern]` and no C code (cryptography included).
 - Prefer small, instruction-local changes with explicit coverage updates.
 - Keep imports minimal and aligned with layer boundaries.
 
 ## Pre-PR checklist
 
 ```sh
-lake build TvmLeanModel TvmLeanSemantics TvmLeanNative TvmLeanValidation TvmLeanTests
+lake build TvmLeanModel TvmLeanSemantics TvmLeanValidation TvmLeanTests
 lake exe tvm-lean-tests
 lake exe tvm-lean-diff-test -- --dir diff-test/fixtures/ci --strict-exit
 lake exe tvm-lean-coverage -- --format json --out build/coverage.json

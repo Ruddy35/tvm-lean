@@ -3,7 +3,7 @@ import TvmLean.Semantics.Step.Core
 
 namespace TvmLean
 
-def VmState.step (host : Host) (st : VmState) : StepResult :=
-  st.stepWith (execInstr host)
+def VmState.step (st : VmState) : StepResult :=
+  st.stepWith execInstr
 
 end TvmLean

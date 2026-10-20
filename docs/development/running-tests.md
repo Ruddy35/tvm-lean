@@ -4,7 +4,7 @@
 
 ```sh
 lake build
-lake build TvmLeanModel TvmLeanSemantics TvmLeanNative TvmLeanValidation TvmLeanTests
+lake build TvmLeanModel TvmLeanSemantics TvmLeanValidation TvmLeanTests
 lake exe tvm-lean-tests
 lake exe tvm-lean-diff-test -- --dir diff-test/fixtures/ci --strict-exit
 lake exe tvm-lean-coverage -- --format json --out build/coverage.json

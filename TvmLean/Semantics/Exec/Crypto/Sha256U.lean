@@ -3,7 +3,7 @@ import TvmLean.Semantics.Exec.Common
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCryptoSha256U (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCryptoSha256U (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cryptoOp .sha256U =>
       let s ← VM.popSlice

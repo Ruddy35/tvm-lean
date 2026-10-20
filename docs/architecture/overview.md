@@ -1,6 +1,6 @@
 # Architecture Overview
 
-`tvm-lean` is intentionally split into four layers so proof users can depend only on
+`tvm-lean` is intentionally split into three layers so proof users can depend only on
 what they need.
 
 ## Model
@@ -12,7 +12,7 @@ what they need.
 - gas model and stack model
 - instruction IDs/AST
 - cp0 decode/encode and assembler helpers
-- host interface type
+- cryptography (hashes, signatures, elliptic curves), in Lean
 
 `Model` contains no FFI, no IO-oriented validation machinery, and no test harness code.
 
@@ -24,17 +24,8 @@ what they need.
 - family handlers and dispatcher (`execInstr`)
 - step/run/trace behavior
 
-Semantics depends on `Model` and is parameterized by `Host`, so execution rules stay
-purely in Lean while host-dependent operations are injected.
-
-## Native
-
-`TvmLean/Native/` contains concrete host implementations and extern bindings:
-
-- `TvmLean/Native/Extern/`: all `@[extern]` declarations
-- `TvmLean/Native/Host/`: native and stub host implementations
-
-This keeps foreign bindings out of proof-grade layers.
+Semantics depends only on `Model`; every instruction, cryptography included, is defined in
+Lean, so execution depends on nothing but the VM state.
 
 ## Validation
 

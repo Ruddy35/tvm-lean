@@ -4,10 +4,8 @@
 #   TON_FIFT_LIB  path to the fift library directory                    [required]
 #   FIXTURES      directory with diff-test fixture sets (subdirectories) [optional]
 #   OUT           directory for logs                                    [default: ./verify-out]
-#   TVMLEAN_TON_BUILD, TVMLEAN_TON_SRC  the C++ reference build (cmake build dir, not a coverage
-#                 build) and its sources: on Linux the native crypto links the same blst as C++
-#                 (see lakefile.lean). Without them BLS12-381 is a stub and its oracle cases fail.
-#                                                                                   [needed on Linux]
+#   TVMLEAN_TON_BUILD  the C++ reference build (cmake build dir, not a coverage build), used only
+#                 to find emulator/libemulator.so for the transaction oracle (TVMLEAN_EMULATOR_LIB)
 #   TVMLEAN_EMULATOR_LIB  libemulator.so of the C++ reference (the transaction oracle)
 #                 [default: $TVMLEAN_TON_BUILD/emulator/libemulator.so; cmake target `emulator`]
 #   TX_FUZZ       random transactions of the transaction fuzz          [default: 3000]
@@ -24,7 +22,6 @@ set -u
 OUT=${OUT:-./verify-out}; mkdir -p "$OUT"; SUM="$OUT/summary.txt"; : > "$SUM"
 export TON_FIFT_BIN TON_FIFT_LIB
 S=$(date +%s)
-echo "native crypto: ${TVMLEAN_TON_BUILD:-stub (TVMLEAN_TON_BUILD not set)}" >> "$SUM"
 lake build TvmLeanProofs tvm-lean-tests tvm-lean-diff-test tvm-lean-tx-test > "$OUT/build.log" 2>&1
 B=$?
 echo "build exit=$B sec=$(( $(date +%s)-S ))" >> "$SUM"

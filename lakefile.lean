@@ -1,36 +1,8 @@
 import Lake
 open System Lake DSL
 
-/-- The C++ reference build, if given (`TVMLEAN_TON_BUILD`: the cmake build directory of `ton`,
-`TVMLEAN_TON_SRC`: its sources, for the blst headers). On Linux the native crypto is then compiled
-against and linked with the same blst as C++ TVM (BLS12-381); without it these operations
-(`c/tvmlean_crypto_ext.c`) are stubs. -/
-def tonCryptoDirs : IO (Option (FilePath × FilePath)) := do
-  match (← IO.getEnv "TVMLEAN_TON_BUILD"), (← IO.getEnv "TVMLEAN_TON_SRC") with
-  | some b, some s => return some (b, s)
-  | _, _ => return none
-
-/-- Linux: the crypto libraries to link, one per line (a response file for the linker), written by
-`libtvmlean_crypto` before anything is linked. -/
-def cryptoLinkRsp : FilePath := __dir__ / ".lake" / "tvmlean-crypto-link.rsp"
-
-/-- Include directories of the crypto libraries of the C++ reference build. -/
-def tonCryptoIncludes (b s : FilePath) : Array String :=
-  #["-I", (s / "third-party" / "blst" / "bindings").toString]
-
 package "tvm-lean" where
   version := v!"0.1.0"
-  moreLinkArgs :=
-    if System.Platform.isOSX then
-      #[
-        "-L/opt/homebrew/lib",
-        "-L/usr/local/lib",
-        "/Users/daniil/Coding/ton/build/third-party/blst/libblst.a"
-      ]
-    else
-      -- Static crypto libraries (avoids glibc version mismatches between system shared libraries and
-      -- Lean's sysroot toolchain), listed in a response file: see `cryptoLinkRsp`.
-      #[s!"@{cryptoLinkRsp}"]
 
 @[default_target]
 lean_lib TvmLeanModel where
@@ -51,12 +23,6 @@ lean_lib TvmLeanTransaction where
 -- ones, decidable equality, the compute-phase wrapper.
 lean_lib TvmLeanProofs where
   roots := #[`TvmLean.Proofs.ModelEquiv, `TvmLean.Proofs.DecEq, `TvmLean.Semantics.Contract]
-
-lean_lib TvmLeanNative where
-  roots := #[`TvmLean.Native]
-  needs := #[`@/libtvmlean_crypto]
-  extraDepTargets := #[`libtvmlean_crypto]
-  defaultFacets := #[LeanLib.leanArtsFacet, LeanLib.extraDepFacet]
 
 lean_lib TvmLeanValidation where
   roots := #[`TvmLean.Validation]
@@ -91,43 +57,6 @@ lean_lib TvmLeanTests where
     `Tests.Tx.Oracle,
     `Tests.Tx.Gen
   ]
-
-target tvmlean_crypto_ext.o pkg : FilePath := do
-  let oFile := pkg.buildDir / "c" / "tvmlean_crypto_ext.o"
-  let leanIncludeDir := (← getLeanIncludeDir).toString
-  let ton? ← tonCryptoDirs
-  let srcPath :=
-    if System.Platform.isOSX || ton?.isSome then
-      pkg.dir / "c" / "tvmlean_crypto_ext.c"
-    else
-      pkg.dir / "c" / "tvmlean_crypto_ext_stub.c"
-  let srcJob ← inputTextFile srcPath
-  let weakArgs :=
-    if System.Platform.isOSX then
-      #[
-        "-I", leanIncludeDir,
-        "-I", (pkg.dir / "c").toString,
-        "-I", "/opt/homebrew/include",
-        "-I", "/usr/local/include",
-        "-I", "/Users/daniil/Coding/ton/third-party/blst/bindings"
-      ]
-    else
-      #["-I", leanIncludeDir, "-I", (pkg.dir / "c").toString] ++
-        (match ton? with | some (b, s) => tonCryptoIncludes b s | none => #[])
-  buildO oFile srcJob weakArgs #["-fPIC", "-std=gnu17"] "cc" getLeanTrace
-
-extern_lib libtvmlean_crypto pkg := do
-  if !System.Platform.isOSX then
-    let libs : List String :=
-      match ← tonCryptoDirs with
-      | some (b, _) =>
-          [(b / "third-party" / "blst" / "libblst.a").toString, "-ldl", "-lpthread"]
-      | none => []
-    IO.FS.createDirAll (cryptoLinkRsp.parent.getD ".")
-    IO.FS.writeFile cryptoLinkRsp (String.intercalate "\n" libs ++ "\n")
-  let oExt ← tvmlean_crypto_ext.o.fetch
-  let name := nameToStaticLib "tvmlean_crypto"
-  buildStaticLib (pkg.staticLibDir / name) #[oExt]
 
 lean_exe "tvm-lean" where
   root := `Apps.Demo

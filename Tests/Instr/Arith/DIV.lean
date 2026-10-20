@@ -2,7 +2,6 @@ import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 import TvmLean
-import TvmLean.Native
 
 open TvmLean
 open Tests
@@ -111,7 +110,7 @@ private def runDivLean (initStack : Array Value)
     (fuel : Nat := 200_000) : IO StepResult := do
   let code ← divCodeIO
   let st0 := { (VmState.initial code gasLimit gasMax 0) with stack := initStack }
-  pure (VmState.run nativeHost fuel st0)
+  pure (VmState.run fuel st0)
 
 private def expectExit (label : String) (expected : Int) (res : StepResult) : IO VmState := do
   match res with

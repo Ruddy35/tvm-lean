@@ -1,6 +1,5 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.CryptoVectors
-import TvmLean.Native
 
 /-!
 Oracle cases for the crypto instructions (C++ `tonops.cpp`).
@@ -751,11 +750,11 @@ The oracle cases compare the model with C++; these unit checks pin the results t
 Python references of `tools/crypto` (global version 13), so that, e.g., a valid signature is known
 to verify on both sides and not merely to be rejected by both. -/
 
-/-- The model (native host) running `prog` on `stack`. -/
+/-- The model running `prog` on `stack`. -/
 private def runModel (prog : Array Instr) (stack : Array Value) : Except Excno (Array Value) := Id.run do
   let mut st : VmState := { (VmState.initial Cell.empty) with stack := stack }
   for i in prog do
-    let (res, st') := (execInstr nativeHost i).run st
+    let (res, st') := (execInstr i).run st
     match res with
     | .ok _ => st := st'
     | .error e => return .error e

@@ -12,7 +12,7 @@
 | `~/ws/tvm-lean` | этот репозиторий (рабочая копия, сборки) |
 | `~/ws/ton-src` | исходники C++ эталонного коммита (`3d478cb`, неглубокий клон с подмодулями) |
 | `~/ws/ton-bin` | `fift`/`fiftx` эталонного коммита и библиотека `fift` |
-| `~/ws/ton-build` | Release-сборка `ton` эталонного коммита: криптобиблиотеки для модели (`TVMLEAN_TON_BUILD`) |
+| `~/ws/ton-build` | Release-сборка `ton` эталонного коммита: `emulator/libemulator.so` для сверки транзакций (`TVMLEAN_TON_BUILD`) |
 | `~/ws/ton-build-cov` | сборка `fift` с покрытием (gcov); её библиотеки для модели не годятся |
 | `~/ws/fixtures` | наборы дифференциальных фикстур |
 | `~/ws/runs` | логи прогонов |
@@ -25,15 +25,16 @@
 `SECP256K1_XONLY_PUBKEY_TWEAK_ADD`, `Secp256k1.lean`), P-256 (`P256_CHKSIGNU/S`, `P256.lean`),
 ristretto255 (`RIST255_*`, `Ristretto255.lean`) и BLS12-381 (`BLS_*`, `Bls12381.lean` и
 `Bls12381/`: поле, G1/G2, отображения в кривые, спаривание — шаг в шаг как в blst) в
-`TvmLean/Model/Crypto/`. В `c/tvmlean_crypto_ext.c` функций не осталось; `TVMLEAN_TON_BUILD` и
-`TVMLEAN_TON_SRC` модели не нужны (если заданы, lakefile по-прежнему линкует blst).
+`TvmLean/Model/Crypto/`. Интерфейса хоста и кода на C нет, сборка ничего не линкует;
+`TVMLEAN_TON_BUILD` нужен только сверке транзакций (`emulator/libemulator.so`), `TVMLEAN_TON_SRC`
+не используется.
 
 ## Полная сверка
 
 ```sh
 cd ~/ws/tvm-lean
 export PATH=$HOME/.elan/bin:$PATH TON_FIFT_BIN=~/ws/ton-bin/fiftx TON_FIFT_LIB=~/ws/ton-bin/lib \
-  TVMLEAN_TON_BUILD=~/ws/ton-build TVMLEAN_TON_SRC=~/ws/ton-src
+  TVMLEAN_TON_BUILD=~/ws/ton-build
 FIXTURES=~/ws/fixtures OUT=~/ws/runs/$(date +%F-%H%M) scripts/verify-all.sh
 ```
 

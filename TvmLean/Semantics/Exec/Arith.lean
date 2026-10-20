@@ -62,7 +62,7 @@ import TvmLean.Semantics.Exec.Arith.NullRotrIfNot2
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrArith (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrArith (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrArithContExt i <|
   execInstrArithExt i <|
   execInstrArithInc i <|

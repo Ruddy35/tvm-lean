@@ -1,7 +1,6 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
-import TvmLean.Native.Host.StubHost
 
 open TvmLean
 open Tests
@@ -127,7 +126,7 @@ private def expectRawErr
       throw (IO.userError s!"{label}: expected error {expected}, got success")
 
 private def stepOnce (st : VmState) : VmState :=
-  match VmState.step stubHost st with
+  match VmState.step st with
   | .continue st' => st'
   | .halt _ st' => st'
 

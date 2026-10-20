@@ -51,7 +51,7 @@ import TvmLean.Semantics.Exec.Cell.Ext
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCell (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
+def execInstrCell (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrCellCtos i <|
   execInstrCellXctos i <|
   execInstrCellNewc i <|

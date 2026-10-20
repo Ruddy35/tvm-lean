@@ -55,7 +55,7 @@ def blsR : Int :=
   52435875175126190479447740508185965837690552500527637822603658699938581184513
 
 set_option maxHeartbeats 1000000 in
-def execInstrCryptoExt (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCryptoExt (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cryptoOp (.ext op) =>
       match op with

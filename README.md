@@ -8,7 +8,7 @@ Built to match the behavior of the [reference C++ implementation](https://github
 
 ## Status
 
-All 919 TVM instructions are implemented. The vast majority are pure Lean; cryptography-related instructions link to C/C++ implementations via FFI.
+All 919 TVM instructions are implemented, all in pure Lean: cryptography included, there is no FFI.
 
 ### Test coverage
 

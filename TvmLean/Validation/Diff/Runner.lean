@@ -3,7 +3,6 @@ import Lean
 import TvmLean.Model
 import TvmLean.Semantics
 import TvmLean.Boc
-import TvmLean.Native
 import TvmLean.Validation.Canon.Value
 import TvmLean.Validation.Diff.Schema
 import TvmLean.Validation.Diff.Report
@@ -776,7 +775,7 @@ def runTestCase (cfg : RunConfig) (tc : TestCase) : IO TestResult := do
                           return { base with status := .fail, error := err }
 
                       if cfg.traceAll then
-                        let (res, t, wrapped) := VmState.runTrace nativeHost cfg.fuel st0 cfg.traceMax
+                        let (res, t, wrapped) := VmState.runTrace cfg.fuel st0 cfg.traceMax
                         match res with
                         | .continue _ =>
                             return {
@@ -793,7 +792,7 @@ def runTestCase (cfg : RunConfig) (tc : TestCase) : IO TestResult := do
                             let base ← attachExpectedCells base stF
                             return { base with trace := some t, trace_truncated := some wrapped }
                       else
-                        match VmState.run nativeHost cfg.fuel st0 with
+                        match VmState.run cfg.fuel st0 with
                         | .continue _ =>
                             return {
                               tx_hash := tc.tx_hash
@@ -807,7 +806,7 @@ def runTestCase (cfg : RunConfig) (tc : TestCase) : IO TestResult := do
                             let base ← attachExpectedCells base stF
 
                             if cfg.traceFailures && base.status ≠ .pass then
-                              let (_, t, wrapped) := VmState.runTrace nativeHost cfg.fuel st0 cfg.traceMax
+                              let (_, t, wrapped) := VmState.runTrace cfg.fuel st0 cfg.traceMax
                               return { base with trace := some t, trace_truncated := some wrapped }
                             else
                               return base

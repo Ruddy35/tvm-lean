@@ -3,7 +3,7 @@ import TvmLean.Semantics.Exec.Common
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCryptoHashExt (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCryptoHashExt (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cryptoOp (.hashExt hashId0 append rev) =>
       -- Mirrors C++ `exec_hash_ext` (tonops.cpp).

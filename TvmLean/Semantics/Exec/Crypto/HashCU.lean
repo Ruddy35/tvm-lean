@@ -3,7 +3,7 @@ import TvmLean.Semantics.Exec.Common
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCryptoHashCU (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCryptoHashCU (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cryptoOp .hashCU =>
       let c ← VM.popCell

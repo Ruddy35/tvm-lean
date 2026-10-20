@@ -1,7 +1,6 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
-import TvmLean.Native
 
 open TvmLean
 open Tests
@@ -127,7 +126,7 @@ private def runAgainBodyStep
       stack := stack
       regs := { Regs.initial with c0 := c0 }
       cc := .againBody body }
-  VmState.step stubHost st0
+  VmState.step st0
 
 private def expectContinue (label : String) (res : StepResult) : IO VmState := do
   match res with

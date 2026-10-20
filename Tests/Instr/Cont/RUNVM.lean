@@ -3,7 +3,6 @@ import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import Tests.Harness.Gen.Control
 import TvmLean.Spec.Index
-import TvmLean.Native
 
 open TvmLean
 open Tests
@@ -177,7 +176,7 @@ private def gasOverInfty : Int := GasLimits.infty + 1
 private def retValsOverMax : Int := Int.ofNat ((1 <<< 30) + 1)
 
 private def runRunvmDirect (mode : Nat) (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect (execInstrFlowRunvm nativeHost) (runvmInstr mode) stack
+  runHandlerDirect execInstrFlowRunvm (runvmInstr mode) stack
 
 private def runRunvmRaw
     (mode : Nat)
@@ -191,7 +190,7 @@ private def runRunvmRaw
       chksgnCounter := chksgnCounter
       loadedCells := loadedCells
       libraries := libraries }
-  (execInstrFlowRunvm nativeHost (runvmInstr mode) (pure ())).run st0
+  (execInstrFlowRunvm (runvmInstr mode) (pure ())).run st0
 
 private def expectRawOk (label : String) (out : Except Excno Unit × VmState) : IO VmState := do
   let (res, st) := out

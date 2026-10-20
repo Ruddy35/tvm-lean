@@ -3,7 +3,6 @@ import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
-import TvmLean.Native
 
 open TvmLean
 open Tests
@@ -194,7 +193,7 @@ private def mkTruncatedOracleCase
 
 private def runIfrefLean (code : Cell) (initStack : Array Value) (fuel : Nat := 200_000) : StepResult :=
   let st0 : VmState := { (VmState.initial code) with stack := initStack }
-  VmState.run nativeHost fuel st0
+  VmState.run fuel st0
 
 private def ifrefOracleFamilies : Array String :=
   #[

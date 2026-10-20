@@ -90,8 +90,8 @@ private def stepEvent (st : VmState) : String :=
         | .error e => s!"decode_error({reprStr e})"
 
 /-- `VmState.step` with a trace entry; a step that halts the VM is marked with its exit code. -/
-def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × StepResult :=
-  let res := st.step host
+def VmState.stepTrace (st : VmState) (step : Nat) : TraceEntry × StepResult :=
+  let res := st.step
   let (event, stAfter) :=
     match res with
     | .continue st' => (stepEvent st, st')
@@ -107,7 +107,7 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
      stack_after := stackStr stAfter.stack },
    res)
 
-def VmState.runTrace (host : Host) (fuel : Nat) (st : VmState) (maxTrace : Nat := 200) :
+def VmState.runTrace (fuel : Nat) (st : VmState) (maxTrace : Nat := 200) :
     StepResult × Array TraceEntry × Bool :=
   Id.run do
     let mut stCur := st
@@ -119,7 +119,7 @@ def VmState.runTrace (host : Host) (fuel : Nat) (st : VmState) (maxTrace : Nat :
     let mut res : StepResult := .continue stCur
 
     while fuelCur > 0 do
-      let (entry, stepRes) := stCur.stepTrace host step
+      let (entry, stepRes) := stCur.stepTrace step
       if maxTrace > 0 then
         if trace.size < maxTrace then
           trace := trace.push entry

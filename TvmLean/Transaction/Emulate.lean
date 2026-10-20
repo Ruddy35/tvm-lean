@@ -8,7 +8,7 @@ namespace TvmLean.Tx
 address of the `ShardAccount` (or of the message's destination for `account_none`), the
 configuration `configRoot`, the time `now`, the logical time `lt`, the block's random seed
 `randSeed` (256 bits, not zero). Returns the transaction and the new account. -/
-def emulate (host : Host) (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString) : Outcome := Id.run do
+def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString) : Outcome := Id.run do
   let some cfg := Config.decode configRoot | return .failed "config"
   -- the address: of the account, or of the message's destination
   let some (acc, _, _) := Reader.runExact (do return (← Reader.ref, ← Reader.bits 256, ← Reader.uint 64)) shardAccount
@@ -61,7 +61,7 @@ def emulate (host : Host) (configRoot shardAccount inMsg : Cell) (now lt : Nat) 
       let t := if needCredit then t.creditPhaseRun else t
       t.storagePhaseRun pricing gas needCredit
   let some t := t? | return .failed "storage phase"
-  let t ← match t.computePhaseRun host gas sl randSeed with
+  let t ← match t.computePhaseRun gas sl randSeed with
     | .error e => return .unsupported e
     | .ok t => pure t
   if !t.computePhase.accepted && !external && t.computePhase.skipReason == 0 then

@@ -142,7 +142,7 @@ def VM.execSdataSize (quiet : Bool) : VM Unit := do
       throw .cellOv
 
 set_option maxHeartbeats 1000000 in
-def execInstrMisc (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrMisc (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cellExt (.cdataSize quiet) => VM.execCdataSize quiet
   | .cellExt (.sdataSize quiet) => VM.execSdataSize quiet

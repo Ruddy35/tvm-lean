@@ -8,7 +8,6 @@ validate behavior against TON C++, and later write proofs without rewriting the 
 
 - `TvmLean/Model/`: proof-grade pure model (types, state, AST, decode/encode helpers)
 - `TvmLean/Semantics/`: execution semantics (`execInstr`, `step`, tracing, run loops)
-- `TvmLean/Native/`: native host + extern bindings
 - `TvmLean/Validation/`: diff/oracle/canonicalization/reporting helpers
 - `Tests/`: instruction-oriented test harness and per-instruction suites
 - `Apps/`: CLI entrypoints (`tvm-lean`, `tvm-lean-tests`, `tvm-lean-diff-test`, ...)
@@ -20,7 +19,7 @@ validate behavior against TON C++, and later write proofs without rewriting the 
 Build core + full project targets:
 
 ```sh
-lake build TvmLeanModel TvmLeanSemantics TvmLeanNative TvmLeanValidation TvmLeanTests
+lake build TvmLeanModel TvmLeanSemantics TvmLeanValidation TvmLeanTests
 ```
 
 Run the demo executable:

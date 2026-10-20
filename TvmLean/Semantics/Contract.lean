@@ -8,14 +8,15 @@ how the initial VM state is built from an inbound message, and which state persi
 the run. They are the objects contract theorems are stated about:
 
 * base case:   `Inv data₀`
-* step:        `Inv data → (computePhase host fuel (computePhaseInit …data…) data).c4 satisfies Inv`
+* step:        `Inv data → (computePhase fuel (computePhaseInit …data…) data).c4 satisfies Inv`
 
 The differential-test runner (`Validation/Diff/Runner.lean`) builds its VM state with
 `computePhaseInit` and extracts results with `ComputeOutcome.ofHalt`, so these exact
 definitions are checked against TON C++ on every fixture.
 
-`host` is a parameter everywhere: cryptography (signatures, some hashes) is provided by the
-host, so theorems quantified over all hosts make no assumption about it.
+The run depends on nothing but the VM state: the cryptography (signatures, hashes, elliptic
+curves) is defined in Lean (`TvmLean/Model/Crypto`), so theorems about it make no assumption
+about external code.
 -/
 
 namespace TvmLean
@@ -66,8 +67,8 @@ def ComputeOutcome.ofHalt (exitCode : Int) (stF : VmState) (data0 : Cell) : Comp
     gasUsed := stF.gas.gasConsumed }
 
 /-- Run the compute phase with at most `fuel` steps (`none` if the fuel is exhausted). -/
-def computePhase (host : Host) (fuel : Nat) (st0 : VmState) (data0 : Cell) : Option ComputeOutcome :=
-  match VmState.run host fuel st0 with
+def computePhase (fuel : Nat) (st0 : VmState) (data0 : Cell) : Option ComputeOutcome :=
+  match VmState.run fuel st0 with
   | .halt ec stF => some (ComputeOutcome.ofHalt ec stF data0)
   | .continue _ => none
 

@@ -2,7 +2,6 @@ import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
-import TvmLean.Native
 import TvmLean.Validation.Canon.Result
 import TvmLean.Validation.Oracle.Report
 import TvmLean.Validation.Oracle.Runner
@@ -260,7 +259,7 @@ private def runCodeVm
     (gasMax : Int := 1_000_000)
     (fuel : Nat := 200_000) : StepResult :=
   let st0 := { (VmState.initial code gasLimit gasMax 0) with stack := initStack }
-  VmState.run nativeHost fuel st0
+  VmState.run fuel st0
 
 private def expectExitCode (label : String) (expected : Int) (res : StepResult) : IO VmState := do
   match res with

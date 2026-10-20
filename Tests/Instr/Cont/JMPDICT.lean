@@ -2,7 +2,6 @@ import Tests.Harness.Registry
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
-import TvmLean.Native
 
 open TvmLean
 open Tests
