@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -696,7 +697,7 @@ def suite : InstrSuite where
     mkCase "ok/branch/false-skips-true-add" #[intV 0] codeTrueAddTail,
     mkCase "err/branch/false-selected-add-underflow" #[intV 0] codeFalseAddTail,
     mkCase "ok/branch/true-skips-false-add" #[intV 1] codeFalseAddTail
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFREFELSEREF"
   fuzz := #[
     { seed := fuzzSeedForInstr ifrefElseRefId
       count := 500

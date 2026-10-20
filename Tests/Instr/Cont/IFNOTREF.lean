@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 
@@ -577,7 +578,7 @@ def suite : InstrSuite where
     mkCase "ok/two-ifnotref/noop/deep-maxmin"
       #[intV maxInt257, intV minInt257, intV 1, intV 0]
       codeTwoIfnotrefNoopTail
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFNOTREF"
   fuzz := #[
     { seed := fuzzSeedForInstr ifnotrefId
       count := 500

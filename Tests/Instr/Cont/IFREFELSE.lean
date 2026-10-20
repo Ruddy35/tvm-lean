@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -626,7 +627,7 @@ def suite : InstrSuite where
     mkCase "ok/observe-tail/true"
       (withCond #[] 1)
       codeObserveTail
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFREFELSE"
   fuzz := #[
     { seed := fuzzSeedForInstr ifrefElseId
       count := 500

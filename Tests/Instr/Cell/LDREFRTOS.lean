@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -365,7 +366,7 @@ def suite : InstrSuite where
       #[.pushInt (.num ldrefRtosSetGasExact), .tonEnvOp .setGasLimit, ldrefRtosInstr],
     mkLdrefRtosCase "gas/exact-minus-one-out-of-gas" #[.slice sOneRefA]
       #[.pushInt (.num ldrefRtosSetGasExactMinusOne), .tonEnvOp .setGasLimit, ldrefRtosInstr]
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "LDREFRTOS"
   fuzz := #[
     { seed := 2026021011
       count := 500

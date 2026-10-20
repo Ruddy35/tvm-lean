@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 
@@ -444,7 +445,7 @@ def suite : InstrSuite where
     mkCase "type/top-tuple" 0 #[.tuple #[]],
     mkCase "type/pop-removes-top-null-with-below" 0 #[intV 9, .null],
     mkCase "type/pop-removes-top-cell-with-below" 0 #[intV 9, .cell refCellA]
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFNBITJMPREF"
   fuzz := #[
     { seed := fuzzSeedForInstr ifnbitjmprefId
       count := 500

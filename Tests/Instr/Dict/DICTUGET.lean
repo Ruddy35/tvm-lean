@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -571,7 +572,7 @@ def suite : InstrSuite where
     mkCase "or/gas/tail-preserved" (#[intV 99, .cell dictU8Root, intV 1, intV 8])
       (#[.pushInt (.num dictUGasExact), .tonEnvOp .setGasLimit, dictUGet])
       (oracleGasLimitsExact dictUGasExact)
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "DICTUGET"
   fuzz := #[
     { seed := fuzzSeedForInstr dictUGetId
       count := 500

@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -481,7 +482,7 @@ def suite : InstrSuite where
     mkCtosCase "gas/exact-minus-one-out-of-gas"
       #[.cell cOrdRefs1]
       #[.pushInt (.num ctosSetGasExactMinusOne), .tonEnvOp .setGasLimit, ctosInstr]
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "CTOS"
   fuzz := #[
     { seed := 2026021016
       count := 500

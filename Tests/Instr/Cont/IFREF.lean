@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -514,7 +515,7 @@ def suite : InstrSuite where
     mkIfrefOracleCase "ok/call-tail/false-body-push7" #[intV 0] bodyPush7 #[.pushInt (.num 9)],
     mkIfrefOracleCase "err/branch/true-body-add-underflow" #[intV 1] bodyAdd #[.pushInt (.num 9)],
     mkIfrefOracleCase "ok/branch/false-skips-body-add" #[intV 0] bodyAdd #[.pushInt (.num 9)]
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFREF"
   fuzz := #[
     { seed := fuzzSeedForInstr ifrefId
       count := 500

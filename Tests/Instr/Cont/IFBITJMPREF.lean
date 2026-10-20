@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 
@@ -488,7 +489,7 @@ def suite : InstrSuite where
     mkMissingRefCase "invopcode/missing-ref/deep-stack" 5 #[.null, intV 9, intV 1],
     mkMissingRefCase "invopcode/missing-ref/type-vs-ref-order" 1 #[.cell refLeafA],
     mkMissingRefCase "invopcode/missing-ref/tuple-top" 31 #[.tuple #[]]
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFBITJMPREF"
   fuzz := #[
     { seed := fuzzSeedForInstr ifbitjmprefId
       count := 500

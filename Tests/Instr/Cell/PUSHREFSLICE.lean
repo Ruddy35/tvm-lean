@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -525,7 +526,7 @@ def suite : InstrSuite where
 
     -- Branch: decode-time `haveRefs 1` guard (`invOpcode`) when ref is missing.
     mkOracleMissingRefCase "decode/err/missing-ref"
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "PUSHREFSLICE"
   fuzz := #[
     { seed := 2026021110
       count := 500

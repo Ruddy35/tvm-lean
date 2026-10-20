@@ -120,9 +120,137 @@ private def loopCases (suite : String) : Array OracleCase :=
           (withSavedC0 #[.pushInt (.num 1), .pushInt (.num 0)] ++ #[.until, .pushInt (.num 7)]) #[]]
   | _ => #[]
 
+/-! ### Loading exotic cells (`load_cell_slice_impl`, `cells/CellSlice.cpp`)
+
+An instruction loading a library cell goes on to the library's root when the collection has it
+(the coverage run never did); a library whose root is a library cell again is cell_und
+("recursive library cells are not allowed"); pruned branches and Merkle proofs and updates are
+cell_und. Library collections are dictionaries of 256-bit hashes to a reference to the root. -/
+
+private def bytesBits (bs : Array UInt8) : BitString := bs.foldl (fun acc b => acc ++ natToBits b.toNat 8) #[]
+
+private def reprHash (c : Cell) : Array UInt8 := Cell.hashBytes c
+
+/-- Library cell (exotic type 2) referring to `target`. -/
+private def libCell (target : Cell) : Cell :=
+  { bits := natToBits 2 8 ++ bytesBits (reprHash target), refs := #[], special := true, levelMask := 0 }
+
+private def libCollection (targets : Array Cell) : Cell :=
+  let root := targets.foldl (fun root t =>
+    match dictSetRefWithCells root (bytesBits (reprHash t)) t .set with
+    | .ok (some r, _, _, _) => some r
+    | _ => root) none
+  root.getD Cell.empty
+
+private def depth2 (d : Nat) : BitString := natToBits d 16
+
+/-- Merkle proof of an ordinary (level 0) cell: its hash and depth at level 0 are `hashBytes` and `depth`. -/
+private def merkleProof (child : Cell) : Cell :=
+  { bits := natToBits 3 8 ++ bytesBits (reprHash child) ++ depth2 child.depth,
+    refs := #[child], special := true, levelMask := 0 }
+
+private def merkleUpdate (a b : Cell) : Cell :=
+  { bits := natToBits 4 8 ++ bytesBits (reprHash a) ++ bytesBits (reprHash b) ++ depth2 a.depth ++ depth2 b.depth,
+    refs := #[a, b], special := true, levelMask := 0 }
+
+private def loadTarget : Cell := Cell.mkOrdinary (natToBits 0xbeef 16) #[Cell.mkOrdinary (natToBits 5 3) #[]]
+/-- A library cell whose library is another library cell (of `loadTarget`). -/
+private def libOfLib : Cell := libCell (libCell loadTarget)
+
+private def loadCases (suite : String) : Array OracleCase :=
+  let mk (name : String) (stack : Array Value) (libs : Array Cell) (prog : Array Instr) : OracleCase :=
+    { name := s!"oracle/load/{name}", instr := { name := suite }, program := prog, initStack := stack,
+      initLibraries := if libs.isEmpty then #[] else #[libCollection libs] }
+  let cells : Array (String × Cell × Array Cell) :=
+    #[("lib-hit", libCell loadTarget, #[loadTarget]), ("lib-miss", libCell loadTarget, #[]),
+      ("lib-recursive", libOfLib, #[libCell loadTarget, loadTarget]),
+      ("pruned", pruned, #[]), ("merkle-proof", merkleProof loadTarget, #[]),
+      ("merkle-update", merkleUpdate loadTarget (Cell.mkOrdinary (natToBits 1 1) #[]), #[])]
+  match suite with
+  | "CTOS" => cells.map fun (n, c, libs) => mk n #[.cell c] libs #[.ctos]
+  | "LDREFRTOS" =>
+      cells.map fun (n, c, libs) => mk n #[.slice (Slice.ofCell (Cell.mkOrdinary (natToBits 1 1) #[c]))] libs #[.ldrefRtos]
+  | "DICTUGET" =>
+      -- the dictionary root itself is a library cell
+      let dict : Cell :=
+        match dictSetSliceWithCells none (natToBits 3 4) (Slice.ofCell (Cell.mkOrdinary (natToBits 9 8) #[])) .set with
+        | .ok (some r, _, _, _) => r
+        | _ => Cell.empty
+      -- a two-entry dictionary: a fork node whose children are leaves; one child replaced by an
+      -- exotic cell (the fork's own bits and the other child unchanged)
+      let dict2 : Cell :=
+        match dictSetSliceWithCells (some dict) (natToBits 12 4) (Slice.ofCell (Cell.mkOrdinary (natToBits 7 8) #[])) .set with
+        | .ok (some r, _, _, _) => r
+        | _ => Cell.empty
+      let withChild (c : Cell) : Cell := Cell.mkOrdinary dict2.bits (dict2.refs.set! 0 c)
+      let get : Array Instr := #[Instr.dictGet true true false]
+      #[mk "dict-root-lib-hit" #[iv 3, .cell (libCell dict), iv 4] #[dict] get,
+        mk "dict-root-lib-miss" #[iv 3, .cell (libCell dict), iv 4] #[] get,
+        mk "dict-root-pruned" #[iv 3, .cell pruned, iv 4] #[] get,
+        mk "dict-root-merkle" #[iv 3, .cell (merkleProof dict), iv 4] #[] get,
+        mk "dict-child-lib-hit" #[iv 3, .cell (withChild (libCell (dict2.refs[0]!))), iv 4] #[dict2.refs[0]!] get,
+        mk "dict-child-lib-hit-other-key" #[iv 12, .cell (withChild (libCell (dict2.refs[0]!))), iv 4] #[dict2.refs[0]!] get,
+        mk "dict-child-pruned" #[iv 3, .cell (withChild pruned), iv 4] #[] get,
+        mk "dict-child-pruned-other-key" #[iv 12, .cell (withChild pruned), iv 4] #[] get]
+  | _ => #[]
+
+/-- Instructions with a code or slice reference (`ref_to_cont` / `load_cell_slice_ref`): the reference
+is a library cell whose library is present (its root, the code `PUSHINT 7`, runs), a library cell
+without it, a pruned branch, a Merkle proof. `pre` are the opcode bits, `stack` the initial stack
+under which the reference is taken; the implicit JMPREF of a code cell without bits is under
+`JMPREF`. -/
+private def codeRefCases (suite : String) : Array OracleCase :=
+  let target : Cell := Cell.mkOrdinary (natToBits 0x77 8) #[]
+  let refs : Array (String × Cell × Array Cell) :=
+    #[("lib-hit", libCell target, #[target]), ("lib-miss", libCell target, #[]),
+      ("pruned", pruned, #[]), ("merkle-proof", merkleProof target, #[])]
+  let shape : Option (BitString × Array Value) :=
+    match suite with
+    | "CALLREF" => some (natToBits 0xdb3c 16, #[])
+    | "JMPREF" => some (natToBits 0xdb3d 16, #[])
+    | "JMPREFDATA" => some (natToBits 0xdb3e 16, #[])
+    | "IFREF" => some (natToBits 0xe300 16, #[iv (-1)])
+    | "IFNOTREF" => some (natToBits 0xe301 16, #[iv 0])
+    | "IFJMPREF" => some (natToBits 0xe302 16, #[iv (-1)])
+    | "IFNOTJMPREF" => some (natToBits 0xe303 16, #[iv 0])
+    -- PUSHCONT {NOP} before: (f c -) with the reference taken when f is true / false
+    | "IFREFELSE" => some (natToBits 0x9100 16 ++ natToBits 0xe30d 16, #[iv (-1)])
+    | "IFELSEREF" => some (natToBits 0x9100 16 ++ natToBits 0xe30e 16, #[iv 0])
+    | "IFBITJMPREF" => some (natToBits 0xe3c0 16, #[iv 1])
+    | "IFNBITJMPREF" => some (natToBits 0xe3e0 16, #[iv 0])
+    | "PUSHREFSLICE" => some (natToBits 0x89 8, #[])
+    | "PUSHREFCONT" => some (natToBits 0x8a 8, #[])
+    | _ => none
+  let main : Array OracleCase :=
+    match shape with
+    | none => #[]
+    | some (pre, stack) =>
+        refs.map fun (n, r, libs) =>
+          { name := s!"oracle/load/ref-{n}", instr := { name := suite }, codeCell? := some (Cell.mkOrdinary pre #[r]),
+            initStack := stack, initLibraries := if libs.isEmpty then #[] else #[libCollection libs] }
+  let both : Array OracleCase :=
+    if suite == "IFREFELSEREF" then
+      refs.flatMap fun (n, r, libs) =>
+        #[(-1 : Int), 0].map fun f =>
+          { name := s!"oracle/load/ref-{n}/f{f}", instr := { name := suite },
+            codeCell? := some (Cell.mkOrdinary (natToBits 0xe30f 16) (if f == 0 then #[target, r] else #[r, target])),
+            initStack := #[iv f], initLibraries := if libs.isEmpty then #[] else #[libCollection libs] }
+    else #[]
+  let implicit : Array OracleCase :=
+    if suite == "JMPREF" then
+      refs.map fun (n, r, libs) =>
+        { name := s!"oracle/load/implicit-jmpref-{n}", instr := { name := suite }, codeCell? := some (Cell.mkOrdinary #[] #[r]),
+          initLibraries := if libs.isEmpty then #[] else #[libCollection libs] }
+    else #[]
+  main ++ both ++ implicit
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
+  | "CTOS" | "LDREFRTOS" | "DICTUGET" => loadCases suite
+  | "CALLREF" | "JMPREFDATA" | "IFREF" | "IFNOTREF" | "IFJMPREF" | "IFNOTJMPREF" | "IFREFELSE"
+  | "IFELSEREF" | "IFREFELSEREF" | "IFBITJMPREF" | "IFNBITJMPREF" | "PUSHREFSLICE" | "PUSHREFCONT" => codeRefCases suite
+  | "JMPREF" => codeRefCases suite
   | "COMMIT" => commitCases suite
   | "REPEAT" | "AGAIN" | "UNTIL" => loopCases suite
   | _ => callCases suite

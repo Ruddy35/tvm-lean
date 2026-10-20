@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 
@@ -407,7 +408,7 @@ def suite : InstrSuite where
     mkCase "decode/truncated-15bits" #[intV 1] truncated15Code,
     mkCase "decode/one-byte-prefix" #[] oneBytePrefixCode,
     mkCase "decode/empty-code" #[intV 1] emptyCode
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFJMPREF"
   fuzz := #[
     { seed := fuzzSeedForInstr ifjmprefId
       count := 500

@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 import TvmLean.Native
@@ -531,7 +532,7 @@ def suite : InstrSuite where
         if oracleCases.size < 30 then
           throw (IO.userError s!"oracle count too small: expected >=30, got {oracleCases.size}") }
   ]
-  oracle := oracleCases
+  oracle := oracleCases ++ Tests.Gen.VmCore.casesFor "CALLREF"
   fuzz := #[
     { seed := fuzzSeedForInstr callrefId
       count := 500

@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 
@@ -455,7 +456,7 @@ def suite : InstrSuite where
     mkCase "decode/missing-ref/with-tail" #[intV 0] missingRefWithTailCode,
     mkCase "decode/truncated-8bit-prefix" #[intV 0] truncated8Code,
     mkCase "decode/truncated-15bit-prefix" #[intV 0] truncated15Code
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFNOTJMPREF"
   fuzz := #[
     { seed := fuzzSeedForInstr ifnotjmprefId
       count := 500

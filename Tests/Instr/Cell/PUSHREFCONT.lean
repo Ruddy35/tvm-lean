@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -664,7 +665,7 @@ def suite : InstrSuite where
               throw (IO.userError
                 s!"fuzz/direct/{i}: unexpected error {e}\ncell={reprStr c}\nstack={reprStr stack}") }
   ]
-  oracle := pushRefContRawOracleCases.map rawOracleToOracleCase
+  oracle := pushRefContRawOracleCases.map rawOracleToOracleCase ++ Tests.Gen.VmCore.casesFor "PUSHREFCONT"
   fuzz := #[
     { seed := 2026021112
       count := 500

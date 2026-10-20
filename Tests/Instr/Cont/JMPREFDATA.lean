@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import TvmLean.Spec.Index
 
@@ -445,7 +446,7 @@ def suite : InstrSuite where
     mkCase "decode/truncated-15bit-with-stack" #[.null, intV 5] truncated15Code,
     mkCase "decode/empty-code/empty-stack" #[] Cell.empty,
     mkCase "decode/empty-code/with-stack" #[intV 6] Cell.empty
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "JMPREFDATA"
   fuzz := #[
     { seed := fuzzSeedForInstr jmprefdataId
       count := 500

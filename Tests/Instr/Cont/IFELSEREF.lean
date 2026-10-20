@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -693,7 +694,7 @@ def suite : InstrSuite where
     mkCase "ok/two-ifelseref-noop/deep-first-false-second-true"
       #[.builder Builder.empty, intV 1, q0, intV 0, q0]
       codeTwoIfelserefNoopTail
-  ]
+  ] ++ Tests.Gen.VmCore.casesFor "IFELSEREF"
   fuzz := #[
     { seed := fuzzSeedForInstr ifelserefId
       count := 500
