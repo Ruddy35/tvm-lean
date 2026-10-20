@@ -55,7 +55,7 @@ def blsR : Int :=
   52435875175126190479447740508185965837690552500527637822603658699938581184513
 
 set_option maxHeartbeats 1000000 in
-def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCryptoExt (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cryptoOp (.ext op) =>
       match op with
@@ -399,7 +399,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
               | .ok bs => pure bs
               | .error e => throw e
 
-          let ok := host.blsVerify (ByteArray.mk pubBytes) (ByteArray.mk msgBytes) (ByteArray.mk sigBytes)
+          let ok := Bls12381.verify pubBytes msgBytes sigBytes
           VM.pushSmallInt (if ok then (-1) else 0)
 
       | .blsAggregate =>
@@ -408,7 +408,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let n ← popNatInRange 1 maxN
           VM.consumeGas (blsAggregateBaseGasPrice + Int.ofNat n * blsAggregateElementGasPrice)
 
-          let mut sigs : Array ByteArray := Array.replicate n (ByteArray.mk #[])
+          let mut sigs : Array (Array UInt8) := Array.replicate n #[]
           for j in [0:n] do
             let idx : Nat := n - 1 - j
             let s ← VM.popSlice
@@ -416,12 +416,11 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
               match s.prefetchBytesCellUnd 96 with
               | .ok bs => pure bs
               | .error e => throw e
-            sigs := sigs.set! idx (ByteArray.mk bs)
+            sigs := sigs.set! idx bs
 
-          let out := host.blsAggregate sigs
-          if out.size != 96 then
-            throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-          VM.push (.slice (sliceOfByteArray out))
+          match Bls12381.aggregate sigs with
+          | some out => VM.push (.slice (sliceOfByteArray (ByteArray.mk out)))
+          | none => throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
 
       | .blsFastAggregateVerify =>
           let st0 ← get
@@ -435,7 +434,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.consumeGas
             (blsFastAggregateVerifyBaseGasPrice + Int.ofNat n * blsFastAggregateVerifyElementGasPrice)
 
-          let mut pubs : Array ByteArray := Array.replicate n (ByteArray.mk #[])
+          let mut pubs : Array (Array UInt8) := Array.replicate n #[]
           for j in [0:n] do
             let idx : Nat := n - 1 - j
             let s ← VM.popSlice
@@ -443,7 +442,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
               match s.prefetchBytesCellUnd 48 with
               | .ok bs => pure bs
               | .error e => throw e
-            pubs := pubs.set! idx (ByteArray.mk bs)
+            pubs := pubs.set! idx bs
 
           let msgBytes ←
             match sliceToFullBytes msgSlice with
@@ -453,7 +452,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             match sigSlice.prefetchBytesCellUnd 96 with
             | .ok bs => pure bs
             | .error e => throw e
-          let ok := host.blsFastAggregateVerify pubs (ByteArray.mk msgBytes) (ByteArray.mk sigBytes)
+          let ok := Bls12381.fastAggregateVerify pubs msgBytes sigBytes
           VM.pushSmallInt (if ok then (-1) else 0)
 
       | .blsAggregateVerify =>
@@ -467,8 +466,8 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.consumeGas
             (blsAggregateVerifyBaseGasPrice + Int.ofNat n * blsAggregateVerifyElementGasPrice)
 
-          let mut pubs : Array ByteArray := Array.replicate n (ByteArray.mk #[])
-          let mut msgs : Array ByteArray := Array.replicate n (ByteArray.mk #[])
+          let mut pubs : Array (Array UInt8) := Array.replicate n #[]
+          let mut msgs : Array (Array UInt8) := Array.replicate n #[]
           for j in [0:n] do
             let idx : Nat := n - 1 - j
             let msgSlice ← VM.popSlice
@@ -481,361 +480,136 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
               match pubSlice.prefetchBytesCellUnd 48 with
               | .ok bs => pure bs
               | .error e => throw e
-            pubs := pubs.set! idx (ByteArray.mk pubBytes)
-            msgs := msgs.set! idx (ByteArray.mk msgBytes)
+            pubs := pubs.set! idx pubBytes
+            msgs := msgs.set! idx msgBytes
 
           let sigBytes ←
             match sigSlice.prefetchBytesCellUnd 96 with
             | .ok bs => pure bs
             | .error e => throw e
 
-          let ok := host.blsAggregateVerify pubs msgs (ByteArray.mk sigBytes)
+          let ok := Bls12381.aggregateVerify pubs msgs sigBytes
           VM.pushSmallInt (if ok then (-1) else 0)
 
-      | .blsG1Add =>
+      | .blsG1Add | .blsG1Sub | .blsG2Add | .blsG2Sub =>
+          let size : Nat := if op matches .blsG1Add | .blsG1Sub then 48 else 96
           let st0 ← get
           if st0.stack.size < 2 then
             throw .stkUnd
-          VM.consumeGas blsG1AddSubGasPrice
+          VM.consumeGas (if size = 48 then blsG1AddSubGasPrice else blsG2AddSubGasPrice)
           let b ← VM.popSlice
           let bb ←
-            match b.prefetchBytesCellUnd 48 with
+            match b.prefetchBytesCellUnd size with
             | .ok bs => pure bs
             | .error e => throw e
           let a ← VM.popSlice
           let ab ←
-            match a.prefetchBytesCellUnd 48 with
+            match a.prefetchBytesCellUnd size with
             | .ok bs => pure bs
             | .error e => throw e
-          let out := host.blsG1AddBytes (ByteArray.mk ab) (ByteArray.mk bb)
-          if out.size != 48 then
-            throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-          VM.push (.slice (sliceOfByteArray out))
+          let out :=
+            match op with
+            | .blsG1Add => Bls12381.g1Add ab bb
+            | .blsG1Sub => Bls12381.g1Sub ab bb
+            | .blsG2Add => Bls12381.g2Add ab bb
+            | _ => Bls12381.g2Sub ab bb
+          match out with
+          | some out => VM.push (.slice (sliceOfByteArray (ByteArray.mk out)))
+          | none => throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
 
-      | .blsG1Sub =>
+      | .blsG1Neg | .blsG2Neg =>
+          let size : Nat := if op matches .blsG1Neg then 48 else 96
+          VM.consumeGas (if size = 48 then blsG1NegGasPrice else blsG2NegGasPrice)
+          let a ← VM.popSlice
+          let ab ←
+            match a.prefetchBytesCellUnd size with
+            | .ok bs => pure bs
+            | .error e => throw e
+          match (if size = 48 then Bls12381.g1Neg ab else Bls12381.g2Neg ab) with
+          | some out => VM.push (.slice (sliceOfByteArray (ByteArray.mk out)))
+          | none => throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
+
+      | .blsG1Mul | .blsG2Mul =>
+          let size : Nat := if op matches .blsG1Mul then 48 else 96
           let st0 ← get
           if st0.stack.size < 2 then
             throw .stkUnd
-          VM.consumeGas blsG1AddSubGasPrice
-          let b ← VM.popSlice
-          let bb ←
-            match b.prefetchBytesCellUnd 48 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let a ← VM.popSlice
-          let ab ←
-            match a.prefetchBytesCellUnd 48 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let out := host.blsG1SubBytes (ByteArray.mk ab) (ByteArray.mk bb)
-          if out.size != 48 then
-            throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-          VM.push (.slice (sliceOfByteArray out))
-
-      | .blsG1Neg =>
-          VM.consumeGas blsG1NegGasPrice
-          let a ← VM.popSlice
-          let ab ←
-            match a.prefetchBytesCellUnd 48 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let out := host.blsG1NegBytes (ByteArray.mk ab)
-          if out.size != 48 then
-            throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-          VM.push (.slice (sliceOfByteArray out))
-
-      | .blsG1Mul =>
-          let st0 ← get
-          if st0.stack.size < 2 then
-            throw .stkUnd
-          VM.consumeGas blsG1MulGasPrice
+          VM.consumeGas (if size = 48 then blsG1MulGasPrice else blsG2MulGasPrice)
           let x ← VM.popIntFinite
           let pSlice ← VM.popSlice
           let pb ←
-            match pSlice.prefetchBytesCellUnd 48 with
+            match pSlice.prefetchBytesCellUnd size with
             | .ok bs => pure bs
             | .error e => throw e
-          if x == 0 then
-            let out := host.blsG1ZeroBytes ()
-            if out.size != 48 then
-              throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-            VM.push (.slice (sliceOfByteArray out))
-          else
-            let xMod : Int := x % blsR
-            let xb ←
-              match exportUInt256BE (.num xMod) with
-              | .ok bs => pure bs
-              | .error e => throw e
-            let out := host.blsG1MulBytes (ByteArray.mk pb) (ByteArray.mk xb)
-            if out.size != 48 then
-              throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-            VM.push (.slice (sliceOfByteArray out))
+          -- `generic_mul`: the zero point for x = 0 without reading the point, else x mod r
+          match (if size = 48 then Bls12381.g1MulInt pb x else Bls12381.g2MulInt pb x) with
+          | some out => VM.push (.slice (sliceOfByteArray (ByteArray.mk out)))
+          | none => throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
 
-      | .blsG1MultiExp =>
+      | .blsG1MultiExp | .blsG2MultiExp =>
+          let size : Nat := if op matches .blsG1MultiExp then 48 else 96
           let stBeforeN ← get
           let maxN : Nat := (stBeforeN.stack.size - 1) / 2
           let n ← VM.popNatUpTo maxN
           VM.consumeGas
-            (blsCalculateMultiexpGas n blsG1MultiExpBaseGasPrice blsG1MultiExpCoef1GasPrice blsG1MultiExpCoef2GasPrice)
+            (if size = 48 then
+              blsCalculateMultiexpGas n blsG1MultiExpBaseGasPrice blsG1MultiExpCoef1GasPrice blsG1MultiExpCoef2GasPrice
+            else
+              blsCalculateMultiexpGas n blsG2MultiExpBaseGasPrice blsG2MultiExpCoef1GasPrice blsG2MultiExpCoef2GasPrice)
 
-          let mut ps : Array ByteArray := Array.replicate n (ByteArray.mk #[])
+          let mut ps : Array (Array UInt8) := Array.replicate n #[]
           let mut xs : Array Int := Array.replicate n 0
           for j in [0:n] do
             let idx : Nat := n - 1 - j
             let x ← VM.popIntFinite
             let pSlice ← VM.popSlice
             let pb ←
-              match pSlice.prefetchBytesCellUnd 48 with
+              match pSlice.prefetchBytesCellUnd size with
               | .ok bs => pure bs
               | .error e => throw e
-            ps := ps.set! idx (ByteArray.mk pb)
+            ps := ps.set! idx pb
             xs := xs.set! idx x
 
-          if n == 0 then
-            let out := host.blsG1ZeroBytes ()
-            if out.size != 48 then
-              throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-            VM.push (.slice (sliceOfByteArray out))
-          else if n == 1 then
-            let x := xs[0]!
-            let p := ps[0]!
-            if x == 0 then
-              let out := host.blsG1ZeroBytes ()
-              if out.size != 48 then
-                throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-              VM.push (.slice (sliceOfByteArray out))
-            else
-              let xMod : Int := x % blsR
-              let xb ←
-                match exportUInt256BE (.num xMod) with
-                | .ok bs => pure bs
-                | .error e => throw e
-              let out := host.blsG1MulBytes p (ByteArray.mk xb)
-              if out.size != 48 then
-                throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-              VM.push (.slice (sliceOfByteArray out))
-          else
-            let mut scalars : Array ByteArray := Array.replicate n (ByteArray.mk #[])
-            for k in [0:n] do
-              let xMod : Int := xs[k]! % blsR
-              let xbBe ←
-                match exportUInt256BE (.num xMod) with
-                | .ok bs => pure bs
-                | .error e => throw e
-              scalars := scalars.set! k (ByteArray.mk xbBe.reverse)
-            let out := host.blsG1MultiExpBytes ps scalars
-            if out.size != 48 then
-              throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-            VM.push (.slice (sliceOfByteArray out))
+          match (if size = 48 then Bls12381.g1MultiExp ps xs else Bls12381.g2MultiExp ps xs) with
+          | some out => VM.push (.slice (sliceOfByteArray (ByteArray.mk out)))
+          | none => throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
 
       | .blsG1Zero =>
-          let out := host.blsG1ZeroBytes ()
-          if out.size != 48 then
-            VM.unimplementedInstr { name := Instr.pretty i } "crypto ext backend path is not fully implemented"
-          VM.push (.slice (sliceOfByteArray out))
-
-      | .blsMapToG1 =>
-          VM.consumeGas blsMapToG1GasPrice
-          let a ← VM.popSlice
-          let ab ←
-            match a.prefetchBytesCellUnd 48 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let out := host.blsMapToG1Bytes (ByteArray.mk ab)
-          if out.size != 48 then
-            VM.unimplementedInstr { name := Instr.pretty i } "crypto ext backend path is not fully implemented"
-          VM.push (.slice (sliceOfByteArray out))
-
-      | .blsG1InGroup =>
-          VM.consumeGas blsG1InGroupGasPrice
-          let a ← VM.popSlice
-          let ab ←
-            match a.prefetchBytesCellUnd 48 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let ok := host.blsG1InGroup (ByteArray.mk ab)
-          VM.pushSmallInt (if ok then (-1) else 0)
-
-      | .blsG1IsZero =>
-          let a ← VM.popSlice
-          let ab ←
-            match a.prefetchBytesCellUnd 48 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let ok := host.blsG1IsZero (ByteArray.mk ab)
-          VM.pushSmallInt (if ok then (-1) else 0)
-
-      | .blsG2Add =>
-          let st0 ← get
-          if st0.stack.size < 2 then
-            throw .stkUnd
-          VM.consumeGas blsG2AddSubGasPrice
-          let b ← VM.popSlice
-          let bb ←
-            match b.prefetchBytesCellUnd 96 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let a ← VM.popSlice
-          let ab ←
-            match a.prefetchBytesCellUnd 96 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let out := host.blsG2AddBytes (ByteArray.mk ab) (ByteArray.mk bb)
-          if out.size != 96 then
-            throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-          VM.push (.slice (sliceOfByteArray out))
-
-      | .blsG2Sub =>
-          let st0 ← get
-          if st0.stack.size < 2 then
-            throw .stkUnd
-          VM.consumeGas blsG2AddSubGasPrice
-          let b ← VM.popSlice
-          let bb ←
-            match b.prefetchBytesCellUnd 96 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let a ← VM.popSlice
-          let ab ←
-            match a.prefetchBytesCellUnd 96 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let out := host.blsG2SubBytes (ByteArray.mk ab) (ByteArray.mk bb)
-          if out.size != 96 then
-            throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-          VM.push (.slice (sliceOfByteArray out))
-
-      | .blsG2Neg =>
-          VM.consumeGas blsG2NegGasPrice
-          let a ← VM.popSlice
-          let ab ←
-            match a.prefetchBytesCellUnd 96 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          let out := host.blsG2NegBytes (ByteArray.mk ab)
-          if out.size != 96 then
-            throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-          VM.push (.slice (sliceOfByteArray out))
-
-      | .blsG2Mul =>
-          let st0 ← get
-          if st0.stack.size < 2 then
-            throw .stkUnd
-          VM.consumeGas blsG2MulGasPrice
-          let x ← VM.popIntFinite
-          let pSlice ← VM.popSlice
-          let pb ←
-            match pSlice.prefetchBytesCellUnd 96 with
-            | .ok bs => pure bs
-            | .error e => throw e
-          if x == 0 then
-            let out := host.blsG2ZeroBytes ()
-            if out.size != 96 then
-              throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-            VM.push (.slice (sliceOfByteArray out))
-          else
-            let xMod : Int := x % blsR
-            let xb ←
-              match exportUInt256BE (.num xMod) with
-              | .ok bs => pure bs
-              | .error e => throw e
-            let out := host.blsG2MulBytes (ByteArray.mk pb) (ByteArray.mk xb)
-            if out.size != 96 then
-              throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-            VM.push (.slice (sliceOfByteArray out))
-
-      | .blsG2MultiExp =>
-          let stBeforeN ← get
-          let maxN : Nat := (stBeforeN.stack.size - 1) / 2
-          let n ← VM.popNatUpTo maxN
-          VM.consumeGas
-            (blsCalculateMultiexpGas n blsG2MultiExpBaseGasPrice blsG2MultiExpCoef1GasPrice blsG2MultiExpCoef2GasPrice)
-
-          let mut ps : Array ByteArray := Array.replicate n (ByteArray.mk #[])
-          let mut xs : Array Int := Array.replicate n 0
-          for j in [0:n] do
-            let idx : Nat := n - 1 - j
-            let x ← VM.popIntFinite
-            let pSlice ← VM.popSlice
-            let pb ←
-              match pSlice.prefetchBytesCellUnd 96 with
-              | .ok bs => pure bs
-              | .error e => throw e
-            ps := ps.set! idx (ByteArray.mk pb)
-            xs := xs.set! idx x
-
-          if n == 0 then
-            let out := host.blsG2ZeroBytes ()
-            if out.size != 96 then
-              throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-            VM.push (.slice (sliceOfByteArray out))
-          else if n == 1 then
-            let x := xs[0]!
-            let p := ps[0]!
-            if x == 0 then
-              let out := host.blsG2ZeroBytes ()
-              if out.size != 96 then
-                throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-              VM.push (.slice (sliceOfByteArray out))
-            else
-              let xMod : Int := x % blsR
-              let xb ←
-                match exportUInt256BE (.num xMod) with
-                | .ok bs => pure bs
-                | .error e => throw e
-              let out := host.blsG2MulBytes p (ByteArray.mk xb)
-              if out.size != 96 then
-                throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-              VM.push (.slice (sliceOfByteArray out))
-          else
-            let mut scalars : Array ByteArray := Array.replicate n (ByteArray.mk #[])
-            for k in [0:n] do
-              let xMod : Int := xs[k]! % blsR
-              let xbBe ←
-                match exportUInt256BE (.num xMod) with
-                | .ok bs => pure bs
-                | .error e => throw e
-              scalars := scalars.set! k (ByteArray.mk xbBe.reverse)
-            let out := host.blsG2MultiExpBytes ps scalars
-            if out.size != 96 then
-              throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
-            VM.push (.slice (sliceOfByteArray out))
+          VM.push (.slice (sliceOfByteArray (ByteArray.mk Bls12381.g1ZeroBytes)))
 
       | .blsG2Zero =>
-          let out := host.blsG2ZeroBytes ()
-          if out.size != 96 then
-            VM.unimplementedInstr { name := Instr.pretty i } "crypto ext backend path is not fully implemented"
-          VM.push (.slice (sliceOfByteArray out))
+          VM.push (.slice (sliceOfByteArray (ByteArray.mk Bls12381.g2ZeroBytes)))
 
-      | .blsMapToG2 =>
-          VM.consumeGas blsMapToG2GasPrice
+      | .blsMapToG1 | .blsMapToG2 =>
+          let size : Nat := if op matches .blsMapToG1 then 48 else 96
+          VM.consumeGas (if size = 48 then blsMapToG1GasPrice else blsMapToG2GasPrice)
           let a ← VM.popSlice
           let ab ←
-            match a.prefetchBytesCellUnd 96 with
+            match a.prefetchBytesCellUnd size with
             | .ok bs => pure bs
             | .error e => throw e
-          let out := host.blsMapToG2Bytes (ByteArray.mk ab)
-          if out.size != 96 then
-            VM.unimplementedInstr { name := Instr.pretty i } "crypto ext backend path is not fully implemented"
-          VM.push (.slice (sliceOfByteArray out))
+          let out := if size = 48 then Bls12381.mapToG1Bytes ab else Bls12381.mapToG2Bytes ab
+          VM.push (.slice (sliceOfByteArray (ByteArray.mk out)))
 
-      | .blsG2InGroup =>
-          VM.consumeGas blsG2InGroupGasPrice
+      | .blsG1InGroup | .blsG2InGroup =>
+          let size : Nat := if op matches .blsG1InGroup then 48 else 96
+          VM.consumeGas (if size = 48 then blsG1InGroupGasPrice else blsG2InGroupGasPrice)
           let a ← VM.popSlice
           let ab ←
-            match a.prefetchBytesCellUnd 96 with
+            match a.prefetchBytesCellUnd size with
             | .ok bs => pure bs
             | .error e => throw e
-          let ok := host.blsG2InGroup (ByteArray.mk ab)
+          let ok := if size = 48 then Bls12381.g1InGroup ab else Bls12381.g2InGroup ab
           VM.pushSmallInt (if ok then (-1) else 0)
 
-      | .blsG2IsZero =>
+      | .blsG1IsZero | .blsG2IsZero =>
+          let size : Nat := if op matches .blsG1IsZero then 48 else 96
           let a ← VM.popSlice
           let ab ←
-            match a.prefetchBytesCellUnd 96 with
+            match a.prefetchBytesCellUnd size with
             | .ok bs => pure bs
             | .error e => throw e
-          let ok := host.blsG2IsZero (ByteArray.mk ab)
+          let ok := if size = 48 then Bls12381.g1IsZero ab else Bls12381.g2IsZero ab
           VM.pushSmallInt (if ok then (-1) else 0)
 
       | .blsPairing =>
@@ -843,8 +617,8 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let maxN : Nat := (stBeforeN.stack.size - 1) / 2
           let n ← VM.popNatUpTo maxN
           VM.consumeGas (blsPairingBaseGasPrice + Int.ofNat n * blsPairingElementGasPrice)
-          let mut p1s : Array ByteArray := Array.replicate n (ByteArray.mk #[])
-          let mut p2s : Array ByteArray := Array.replicate n (ByteArray.mk #[])
+          let mut p1s : Array (Array UInt8) := Array.replicate n #[]
+          let mut p2s : Array (Array UInt8) := Array.replicate n #[]
           for j in [0:n] do
             let idx : Nat := n - 1 - j
             let p2Slice ← VM.popSlice
@@ -857,15 +631,11 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
               match p1Slice.prefetchBytesCellUnd 48 with
               | .ok bs => pure bs
               | .error e => throw e
-            p1s := p1s.set! idx (ByteArray.mk p1Bytes)
-            p2s := p2s.set! idx (ByteArray.mk p2Bytes)
-          let rc : UInt8 := host.blsPairing p1s p2s
-          if rc == 0 then
-            VM.pushSmallInt 0
-          else if rc == 1 then
-            VM.pushSmallInt (-1)
-          else
-            throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
+            p1s := p1s.set! idx p1Bytes
+            p2s := p2s.set! idx p2Bytes
+          match Bls12381.pairing p1s p2s with
+          | some ok => VM.pushSmallInt (if ok then (-1) else 0)
+          | none => throw .unknown  -- blst error: C++ bls.cpp throws VmError{Excno::unknown}
 
       | .blsPushR =>
           VM.push (.int (.num blsR))

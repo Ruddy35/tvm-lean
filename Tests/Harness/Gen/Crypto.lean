@@ -399,8 +399,29 @@ private def ristMulBaseCases (suite : String) (quiet : Bool) : Array OracleCase 
 
 /-! #### BLS12-381 -/
 
-private def g1v (n : String) : Value := hexSlice (lookupHex CryptoVectors.blsG1 n)
-private def g2v (n : String) : Value := hexSlice (lookupHex CryptoVectors.blsG2 n)
+/-- Encodings beyond the py_ecc vectors of `CryptoVectors`: on E1 the abscissa 0 (`(0, ±2)`, of
+order 3, refused by `POINTonE1_Uncompress_Z`), the infinity flag with the sign flag, and a point of
+order 11 (the point of abscissa 5, sign 0, times `h₁·r/11²`); on E2 the imaginary part `p`
+(`xTooBig`), the real part `p`, the infinity flag with a nonzero bit or with the sign flag, the
+abscissa 0 (off the curve), and points of order 13 and 23 (the point of abscissa `1 + i`, sign 0,
+times `h₂·r/13²` and `h₂·r/23²`; the unit tests check the orders). The small orders reach the flags
+of blst's windowed multiplication (`ptype##s_mult_w5`). -/
+private def blsExtraG1 : Array (String × String) :=
+  #[("xZero", "80" ++ String.join (List.replicate 47 "00")), ("infSign", "e0" ++ String.join (List.replicate 47 "00")),
+    ("order11", "a00b9529a7b23788075a6c33c7b77b3dcf4da4f58af5310f32e739a6c653a5a8f7cf7f19a297bd6a8f3f19ea82cf9419")]
+
+private def blsExtraG2 : Array (String × String) :=
+  let zeros (n : Nat) := String.join (List.replicate n "00")
+  let pHex := "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab"
+  #[("xTooBig", "9a" ++ pHex.drop 2 ++ zeros 48), ("c0TooBig", "80" ++ zeros 47 ++ pHex),
+    ("infNonzero", "c0" ++ zeros 94 ++ "01"), ("infSign", "e0" ++ zeros 95), ("xZero", "80" ++ zeros 95),
+    ("order13", "832762e5199990da7d4ebc6409c2fdae09b25206fa89dded0a23c05406588284278c22ea15e6d03cee69a68b7d4704a4" ++
+      "043ff79d06a80add8340a1a548d700c5ffeef5b14a3e246834d320e323d9fcc76bae16f9f2763ab556905843518bc0c2"),
+    ("order23", "a1c8529db7e45f16111c0c95106d37fb89a90afb348c9082db6d49fc34ee0077501c7ac278ed112708313a28768cc52c" ++
+      "0503fbc16c24192886d4bb5c5f791e3c3448dc4e19f0ca8d0bcd6cf6cbe9ccd602478cafaf1d7847458df499807d8ae2")]
+
+private def g1v (n : String) : Value := hexSlice (lookupHex (CryptoVectors.blsG1 ++ blsExtraG1) n)
+private def g2v (n : String) : Value := hexSlice (lookupHex (CryptoVectors.blsG2 ++ blsExtraG2) n)
 private def msgv (n : String) : Value := hexSlice (lookupHex CryptoVectors.blsMsg n)
 private def sigv (i j : Nat) : Value :=
   match CryptoVectors.blsSig.find? (fun e => e.1 == s!"s{i}_{j}") with
@@ -409,8 +430,49 @@ private def sigv (i j : Nat) : Value :=
 private def pkv (i : Nat) : Value := g1v s!"pk{i}"
 private def blsR : Int := 52435875175126190479447740508185965837690552500527637822603658699938581184513
 
-private def g1Bad : Array String := #["noSubgroup", "offCurve", "noCompressFlag", "xTooBig", "infNonzero"]
-private def g2Bad : Array String := #["noSubgroup", "offCurve", "noCompressFlag"]
+/-- Encodings refused or outside the subgroup: a point of E1 outside G1, an abscissa off the curve,
+no compression flag, the abscissa `p`, the infinity flag with a nonzero bit or with the sign flag, the
+abscissa 0 (`(0, ±2)`, refused by `POINTonE1_Uncompress_Z` as not in the group). -/
+private def g1Bad : Array String :=
+  #["noSubgroup", "offCurve", "noCompressFlag", "xTooBig", "infNonzero", "xZero", "infSign"]
+/-- As `g1Bad` for G2: the imaginary part `c1 = p`, the real part `c0 = p`, the abscissa 0 (off the
+curve: `4(1 + i)` is not a square). -/
+private def g2Bad : Array String :=
+  #["noSubgroup", "offCurve", "noCompressFlag", "xTooBig", "c0TooBig", "infNonzero", "infSign", "xZero"]
+
+private def g1GenB : Array UInt8 := hexBytes (lookupHex CryptoVectors.blsG1 "gen")
+private def g2GenB : Array UInt8 := hexBytes (lookupHex CryptoVectors.blsG2 "gen")
+private def blsBytesV (b : Array UInt8) : Value := sl (bitsOfBytes b)
+private def sigBytes (i j : Nat) : Array UInt8 :=
+  match CryptoVectors.blsSig.find? (fun e => e.1 == s!"s{i}_{j}") with
+  | some (_, _, _, h) => hexBytes h
+  | none => #[]
+private def sigv0 (j : Nat) : Array UInt8 := sigBytes 0 j
+private def sigv1 (j : Nat) : Array UInt8 := sigBytes 1 j
+
+/-- The sum of signatures (`Bls12381.aggregate`, the model's own; C++ judges the cases using it). -/
+private def blsAggOf (sigs : Array (Array UInt8)) : Array UInt8 := (Bls12381.aggregate sigs).getD #[]
+
+/-- `−pk0`. -/
+private def blsNegPk0 : Value :=
+  blsBytesV ((Bls12381.g1Neg (hexBytes (lookupHex CryptoVectors.blsG1 "pk0"))).getD #[])
+
+/-- `k · H(m)`, the signature of `m` by the key `k`. -/
+private def blsSign (k : Nat) (m : Array UInt8) : Bls12381.Jac Bls12381.Fp2 :=
+  Bls12381.g2Mul (Bls12381.hashToG2 m) k
+
+/-- `n` pairs `pk m` of the keys `2, 3, …` and one-byte messages, and their aggregate signature. -/
+private def blsAvSet (n : Nat) : Array Value × Value :=
+  let ks := (Array.range n).map fun i => (i + 2, #[UInt8.ofNat (0x40 + i)])
+  let st := ks.flatMap fun (k, m) =>
+    #[blsBytesV ((Bls12381.g1MulInt g1GenB (Int.ofNat k)).getD #[]), blsBytesV m]
+  let sig := ks.foldl (fun acc (k, m) => Bls12381.Jac.add Bls12381.fp2F acc (blsSign k m))
+    (Bls12381.Jac.inf Bls12381.fp2F)
+  (st, blsBytesV (Bls12381.compressG2 sig))
+
+/-- `2k` pairs whose pairings multiply to 1: `k` times `e(2a, b) e(−a, 2b)`. -/
+private def blsPairsOne (k : Nat) : Array Value :=
+  (Array.range k).flatMap fun _ => #[g1v "gen2", g2v "gen", g1v "genNeg", g2v "gen2"]
 
 private def blsVerifyCases (suite : String) : Array OracleCase :=
   let valid := (#[(0, 0), (0, 1), (1, 2), (2, 3), (3, 1)] : Array (Nat × Nat)).map fun (i, j) =>
@@ -431,7 +493,12 @@ private def blsAggregateCases (suite : String) : Array OracleCase :=
     #[("one", #[sigv 0 1, iv 1]), ("two", #[sigv 0 1, sigv 1 1, iv 2]), ("three", #[sigv 0 1, sigv 1 1, sigv 2 1, iv 3]),
       ("zero-sig", #[sigv 0 1, g2v "zero", iv 2]), ("n0", #[sigv 0 1, iv 0]), ("n-too-big", #[sigv 0 1, iv 2]),
       ("n-neg", #[iv (-1)]), ("empty", #[]), ("n-only", #[iv 1]), ("short", #[sl (bytes 95 1), iv 1]),
-      ("not-slice", #[iv 5, iv 1])] ++
+      ("not-slice", #[iv 5, iv 1]),
+      -- `bls::aggregate` checks the subgroup of every signature but the first (`P2::aggregate`)
+      ("nosub-first", #[g2v "noSubgroup", sigv 0 1, iv 2]), ("nosub-only", #[g2v "noSubgroup", iv 1]),
+      ("order13-first", #[g2v "order13", sigv 0 1, iv 2]), ("zero-first", #[g2v "zero", sigv 0 1, iv 2]),
+      ("zero-only", #[g2v "zero", iv 1]), ("zero-zero", #[g2v "zero", g2v "zero", iv 2]),
+      ("same-twice", #[sigv 0 1, sigv 0 1, iv 2])] ++
     named suite #[ext .blsAggregate] (g2Bad.map (fun b => (s!"bad-{b}", #[sigv 0 1, g2v b, iv 2])))
 
 private def blsFastAggVerifyCases (suite : String) : Array OracleCase :=
@@ -443,7 +510,15 @@ private def blsFastAggVerifyCases (suite : String) : Array OracleCase :=
       ("n-too-big", #[pkv 0, iv 2, msgv "m1", agg]), ("empty", #[]), ("two", #[msgv "m1", agg]),
       ("unaligned-msg", #[pkv 0, iv 1, unaligned, sigv 0 1]), ("short-sig", #[pkv 0, iv 1, msgv "m1", sl (bytes 95 1)])] ++
      g1Bad.map (fun b => (s!"pk-{b}", #[g1v b, iv 1, msgv "m1", sigv 0 1])) ++
-     g2Bad.map (fun b => (s!"sig-{b}", #[pkv 0, iv 1, msgv "m1", g2v b])))
+     g2Bad.map (fun b => (s!"sig-{b}", #[pkv 0, iv 1, msgv "m1", g2v b])) ++
+     -- keys summing to infinity (refused by core_verify), the same key twice, a key off the subgroup
+     -- first (not checked by P1::aggregate, then by core_verify) and later
+     #[("keys-cancel", #[pkv 0, blsNegPk0, iv 2, msgv "m1", g2v "zero"]),
+       ("keys-cancel-sig", #[pkv 0, blsNegPk0, iv 2, msgv "m1", sigv 0 1]),
+       ("same-key-twice", #[pkv 0, pkv 0, iv 2, msgv "m1", blsBytesV (blsAggOf #[sigv0 1, sigv0 1])]),
+       ("pk-nosub-first", #[g1v "noSubgroup", pkv 0, iv 2, msgv "m1", sigv 0 1]),
+       ("pk-nosub-second", #[pkv 0, g1v "noSubgroup", iv 2, msgv "m1", sigv 0 1]),
+       ("pk-zero-second", #[pkv 0, g1v "zero", iv 2, msgv "m1", sigv 0 1])])
 
 private def blsAggVerifyCases (suite : String) : Array OracleCase :=
   let agg := g2v "agg_distinct"
@@ -454,7 +529,15 @@ private def blsAggVerifyCases (suite : String) : Array OracleCase :=
       ("n0", #[iv 0, agg]), ("n-too-big", #[pkv 0, msgv "m1", iv 2, agg]), ("empty", #[]), ("one-entry", #[agg]),
       ("unaligned-msg", #[pkv 0, unaligned, iv 1, sigv 0 1]), ("pk-zero", #[g1v "zero", msgv "m1", iv 1, sigv 0 1])] ++
      g1Bad.map (fun b => (s!"pk-{b}", #[g1v b, msgv "m1", iv 1, sigv 0 1])) ++
-     g2Bad.map (fun b => (s!"sig-{b}", #[pkv 0, msgv "m1", iv 1, g2v b])))
+     g2Bad.map (fun b => (s!"sig-{b}", #[pkv 0, msgv "m1", iv 1, g2v b])) ++
+     -- repeated messages (blst's Pairing does not refuse them), a signature at infinity (in G2, its
+     -- Miller loop 1), and 8, 9, 16 pairs: the batches of eight of blst's pairing context
+     #[("dup-msg", #[pkv 0, msgv "m1", pkv 1, msgv "m1", iv 2, blsBytesV (blsAggOf #[sigv0 1, sigv1 1])]),
+       ("sig-zero", #[pkv 0, msgv "m1", iv 1, g2v "zero"]),
+       ("sig-order13", #[pkv 0, msgv "m1", iv 1, g2v "order13"])] ++
+     (#[8, 9, 16] : Array Nat).flatMap fun n =>
+       let (st, sig) := blsAvSet n
+       #[(s!"n{n}", st ++ #[iv (Int.ofNat n), sig]), (s!"n{n}-wrong-sig", st ++ #[iv (Int.ofNat n), sigv 0 1])])
 
 /-- Group operations on G1 (`g2 = false`) or G2. -/
 private def blsGroupCases (suite : String) (g2 : Bool) : Array OracleCase :=
@@ -470,6 +553,7 @@ private def blsGroupCases (suite : String) (g2 : Bool) : Array OracleCase :=
   let opZero : CryptoExtInstr := if g2 then .blsG2Zero else .blsG1Zero
   let opIn : CryptoExtInstr := if g2 then .blsG2InGroup else .blsG1InGroup
   let opIs : CryptoExtInstr := if g2 then .blsG2IsZero else .blsG1IsZero
+  let smallPts : Array String := if g2 then #["noSubgroup", "order13", "order23"] else #["noSubgroup", "order11"]
   let suffix := suite.drop 7  -- after "BLS_G1_" / "BLS_G2_"
   let common : Array (String × Array Value) :=
     #[("empty", #[]), ("int", #[iv 1]), ("short", #[sl (bytes (size - 1) 1)]), ("null", #[.null])]
@@ -487,6 +571,12 @@ private def blsGroupCases (suite : String) (g2 : Bool) : Array OracleCase :=
             (#[("0", 0), ("1", 1), ("2", 2), ("r", blsR), ("r+1", blsR + 1), ("-1", -1), ("2^256-1", 2 ^ 256 - 1),
                ("-2^256", -(2 ^ 256))] : Array (String × Int)).map fun (xn, x) => (s!"{a}-x{xn}", #[pt a, iv x])) ++
           bad.flatMap (fun b => #[(s!"bad-{b}-x0", #[pt b, iv 0]), (s!"bad-{b}-x1", #[pt b, iv 1])]) ++
+          -- off the subgroup: GLV (E1) and GLS (E2) give `rem·P − q·σ²(P)` / the ψ digits, not `x·P`;
+          -- the small orders reach the flags of the windowed multiplication
+          (smallPts.flatMap fun a =>
+            (#[("2^200+7", 2 ^ 200 + 7), ("r-1", blsR - 1), ("-5", -5), ("2^128+3", 2 ^ 128 + 3),
+               ("rand", 0x5c3f1d2e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d)] : Array (String × Int)).map
+              fun (xn, x) => (s!"{a}-x{xn}", #[pt a, iv x])) ++
           #[("x-nan", #[pt "gen", .int .nan]), ("x-null", #[pt "gen", .null]), ("one", #[iv 1]), ("empty", #[]),
             ("p-int", #[iv 1, iv 1])])
   | "MULTIEXP" =>
@@ -497,7 +587,23 @@ private def blsGroupCases (suite : String) (g2 : Bool) : Array OracleCase :=
           ("n1-bad", #[pt bad[0]!, iv 5, iv 1]), ("n2-bad", #[pt "gen", iv 1, pt bad[1]!, iv 2, iv 2]),
           ("n1-bad-x0", #[pt bad[1]!, iv 0, iv 1]), ("n2-nan", #[pt "gen", .int .nan, pt "gen2", iv 1, iv 2]),
           ("n-too-big", #[pt "gen", iv 1, iv 2]), ("n-neg", #[iv (-1)]), ("empty", #[]),
-          ("n2-int-point", #[iv 1, iv 1, pt "gen", iv 1, iv 2])] ++
+          ("n2-int-point", #[iv 1, iv 1, pt "gen", iv 1, iv 2]),
+          -- below 32 points, a point at infinity makes blst drop every Booth digit of magnitude
+          -- above 1 (the batch inversion of the tables, `multiExp`): 3 = digit 3, 17 = digits 1 1
+          ("n2-zero-x3", #[pt "gen", iv 3, pt "zero", iv 5, iv 2]),
+          ("n2-zero-x1", #[pt "gen", iv 1, pt "zero", iv 5, iv 2]),
+          ("n2-zero-x17", #[pt "gen", iv 17, pt "zero", iv 0, iv 2]),
+          ("n2-zero-x-1", #[pt "gen", iv (-1), pt "zero", iv 1, iv 2]),
+          ("n2-zero-first", #[pt "zero", iv 2, pt "gen7", iv 0x1111, iv 2]),
+          ("n2-nosub", #[pt "noSubgroup", iv 123456789, pt "gen", iv 7, iv 2]),
+          ("n3-small", #[pt smallPts[1]!, iv (2 ^ 100 + 3), pt "gen", iv 7, pt "gen2", iv 9, iv 3]),
+          ("n1-nosub-big", #[pt "noSubgroup", iv (2 ^ 200 + 12345), iv 1]),
+          ("n1-small", #[pt smallPts[1]!, iv (2 ^ 100 + 3), iv 1])] ++
+        -- one point at infinity among 31 (tables) and 32 (buckets) points
+        ((#[31, 32] : Array Nat).map fun k =>
+          (s!"n{k}-zero", ((Array.range k).flatMap fun i =>
+            #[pt (if i = 3 then "zero" else (#["gen", "gen2", "gen7"] : Array String)[i % 3]!),
+              iv (Int.ofNat (i * 7919 + 3))]) ++ #[iv (Int.ofNat k)])) ++
         -- the gas divisor l of bls_calculate_multiexp_gas (tonops.cpp:1165) starts at 4 and grows
         -- from n = 32 (2^(l+1) <= n): around 32 and 64 points
         ((#[31, 32, 33, 63, 64, 65] : Array Nat).map fun k =>
@@ -526,7 +632,20 @@ private def blsPairingCases (suite : String) : Array OracleCase :=
       ("bad-g1", #[g1v "offCurve", g2v "gen", iv 1]), ("bad-g2", #[g1v "gen", g2v "offCurve", iv 1]),
       ("nosub-g1", #[g1v "noSubgroup", g2v "gen", iv 1]), ("nosub-g2", #[g1v "gen", g2v "noSubgroup", iv 1]),
       ("n-too-big", #[g1v "gen", g2v "gen", iv 2]), ("empty", #[]), ("n-neg", #[iv (-1)]),
-      ("swapped", #[g2v "gen", g1v "gen", iv 1])]
+      ("swapped", #[g2v "gen", g1v "gen", iv 1]),
+      -- points at infinity (blst_pairing_raw_aggregate, miller_loop_n): a pair of two is skipped
+      -- (alone: no Miller loop, false); one alone in its batch counts as 1; a G2 point at infinity
+      -- among other pairs makes the batch 0 (false), a G1 point at infinity leaves it as is
+      ("n1-g2-zero", #[g1v "gen", g2v "zero", iv 1]), ("n1-zeros", #[g1v "zero", g2v "zero", iv 1]),
+      ("zeros-and-one", #[g1v "zero", g2v "zero", g1v "gen2", g2v "gen", g1v "genNeg", g2v "gen2", iv 3]),
+      ("g2-zero-among-3", #[g1v "gen2", g2v "gen", g1v "genNeg", g2v "gen2", g1v "gen", g2v "zero", iv 3]),
+      ("g1-zero-among-3", #[g1v "gen2", g2v "gen", g1v "genNeg", g2v "gen2", g1v "zero", g2v "gen", iv 3]),
+      ("n9-g2-zero-last", blsPairsOne 4 ++ #[g1v "gen", g2v "zero", iv 9]),
+      ("n9-g2-zero-first", #[g1v "gen", g2v "zero"] ++ blsPairsOne 4 ++ #[iv 9]),
+      ("n10-g2-zero-ninth", blsPairsOne 4 ++ #[g1v "gen", g2v "zero", g1v "gen", g2v "gen", iv 10]),
+      ("n16-one", blsPairsOne 8 ++ #[iv 16]), ("n17-g1-zero-last", blsPairsOne 8 ++ #[g1v "zero", g2v "gen", iv 17]),
+      ("n2-order11-order13", #[g1v "order11", g2v "order13", g1v "gen", g2v "gen", iv 2]),
+      ("n1-order11-gen", #[g1v "order11", g2v "gen", iv 1]), ("n1-gen-order13", #[g1v "gen", g2v "order13", iv 1])]
 
 
 /-! ### Gas running out at the fixed price
@@ -726,16 +845,47 @@ def unitFor (suite : String) : Array UnitCase :=
   | "BLS_G1_MUL" => one "group-law" do
       expectRun "G*7" #[ext .blsG1Mul] #[g1v "gen", iv 7] (.ok #[g1v "gen7"])
       expectRun "G*(r+2)" #[ext .blsG1Mul] #[g1v "gen", iv (blsR + 2)] (.ok #[g1v "gen2"])
+      -- the order of the small-order vector (below 2^128 the scalar is the GLV remainder alone)
+      expectRun "order11*11" #[ext .blsG1Mul] #[g1v "order11", iv 11] (.ok #[g1v "zero"])
+      expectRun "order11*12" #[ext .blsG1Mul] #[g1v "order11", iv 12] (.ok #[g1v "order11"])
   | "BLS_G2_ADD" => one "group-law" do
       expectRun "G+G" #[ext .blsG2Add] #[g2v "gen", g2v "gen"] (.ok #[g2v "gen2"])
   | "BLS_G2_NEG" => one "group-law" do
       expectRun "-G" #[ext .blsG2Neg] #[g2v "gen"] (.ok #[g2v "genNeg"])
   | "BLS_G2_MUL" => one "group-law" do
       expectRun "G*7" #[ext .blsG2Mul] #[g2v "gen", iv 7] (.ok #[g2v "gen7"])
+      expectRun "G*(r+2)" #[ext .blsG2Mul] #[g2v "gen", iv (blsR + 2)] (.ok #[g2v "gen2"])
+      expectRun "G*(-1)" #[ext .blsG2Mul] #[g2v "gen", iv (-1)] (.ok #[g2v "genNeg"])
+      -- the orders of the small-order vectors (below 2^64 the scalar is the first GLS digit alone)
+      expectRun "order13*13" #[ext .blsG2Mul] #[g2v "order13", iv 13] (.ok #[g2v "zero"])
+      expectRun "order13*14" #[ext .blsG2Mul] #[g2v "order13", iv 14] (.ok #[g2v "order13"])
+      expectRun "order23*23" #[ext .blsG2Mul] #[g2v "order23", iv 23] (.ok #[g2v "zero"])
+  | "BLS_G1_MULTIEXP" => one "infinity-among-points" do
+      -- blst (below 32 points): the tables `2P … 8P` of every point are lost to the point at
+      -- infinity, a scalar counts by its Booth digits ±1 only: 3 (digit 3) gives the zero point
+      expectRun "G*3+0*5" #[ext .blsG1MultiExp] #[g1v "gen", iv 3, g1v "zero", iv 5, iv 2] (.ok #[g1v "zero"])
+      expectRun "G*2+G*5" #[ext .blsG1MultiExp] #[g1v "gen", iv 2, g1v "gen", iv 5, iv 2] (.ok #[g1v "gen7"])
   | "BLS_PAIRING" => one "bilinearity" do
       expectRun "e(2a,b)e(-a,2b)" #[ext .blsPairing] #[g1v "gen2", g2v "gen", g1v "genNeg", g2v "gen2", iv 2]
         (.ok #[iv (-1)])
       expectRun "e(a,b)" #[ext .blsPairing] #[g1v "gen", g2v "gen", iv 1] (.ok #[iv 0])
+      -- blst's rules for points at infinity (miller_loop_n, raw_aggregate)
+      expectRun "e(a,0)" #[ext .blsPairing] #[g1v "gen", g2v "zero", iv 1] (.ok #[iv (-1)])
+      expectRun "e(0,0)" #[ext .blsPairing] #[g1v "zero", g2v "zero", iv 1] (.ok #[iv 0])
+      expectRun "e(2a,b)e(-a,2b)e(a,0)" #[ext .blsPairing]
+        #[g1v "gen2", g2v "gen", g1v "genNeg", g2v "gen2", g1v "gen", g2v "zero", iv 3] (.ok #[iv 0])
+      -- the constants of the Frobenius maps and of σ, ψ against their definitions
+      let xi := Bls12381.Fp2.xi
+      for n in [1, 2, 3] do
+        let pn := Bls12381.p ^ n
+        let (c1, c2, c) := Bls12381.Fp12.frobCoeffs[n - 1]!
+        if c1 != xi.pow ((pn - 1) / 3) || c2 != xi.pow ((2 * pn - 2) / 3) || c != xi.pow ((pn - 1) / 6) then
+          throw (IO.userError s!"Frobenius coefficients of p^{n}")
+      if Bls12381.Fp.pow Bls12381.beta 3 != 1 || Bls12381.beta == 1 then
+        throw (IO.userError "beta is not a cube root of unity")
+      if Bls12381.psiX.mul (xi.pow ((Bls12381.p - 1) / 3)) != .one ||
+          Bls12381.psiY.mul (xi.pow ((Bls12381.p - 1) / 2)) != .one then
+        throw (IO.userError "psi constants")
   | _ => #[]
 
 /-- Oracle cases of the suite named `suite`, before the gas-at-price cases. -/
@@ -962,8 +1112,348 @@ private def genRistFuzz (suite : String) (op : CryptoExtInstr) (rng0 : StdGen) :
     | _ => #[iv x, iv y]
   (ristFuzzCase suite op stack, rng5)
 
+/-! #### BLS12-381 fuzz
+
+Points and signatures are made with the model's own BLS12-381 (`TvmLean.Bls12381`) when the cases
+are generated, then changed; C++ judges every case. -/
+
+/-- A scalar for BLS_G{1,2}_MUL / _MULTIEXP: random 256-bit, small, around a multiple of `r`,
+negative, 0, below 2^128 (the size of the GLV halves), `2^256 − 1` or `−2^256`, below `r`. -/
+private def randBlsScalar (rng0 : StdGen) : Int × StdGen :=
+  let (mode, rng1) := randNat rng0 0 9
+  let (x, rng2) := randNat rng1 0 (2 ^ 256 - 1)
+  let n : Int :=
+    match mode with
+    | 0 | 1 => Int.ofNat x
+    | 2 => Int.ofNat (x % 20)
+    | 3 => blsR * Int.ofNat (x % 3) + Int.ofNat (x / 3 % 3) - 1
+    | 4 => -Int.ofNat x
+    | 5 => 0
+    | 6 => Int.ofNat (x % 2 ^ 128)
+    | 7 => if x % 2 = 0 then 2 ^ 256 - 1 else -(2 ^ 256)
+    | _ => Int.ofNat x % blsR
+  (n, rng2)
+
+private def flipBitOf (b : Array UInt8) (k : Nat) : Array UInt8 :=
+  if b.isEmpty then b
+  else
+    let i := k / 8 % b.size
+    b.set! i (b[i]! ^^^ UInt8.ofNat (1 <<< (k % 8)))
+
+/-- The first abscissa from `x` on whose compressed encoding (sign flag `sgn`) is a point of E1
+(almost never in G1); the point at infinity after 64 tries. -/
+private def onCurveG1 (x : Nat) (sgn : Bool) : Array UInt8 := Id.run do
+  for i in [0:64] do
+    let b := Bls12381.natToBE ((x + i) % Bls12381.p) 48
+    let b := b.set! 0 (b[0]! ||| 0x80 ||| (if sgn then 0x20 else 0))
+    if (Bls12381.decodeG1 b).isSome then return b
+  return Bls12381.infEncoding 48
+
+/-- As `onCurveG1` on E2, the imaginary part counting up from `x`. -/
+private def onCurveG2 (x : Nat) (sgn : Bool) : Array UInt8 := Id.run do
+  for i in [0:64] do
+    let b := Bls12381.natToBE ((x + i) % Bls12381.p) 48 ++ Bls12381.natToBE (x / 2 ^ 384 % Bls12381.p) 48
+    let b := b.set! 0 (b[0]! ||| 0x80 ||| (if sgn then 0x20 else 0))
+    if (Bls12381.decodeG2 b).isSome then return b
+  return Bls12381.infEncoding 96
+
+/-- `k · G` compressed (`k` nonzero). -/
+private def blsGenMul (g2 : Bool) (k : Nat) : Array UInt8 :=
+  (if g2 then Bls12381.g2MulInt g2GenB (Int.ofNat k) else Bls12381.g1MulInt g1GenB (Int.ofNat k)).getD #[]
+
+/-- A G1 (G2 for `g2`) operand: mostly a multiple of the generator; a point of the curve off the
+subgroup; the point at infinity; a point of small order; one bit flipped; random bytes; an abscissa
+(or, on E2, one part of it) from `p` on; the infinity flag with another bit or with the sign flag;
+no compression flag; the abscissa 0; the other ordinate. -/
+private def randBlsPoint (g2 : Bool) (rng0 : StdGen) : Array UInt8 × StdGen :=
+  let (mode, rng1) := randNat rng0 0 19
+  let (k, rng2) := randNat rng1 1 (2 ^ 255)
+  let (x, rng3) := randNat rng2 0 (2 ^ 800)
+  let size := if g2 then 96 else 48
+  let valid (_ : Unit) : Array UInt8 := blsGenMul g2 k
+  let b : Array UInt8 :=
+    match mode with
+    | 0 | 1 | 2 | 3 | 4 | 5 | 6 => valid ()
+    | 7 | 8 => if g2 then onCurveG2 x (x % 2 = 1) else onCurveG1 x (x % 2 = 1)
+    | 9 => Bls12381.infEncoding size
+    | 10 =>
+        hexBytes (lookupHex (if g2 then blsExtraG2 else blsExtraG1)
+          (if g2 then (if x % 2 = 0 then "order13" else "order23") else "order11"))
+    | 11 => flipBitOf (valid ()) x
+    | 12 => Bls12381.natToBE x size
+    | 13 =>
+        let big := Bls12381.natToBE (Bls12381.p + x % 4) 48
+        let b :=
+          if !g2 then big
+          else if x % 8 < 4 then big ++ Bls12381.natToBE 1 48 else Bls12381.natToBE 1 48 ++ big
+        b.set! 0 (b[0]! ||| 0x80 ||| (if x % 16 < 8 then 0x20 else 0))
+    | 14 => (Bls12381.infEncoding size).set! (1 + x % (size - 1)) (UInt8.ofNat (1 + x % 255))
+    | 15 => (Bls12381.infEncoding size).set! 0 0xe0
+    | 16 => let v := valid (); v.set! 0 (v[0]! &&& 0x7f)
+    | 17 => (Bls12381.infEncoding size).set! 0 (if x % 2 = 0 then 0x80 else 0xa0)
+    | _ => let v := valid (); v.set! 0 (v[0]! ^^^ 0x20)
+  (b, rng3)
+
+/-- A point that decodes: a multiple of the generator, the point at infinity (one time in ten), a
+point off the subgroup (one time in ten). -/
+private def randBlsPointOk (g2 : Bool) (rng0 : StdGen) : Array UInt8 × StdGen :=
+  let (mode, rng1) := randNat rng0 0 9
+  let (k, rng2) := randNat rng1 1 (2 ^ 255)
+  let (x, rng3) := randNat rng2 0 (2 ^ 800)
+  let b :=
+    match mode with
+    | 0 => Bls12381.infEncoding (if g2 then 96 else 48)
+    | 1 => if g2 then onCurveG2 x (x % 2 = 1) else onCurveG1 x (x % 2 = 1)
+    | _ => blsGenMul g2 k
+  (b, rng3)
+
+private def blsFuzzCase (suite tag : String) (op : CryptoExtInstr) (stack : Array Value) : OracleCase :=
+  { name := s!"fuzz/{tag}", instr := { name := suite }, program := #[ext op], initStack := stack }
+
+/-- G1/G2 ADD, SUB, NEG, INGROUP, ISZERO, MUL on random operands (for ADD/SUB the same point twice,
+or a point and its negation, one time in six each). -/
+private def genBlsGroupFuzz (suite : String) (g2 : Bool) (op : CryptoExtInstr) (rng0 : StdGen) :
+    OracleCase × StdGen :=
+  let (a, rng1) := randBlsPoint g2 rng0
+  let (b0, rng2) := randBlsPoint g2 rng1
+  let (rel, rng3) := randNat rng2 0 5
+  let (x, rng4) := randBlsScalar rng3
+  let b :=
+    if rel = 0 then a
+    else if rel = 1 then (if g2 then Bls12381.g2Neg a else Bls12381.g1Neg a).getD b0
+    else b0
+  let stack : Array Value :=
+    match op with
+    | .blsG1Add | .blsG1Sub | .blsG2Add | .blsG2Sub => #[blsBytesV a, blsBytesV b]
+    | .blsG1Mul | .blsG2Mul => #[blsBytesV a, iv x]
+    | _ => #[blsBytesV a]
+  (blsFuzzCase suite s!"rel{rel}" op stack, rng4)
+
+/-- G1/G2 MULTIEXP: up to 8 pairs, or 28 to 36 (around the 32 points where blst passes from
+tables to buckets) one time in eight; the points decodable two times in three (multiples of the
+generator, infinity, off the subgroup), else any. -/
+private def genBlsMultiExpFuzz (suite : String) (g2 : Bool) (rng0 : StdGen) : OracleCase × StdGen := Id.run do
+  let (big, rng1) := randNat rng0 0 7
+  let (n0, rng2) := randNat rng1 0 8
+  let (n1, rng3) := randNat rng2 28 36
+  let (clean, rng4) := randNat rng3 0 2
+  let n := if big = 0 then n1 else n0
+  let mut rng := rng4
+  let mut st : Array Value := #[]
+  for _ in [0:n] do
+    let (pt, r1) := if clean < 2 then randBlsPointOk g2 rng else randBlsPoint g2 rng
+    let (x, r2) := randBlsScalar r1
+    st := st ++ #[blsBytesV pt, iv x]
+    rng := r2
+  return (blsFuzzCase suite s!"n{n}/clean{clean}" (if g2 then .blsG2MultiExp else .blsG1MultiExp)
+    (st ++ #[iv (Int.ofNat n)]), rng)
+
+/-- MAP_TO_G1/G2: random bytes, the top bits cleared, around `p`, all ones, zeros. -/
+private def genBlsMapFuzz (suite : String) (g2 : Bool) (rng0 : StdGen) : OracleCase × StdGen :=
+  let size := if g2 then 96 else 48
+  let (mode, rng1) := randNat rng0 0 7
+  let (bs, rng2) := randBytes size rng1
+  let (d, rng3) := randNat rng2 0 4
+  let pBytes := Bls12381.natToBE (Bls12381.p + d - 2) 48
+  let b : Array UInt8 :=
+    match mode with
+    | 0 => bs.set! 0 (bs[0]! &&& 0x1f)
+    | 1 => if g2 then (if d % 2 = 0 then pBytes ++ bs.extract 48 96 else bs.extract 0 48 ++ pBytes) else pBytes
+    | 2 => Array.replicate size 0xff
+    | 3 => Array.replicate size 0
+    | _ => bs
+  (blsFuzzCase suite s!"mode{mode}" (if g2 then .blsMapToG2 else .blsMapToG1) #[blsBytesV b], rng3)
+
+/-- `point + Q` for `Q` the point of E2 off the subgroup decoded from `q` (unchanged if `q` does not
+decode). -/
+private def g2PlusOff (sig : Array UInt8) (q : Array UInt8) : Array UInt8 :=
+  match Bls12381.decodeG2 sig, Bls12381.decodeG2 q with
+  | some a, some b =>
+      Bls12381.compressG2 (Bls12381.Jac.add Bls12381.fp2F (Bls12381.Jac.ofAff Bls12381.fp2F a)
+        (Bls12381.Jac.ofAff Bls12381.fp2F b))
+  | _, _ => sig
+
+/-- BLS_VERIFY of a signature by a random key on a random message, as made or changed: another
+message, another key, a random or flipped signature, a random key, infinity for the key or the
+signature, the signature plus a point off G2, a key off G1. -/
+private def genBlsVerifyFuzz (rng0 : StdGen) : OracleCase × StdGen :=
+  let (sk, rng1) := randNat rng0 1 (Bls12381.r - 1)
+  let (len, rng2) := randNat rng1 0 127
+  let (msg, rng3) := randBytes len rng2
+  let (mode, rng4) := randNat rng3 0 11
+  let (k, rng5) := randNat rng4 0 (2 ^ 800)
+  let pk := blsGenMul false sk
+  let sig := Bls12381.compressG2 (blsSign sk msg)
+  let (other, rng6) := if mode = 3 then randBlsPoint false rng5 else (#[], rng5)
+  let (otherSig, rng7) := if mode = 2 then randBlsPoint true rng6 else (#[], rng6)
+  let (pk, msg, sig, tag) :=
+    match mode with
+    | 0 => (pk, (if msg.isEmpty then #[0] else flipBitOf msg k), sig, "other-msg")
+    | 1 => (blsGenMul false (sk + 1), msg, sig, "other-pk")
+    | 2 => (pk, msg, otherSig, "random-sig")
+    | 3 => (other, msg, sig, "random-pk")
+    | 4 => (pk, msg, Bls12381.infEncoding 96, "sig-inf")
+    | 5 => (Bls12381.infEncoding 48, msg, sig, "pk-inf")
+    | 6 => (pk, msg, g2PlusOff sig (onCurveG2 k (k % 2 = 1)), "sig-off-subgroup")
+    | 7 => (onCurveG1 k (k % 2 = 1), msg, sig, "pk-off-subgroup")
+    | 8 => (pk, msg, flipBitOf sig k, "flip-sig")
+    | _ => (pk, msg, sig, "valid")
+  (blsFuzzCase "BLS_VERIFY" tag .blsVerify #[blsBytesV pk, blsBytesV msg, blsBytesV sig], rng7)
+
+/-- BLS_AGGREGATE of one to four signatures: multiples of the generator of G2, points off G2,
+infinity, any. -/
+private def genBlsAggregateFuzz (rng0 : StdGen) : OracleCase × StdGen := Id.run do
+  let (n, rng1) := randNat rng0 1 4
+  let mut rng := rng1
+  let mut st : Array Value := #[]
+  for _ in [0:n] do
+    let (m, r1) := randNat rng 0 5
+    let (pt, r2) := if m < 4 then randBlsPointOk true r1 else randBlsPoint true r1
+    st := st.push (blsBytesV pt)
+    rng := r2
+  return (blsFuzzCase "BLS_AGGREGATE" s!"n{n}" .blsAggregate (st ++ #[iv (Int.ofNat n)]), rng)
+
+/-- BLS_FASTAGGREGATEVERIFY: up to four keys signing one message, the signatures added, as made or
+changed: another message, a random key or signature, a key at infinity, a key off G1 first or later,
+keys cancelling, a key twice, the signature at infinity. -/
+private def genBlsFastAggFuzz (rng0 : StdGen) : OracleCase × StdGen := Id.run do
+  let (n, rng1) := randNat rng0 0 4
+  let (len, rng2) := randNat rng1 0 127
+  let (msg, rng3) := randBytes len rng2
+  let mut rng := rng3
+  let mut sks : Array Nat := #[]
+  for _ in [0:n] do
+    let (sk, r1) := randNat rng 1 (Bls12381.r - 1)
+    sks := sks.push sk
+    rng := r1
+  let total := sks.foldl (fun a b => (a + b) % Bls12381.r) 0
+  let mut pks := sks.map (blsGenMul false)
+  let mut sig := if total = 0 then Bls12381.infEncoding 96 else Bls12381.compressG2 (blsSign total msg)
+  let mut msg := msg
+  let (mode, r2) := randNat rng 0 11
+  let (k, r3) := randNat r2 0 (2 ^ 800)
+  rng := r3
+  let i := if n = 0 then 0 else k % n
+  match mode with
+  | 0 => msg := if msg.isEmpty then #[1] else flipBitOf msg k
+  | 1 =>
+      if n > 0 then
+        let (p, r) := randBlsPoint false rng
+        pks := pks.set! i p
+        rng := r
+  | 2 =>
+      let (s, r) := randBlsPoint true rng
+      sig := s
+      rng := r
+  | 3 => if n > 0 then pks := pks.set! i (Bls12381.infEncoding 48)
+  | 4 => if n > 0 then pks := pks.set! 0 (onCurveG1 k (k % 2 = 1))
+  | 5 => if n > 1 then pks := pks.set! (1 + k % (n - 1)) (onCurveG1 k (k % 2 = 1))
+  | 6 => if n > 1 then pks := pks.set! 1 ((Bls12381.g1Neg pks[0]!).getD pks[1]!)
+  | 7 => if n > 1 then pks := pks.set! 1 pks[0]!
+  | 8 => sig := Bls12381.infEncoding 96
+  | _ => pure ()
+  return (blsFuzzCase "BLS_FASTAGGREGATEVERIFY" s!"n{n}/mode{mode}" .blsFastAggregateVerify
+    ((pks.map blsBytesV) ++ #[iv (Int.ofNat n), blsBytesV msg, blsBytesV sig]), rng)
+
+/-- BLS_AGGREGATEVERIFY: up to ten keys with their messages (distinct, or one message for all one
+time in three), the signatures added, as made or changed: one message changed, a random key or
+signature, the signature at infinity, a key at infinity, two messages swapped, the signature plus a
+point off G2. -/
+private def genBlsAggVerifyFuzz (rng0 : StdGen) : OracleCase × StdGen := Id.run do
+  let (n, rng1) := randNat rng0 0 10
+  let (dup, rng2) := randNat rng1 0 2
+  let (len0, rng3) := randNat rng2 0 60
+  let (shared, rng4) := randBytes len0 rng3
+  let mut rng := rng4
+  let mut sks : Array Nat := #[]
+  let mut msgs : Array (Array UInt8) := #[]
+  for _ in [0:n] do
+    let (sk, r1) := randNat rng 1 (Bls12381.r - 1)
+    let (len, r2) := randNat r1 0 60
+    let (m, r3) := randBytes len r2
+    sks := sks.push sk
+    msgs := msgs.push (if dup = 0 then shared else m)
+    rng := r3
+  let mut pks := sks.map (blsGenMul false)
+  let sum := (Array.range n).foldl (fun acc j => Bls12381.Jac.add Bls12381.fp2F acc (blsSign sks[j]! msgs[j]!))
+    (Bls12381.Jac.inf Bls12381.fp2F)
+  let mut sig := Bls12381.compressG2 sum
+  let (mode, r2) := randNat rng 0 10
+  let (k, r3) := randNat r2 0 (2 ^ 800)
+  rng := r3
+  let i := if n = 0 then 0 else k % n
+  match mode with
+  | 0 => if n > 0 then msgs := msgs.set! i (if msgs[i]!.isEmpty then #[7] else flipBitOf msgs[i]! k)
+  | 1 =>
+      if n > 0 then
+        let (p, r) := randBlsPoint false rng
+        pks := pks.set! i p
+        rng := r
+  | 2 =>
+      let (s, r) := randBlsPoint true rng
+      sig := s
+      rng := r
+  | 3 => sig := Bls12381.infEncoding 96
+  | 4 => if n > 0 then pks := pks.set! i (Bls12381.infEncoding 48)
+  | 5 => if n > 1 then msgs := (msgs.set! 0 msgs[1]!).set! 1 msgs[0]!
+  | 6 => sig := g2PlusOff sig (onCurveG2 k (k % 2 = 1))
+  | _ => pure ()
+  let st := (Array.range n).flatMap fun j => #[blsBytesV pks[j]!, blsBytesV msgs[j]!]
+  return (blsFuzzCase "BLS_AGGREGATEVERIFY" s!"n{n}/mode{mode}" .blsAggregateVerify
+    (st ++ #[iv (Int.ofNat n), blsBytesV sig]), rng)
+
+/-- BLS_PAIRING: up to ten pairs `(aᵢ G1, bᵢ G2)` and a last `(−Σ aᵢbᵢ G1, G2)` (the product is 1),
+as made or changed: a pair with a G1, G2 or both points at infinity inserted anywhere (the batches of
+eight), a random point, a point of E1 and its negation against one point of E2. -/
+private def genBlsPairingFuzz (rng0 : StdGen) : OracleCase × StdGen := Id.run do
+  let (n, rng1) := randNat rng0 1 10
+  let mut rng := rng1
+  let mut pairs : Array (Array UInt8 × Array UInt8) := #[]
+  let mut acc : Nat := 0
+  for _ in [0:n - 1] do
+    let (a, r1) := randNat rng 1 (Bls12381.r - 1)
+    let (b, r2) := randNat r1 1 (Bls12381.r - 1)
+    acc := (acc + a * b) % Bls12381.r
+    pairs := pairs.push (blsGenMul false a, blsGenMul true b)
+    rng := r2
+  let last := (Bls12381.r - acc) % Bls12381.r
+  pairs := pairs.push
+    (if last = 0 then Bls12381.infEncoding 48 else blsGenMul false last, g2GenB)
+  let (mode, r2) := randNat rng 0 9
+  let (k, r3) := randNat r2 0 (2 ^ 800)
+  rng := r3
+  let pos := k % (pairs.size + 1)
+  let i := k % pairs.size
+  match mode with
+  | 0 => pairs := pairs.insertIdxIfInBounds pos (Bls12381.infEncoding 48, g2GenB)
+  | 1 => pairs := pairs.insertIdxIfInBounds pos (g1GenB, Bls12381.infEncoding 96)
+  | 2 => pairs := pairs.insertIdxIfInBounds pos (Bls12381.infEncoding 48, Bls12381.infEncoding 96)
+  | 3 =>
+      let (p, r) := randBlsPoint false rng
+      pairs := pairs.set! i (p, pairs[i]!.2)
+      rng := r
+  | 4 =>
+      let (q, r) := randBlsPoint true rng
+      pairs := pairs.set! i (pairs[i]!.1, q)
+      rng := r
+  | 5 =>
+      let p := onCurveG1 k (k % 2 = 1)
+      let q := if k % 4 < 2 then onCurveG2 (k / 7) (k % 3 = 0) else g2GenB
+      pairs := (pairs.push (p, q)).push ((Bls12381.g1Neg p).getD p, q)
+  | _ => pure ()
+  let st := pairs.flatMap fun (p, q) => #[blsBytesV p, blsBytesV q]
+  return (blsFuzzCase "BLS_PAIRING" s!"n{pairs.size}/mode{mode}" .blsPairing
+    (st ++ #[iv (Int.ofNat pairs.size)]), rng)
+
+/-- BLS_G1_ZERO, BLS_G2_ZERO, BLS_PUSHR on a stack of up to two random integers. -/
+private def genBlsConstFuzz (suite : String) (op : CryptoExtInstr) (rng0 : StdGen) : OracleCase × StdGen :=
+  let (n, rng1) := randNat rng0 0 2
+  let (x, rng2) := randNat rng1 0 (2 ^ 256)
+  (blsFuzzCase suite s!"n{n}" op ((Array.range n).map fun j => iv (Int.ofNat (x / (j + 1)))), rng2)
+
 /-- Fuzz specs of the suite named `suite`: random data for the hash instructions, random
-signatures for secp256k1 and P-256, random operands for ristretto255, computed in Lean. -/
+signatures for secp256k1 and P-256, random operands for ristretto255, random and changed points,
+signatures and pairings for BLS12-381, computed in Lean. -/
 def fuzzFor (suite : String) : Array FuzzSpec :=
   let rist (op : CryptoExtInstr) (seed : UInt64) : Array FuzzSpec :=
     #[{ seed := seed, count := 300, gen := genRistFuzz suite op }]
@@ -988,6 +1478,30 @@ def fuzzFor (suite : String) : Array FuzzSpec :=
   | "HASHEXTA" => #[{ seed := 2026102003, count := 400, gen := genHashExtFuzz suite true false }]
   | "HASHEXTAR" => #[{ seed := 2026102004, count := 400, gen := genHashExtFuzz suite true true }]
   | "SHA256U" => #[{ seed := 2026102005, count := 300, gen := genSha256UFuzz }]
+  | "BLS_VERIFY" => #[{ seed := 2026102101, count := 200, gen := genBlsVerifyFuzz }]
+  | "BLS_AGGREGATE" => #[{ seed := 2026102102, count := 200, gen := genBlsAggregateFuzz }]
+  | "BLS_FASTAGGREGATEVERIFY" => #[{ seed := 2026102103, count := 200, gen := genBlsFastAggFuzz }]
+  | "BLS_AGGREGATEVERIFY" => #[{ seed := 2026102104, count := 150, gen := genBlsAggVerifyFuzz }]
+  | "BLS_PAIRING" => #[{ seed := 2026102105, count := 200, gen := genBlsPairingFuzz }]
+  | "BLS_MAP_TO_G1" => #[{ seed := 2026102106, count := 200, gen := genBlsMapFuzz suite false }]
+  | "BLS_MAP_TO_G2" => #[{ seed := 2026102107, count := 200, gen := genBlsMapFuzz suite true }]
+  | "BLS_G1_MULTIEXP" => #[{ seed := 2026102108, count := 200, gen := genBlsMultiExpFuzz suite false }]
+  | "BLS_G2_MULTIEXP" => #[{ seed := 2026102109, count := 200, gen := genBlsMultiExpFuzz suite true }]
+  | "BLS_G1_ADD" => #[{ seed := 2026102110, count := 300, gen := genBlsGroupFuzz suite false .blsG1Add }]
+  | "BLS_G1_SUB" => #[{ seed := 2026102111, count := 300, gen := genBlsGroupFuzz suite false .blsG1Sub }]
+  | "BLS_G1_NEG" => #[{ seed := 2026102112, count := 300, gen := genBlsGroupFuzz suite false .blsG1Neg }]
+  | "BLS_G1_MUL" => #[{ seed := 2026102113, count := 300, gen := genBlsGroupFuzz suite false .blsG1Mul }]
+  | "BLS_G1_INGROUP" => #[{ seed := 2026102114, count := 300, gen := genBlsGroupFuzz suite false .blsG1InGroup }]
+  | "BLS_G1_ISZERO" => #[{ seed := 2026102115, count := 300, gen := genBlsGroupFuzz suite false .blsG1IsZero }]
+  | "BLS_G2_ADD" => #[{ seed := 2026102116, count := 300, gen := genBlsGroupFuzz suite true .blsG2Add }]
+  | "BLS_G2_SUB" => #[{ seed := 2026102117, count := 300, gen := genBlsGroupFuzz suite true .blsG2Sub }]
+  | "BLS_G2_NEG" => #[{ seed := 2026102118, count := 300, gen := genBlsGroupFuzz suite true .blsG2Neg }]
+  | "BLS_G2_MUL" => #[{ seed := 2026102119, count := 300, gen := genBlsGroupFuzz suite true .blsG2Mul }]
+  | "BLS_G2_INGROUP" => #[{ seed := 2026102120, count := 300, gen := genBlsGroupFuzz suite true .blsG2InGroup }]
+  | "BLS_G2_ISZERO" => #[{ seed := 2026102121, count := 300, gen := genBlsGroupFuzz suite true .blsG2IsZero }]
+  | "BLS_G1_ZERO" => #[{ seed := 2026102122, count := 30, gen := genBlsConstFuzz suite .blsG1Zero }]
+  | "BLS_G2_ZERO" => #[{ seed := 2026102123, count := 30, gen := genBlsConstFuzz suite .blsG2Zero }]
+  | "BLS_PUSHR" => #[{ seed := 2026102124, count := 30, gen := genBlsConstFuzz suite .blsPushR }]
   | _ => #[]
 
 end Tests.Gen.Crypto

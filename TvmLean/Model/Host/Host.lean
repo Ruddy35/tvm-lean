@@ -4,28 +4,5 @@ namespace TvmLean
 
 /-- Host hooks used by semantics for crypto/hash/external environment operations. -/
 structure Host where
-  blsVerify : ByteArray → ByteArray → ByteArray → Bool
-  blsAggregate : Array ByteArray → ByteArray
-  blsFastAggregateVerify : Array ByteArray → ByteArray → ByteArray → Bool
-  blsAggregateVerify : Array ByteArray → Array ByteArray → ByteArray → Bool
-  blsG1AddBytes : ByteArray → ByteArray → ByteArray
-  blsG1SubBytes : ByteArray → ByteArray → ByteArray
-  blsG1NegBytes : ByteArray → ByteArray
-  blsG1MulBytes : ByteArray → ByteArray → ByteArray
-  blsG1MultiExpBytes : Array ByteArray → Array ByteArray → ByteArray
-  blsG1ZeroBytes : Unit → ByteArray
-  blsMapToG1Bytes : ByteArray → ByteArray
-  blsG1InGroup : ByteArray → Bool
-  blsG1IsZero : ByteArray → Bool
-  blsG2AddBytes : ByteArray → ByteArray → ByteArray
-  blsG2SubBytes : ByteArray → ByteArray → ByteArray
-  blsG2NegBytes : ByteArray → ByteArray
-  blsG2MulBytes : ByteArray → ByteArray → ByteArray
-  blsG2MultiExpBytes : Array ByteArray → Array ByteArray → ByteArray
-  blsG2ZeroBytes : Unit → ByteArray
-  blsMapToG2Bytes : ByteArray → ByteArray
-  blsG2InGroup : ByteArray → Bool
-  blsG2IsZero : ByteArray → Bool
-  blsPairing : Array ByteArray → Array ByteArray → UInt8
 
 end TvmLean

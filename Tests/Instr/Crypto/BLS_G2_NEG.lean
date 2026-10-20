@@ -11,7 +11,7 @@ def suite : InstrSuite where
   id := { name := "BLS_G2_NEG" }
   unit := Tests.Gen.Crypto.unitFor "BLS_G2_NEG"
   oracle := Tests.Gen.Crypto.casesFor "BLS_G2_NEG"
-  fuzz := #[]
+  fuzz := Tests.Gen.Crypto.fuzzFor "BLS_G2_NEG"
 
 initialize registerSuite suite
 

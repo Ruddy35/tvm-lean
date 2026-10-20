@@ -17,16 +17,16 @@
 | `~/ws/fixtures` | наборы дифференциальных фикстур |
 | `~/ws/runs` | логи прогонов |
 
-## Криптография модели на Linux
+## Криптография модели
 
-Нативная криптография модели (`c/tvmlean_crypto_ext.c`: BLS12-381) собирается и линкуется с тем же
-blst, что и C++ TVM, если заданы `TVMLEAN_TON_BUILD` (каталог cmake-сборки `ton`, не сборки с
-покрытием) и `TVMLEAN_TON_SRC` (исходники, для заголовков blst). Без них эти операции — заглушки (их
-случаи оракула не проходят). На Lean, без внешних функций: Ed25519 (`CHKSIGNU/S`,
+Вся криптография модели — на Lean, без внешних функций: Ed25519 (`CHKSIGNU/S`,
 `TvmLean/Model/Crypto/Ed25519.lean`), хеши `HASHEXT`/`SHA256U` (SHA-256/512 в
 `TvmLean/Model/Basics/Bytes.lean`, `Blake2b.lean`, `Keccak.lean`), secp256k1 (`ECRECOVER`,
-`SECP256K1_XONLY_PUBKEY_TWEAK_ADD`, `Secp256k1.lean`), P-256 (`P256_CHKSIGNU/S`, `P256.lean`) и
-ristretto255 (`RIST255_*`, `Ristretto255.lean`) в `TvmLean/Model/Crypto/`.
+`SECP256K1_XONLY_PUBKEY_TWEAK_ADD`, `Secp256k1.lean`), P-256 (`P256_CHKSIGNU/S`, `P256.lean`),
+ristretto255 (`RIST255_*`, `Ristretto255.lean`) и BLS12-381 (`BLS_*`, `Bls12381.lean` и
+`Bls12381/`: поле, G1/G2, отображения в кривые, спаривание — шаг в шаг как в blst) в
+`TvmLean/Model/Crypto/`. В `c/tvmlean_crypto_ext.c` функций не осталось; `TVMLEAN_TON_BUILD` и
+`TVMLEAN_TON_SRC` модели не нужны (если заданы, lakefile по-прежнему линкует blst).
 
 ## Полная сверка
 
