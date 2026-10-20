@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 
 /-!
 Oracle cases for the action instructions (C++ `tonops.cpp`: SENDRAWMSG, SENDMSG, RAWRESERVE{X},
@@ -263,12 +264,36 @@ private def sendMsgCoverageCases (suite : String) : Array OracleCase := Id.run d
           initStack := #[.cell (sendMsgPool[0]!).2, iv mode], initC7 := c7 }
   return out
 
+/-- Exotic message cells. C++ loads the message cell twice, both times by `load_cell_slice_impl`
+(cells/CellSlice.cpp): `tlb::type_unpack_cell` and `load_cell_slice(msg_cell)` before the cells
+are counted. A library cell is replaced by the root of its library: the root is parsed and the
+cells below it counted, the action keeps the library cell. A missing library, a library cell
+whose library is a library cell, a pruned branch and a Merkle proof are cell_und. -/
+private def libMsgCases (suite : String) : Array OracleCase := Id.run do
+  let lib := Tests.Gen.VmCore.libCell
+  let mk (name : String) (msg : Cell) (libs : Array Cell) (mode : Int) : OracleCase :=
+    { name := s!"oracle/cov/lib-msg/{name}/mode{mode}", instr := { name := suite }, program := #[env .sendMsg],
+      initStack := #[.cell msg, iv mode], initC7 := sendC7,
+      initLibraries := if libs.isEmpty then #[] else #[Tests.Gen.VmCore.libCollection libs] }
+  let mut out : Array OracleCase := #[]
+  for (ml, m) in sendMsgPool do
+    for mode in (#[0, 1024] : Array Int) do
+      out := out.push (mk s!"hit/{ml}" (lib m) #[m] mode)
+  let m := (sendMsgPool[0]!).2
+  let others : Array (String × Cell × Array Cell) :=
+    #[("miss", lib m, #[]), ("recursive", lib (lib m), #[lib m, m]), ("not-a-message", lib (leaf 3), #[leaf 3]),
+      ("pruned", Tests.Gen.VmCore.pruned, #[]), ("merkle-proof", Tests.Gen.VmCore.merkleProof m, #[])]
+  for (n, c, libs) in others do
+    for mode in (#[0, 1024] : Array Int) do
+      out := out.push (mk n c libs mode)
+  return out
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
   | "SENDRAWMSG" => cross suite (env .sendRawMsg) (msgModeStacks #[0, 1, 2, 64, 128, 130, 255, 256, -1])
   | "SENDMSG" => cross suite (env .sendMsg) (msgModeStacks #[0, 1, 64, 128, 1024, 1025, 255, 256, -1]) ++
-      sendMsgCoverageCases suite
+      sendMsgCoverageCases suite ++ libMsgCases suite
   | "RAWRESERVE" => cross suite (env .rawReserve)
       (((#[0, 1, 1000000000, 2 ^ 120 - 1, 2 ^ 120, -1] : Array Int).flatMap
         (fun a => (#[0, 1, 2, 3, 4, 8, 15, 16, 31, 32, -1] : Array Int).map (fun m => #[iv a, iv m]))) ++

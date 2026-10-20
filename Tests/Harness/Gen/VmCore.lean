@@ -28,7 +28,7 @@ private def cont (body : Array Instr) : Instr := .pushCont (Slice.ofCell (codeOf
 private def bitsOfBytes (bs : Array Nat) : BitString := bs.foldl (fun acc b => acc ++ natToBits b 8) #[]
 
 /-- Pruned branch of level 1 (exotic type 1, level mask 1: one hash and one depth). -/
-private def pruned : Cell :=
+def pruned : Cell :=
   { bits := bitsOfBytes (#[1, 1] ++ Array.replicate 32 0x5a ++ #[0, 7]), refs := #[], special := true,
     levelMask := 1 }
 
@@ -132,10 +132,10 @@ private def bytesBits (bs : Array UInt8) : BitString := bs.foldl (fun acc b => a
 private def reprHash (c : Cell) : Array UInt8 := Cell.hashBytes c
 
 /-- Library cell (exotic type 2) referring to `target`. -/
-private def libCell (target : Cell) : Cell :=
+def libCell (target : Cell) : Cell :=
   { bits := natToBits 2 8 ++ bytesBits (reprHash target), refs := #[], special := true, levelMask := 0 }
 
-private def libCollection (targets : Array Cell) : Cell :=
+def libCollection (targets : Array Cell) : Cell :=
   let root := targets.foldl (fun root t =>
     match dictSetRefWithCells root (bytesBits (reprHash t)) t .set with
     | .ok (some r, _, _, _) => some r
@@ -145,7 +145,7 @@ private def libCollection (targets : Array Cell) : Cell :=
 private def depth2 (d : Nat) : BitString := natToBits d 16
 
 /-- Merkle proof of an ordinary (level 0) cell: its hash and depth at level 0 are `hashBytes` and `depth`. -/
-private def merkleProof (child : Cell) : Cell :=
+def merkleProof (child : Cell) : Cell :=
   { bits := natToBits 3 8 ++ bytesBits (reprHash child) ++ depth2 child.depth,
     refs := #[child], special := true, levelMask := 0 }
 
