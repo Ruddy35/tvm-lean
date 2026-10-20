@@ -66,8 +66,10 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
       if mode ≥ 256 then
         throw .rangeChk
       let msgCell ← VM.popCell
-      -- Mirrors the TL-B unpack attempt which loads the root cell once (even if the message is invalid).
-      VM.registerCellLoad msgCell
+      -- `tlb::type_unpack_cell` loads the message as C++ `load_cell_slice_impl`: charged even if the
+      -- message is invalid; a library cell is parsed as its library's root, any other exotic cell
+      -- is cell_und. The output action keeps `msgCell` itself.
+      let msgRoot : Cell := (← VM.loadCellSlice msgCell).cell
 
       let getParam (idx : Nat) : VM Value := do
         let st ← get
@@ -118,7 +120,7 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
 
       let parsedMsg : SendMsgParsed ←
         match (show Except Excno SendMsgParsed from do
-          let s0 : Slice := Slice.ofCell msgCell
+          let s0 : Slice := Slice.ofCell msgRoot
           let (b0, s1) ← s0.takeBitsAsNatCellUnd 1
           if b0 = 0 then
             -- Internal message (CommonMsgInfoRelaxed.int_msg_info).
@@ -323,12 +325,13 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
             | none => throw .cellUnd
         | some _ => pure (1 <<< 13)
 
-      VM.registerCellLoad msgCell
+      -- `load_cell_slice(msg_cell)`: charged again, resolved as before
+      let msgRoot : Cell := (← VM.loadCellSlice msgCell).cell
 
       -- storage stat: the cells below the root (not its bits), without the extra-currency
       -- dictionary (global version >= 10), depth-first from the first reference
       let refStart : Nat := if parsedMsg.haveExtraCurrencies then 1 else 0
-      let todo0 : Array Cell := (msgCell.refs.extract refStart msgCell.refs.size).reverse
+      let todo0 : Array Cell := (msgRoot.refs.extract refStart msgRoot.refs.size).reverse
       let (_seen, cells, bits) ← VM.countMsgCells maxCells todo0 #[] 0 0
 
       let valueAdjusted : Int ←
