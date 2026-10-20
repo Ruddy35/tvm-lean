@@ -290,7 +290,9 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
     getExtraBalanceCounter := childFinal.getExtraBalanceCounter
     freeGasConsumed := childFinal.freeGasConsumed
     loadedCells := if isolateGas then parentAfter.loadedCells else childFinal.loadedCells }
+  -- `consume_gas` of the child's gas: out of gas at once, with the payment counted
   if decide (parentAfter.gas.gasRemaining < 0) then
+    set parentAfter
     throw .outOfGas
 
   let depth := childFinal.stack.size
@@ -312,6 +314,7 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
   -- C++ `restore_parent_vm`: charge stack gas for returned value count before pushes.
   parentAfter := parentAfter.consumeStackGas retCnt
   if decide (parentAfter.gas.gasRemaining < 0) then
+    set parentAfter
     throw .outOfGas
 
   for i in List.range retCnt |>.reverse do
