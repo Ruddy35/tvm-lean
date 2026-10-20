@@ -17,6 +17,8 @@ def Continuation.beq : Continuation → Continuation → Bool
       n1 == n2 && Continuation.beq b1 b2 && Continuation.beq a1 a2
   | .againBody b1, .againBody b2 =>
       Continuation.beq b1 b2
+  | .pushInt v1 n1, .pushInt v2 n2 =>
+      v1 == v2 && Continuation.beq n1 n2
   | _, _ => false
 
 instance : BEq Continuation := ⟨Continuation.beq⟩

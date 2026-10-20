@@ -134,33 +134,15 @@ private def expectPushIntCont
     (expectedVal : Int)
     (expectedCapturedCode : Slice)
     (oldC0 oldC1 : Continuation) : IO Unit := do
+  -- C++ `PushIntCont{val, cc}`: pushes `val`, then jumps to the captured `cc`
   match k with
-  | .ordinary code saved cregs cdata =>
-      if saved != .quit 0 then
-        throw (IO.userError s!"{label}: push-int saved mismatch: {reprStr saved}")
-      else if cdata.stack != #[] || cdata.nargs != -1 then
-        throw (IO.userError s!"{label}: push-int unexpected cdata: {reprStr cdata}")
+  | .pushInt n next =>
+      if n != expectedVal then
+        throw (IO.userError s!"{label}: expected push-int value {expectedVal}, got {n}")
       else
-        match decodeCp0WithBits code with
-        | .ok (instr, _, rest) =>
-            if instr != .pushInt (.num expectedVal) then
-              throw (IO.userError s!"{label}: expected PUSHINT {expectedVal}, got {reprStr instr}")
-            else if rest.bitsRemaining + rest.refsRemaining != 0 then
-              throw (IO.userError s!"{label}: expected empty push-int code tail, got {reprStr rest}")
-            else
-              match cregs.c0 with
-              | some captured =>
-                  if cregs.c1.isSome || cregs.c2.isSome || cregs.c3.isSome
-                      || cregs.c4.isSome || cregs.c5.isSome || cregs.c7.isSome then
-                    throw (IO.userError s!"{label}: push-int unexpected cregs payload: {reprStr cregs}")
-                  else
-                    expectCapturedCc s!"{label}/captured" captured expectedCapturedCode oldC0 oldC1
-              | none =>
-                  throw (IO.userError s!"{label}: expected c0 to hold captured cc")
-        | .error e =>
-            throw (IO.userError s!"{label}: push-int decode failed with {e}")
+        expectCapturedCc s!"{label}/captured" next expectedCapturedCode oldC0 oldC1
   | _ =>
-      throw (IO.userError s!"{label}: expected ordinary push-int continuation, got {reprStr k}")
+      throw (IO.userError s!"{label}: expected push-int continuation, got {reprStr k}")
 
 private def mkCase
     (name : String)

@@ -38,6 +38,8 @@ mutual
     | untilBody (body : Continuation) (after : Continuation)
     | repeatBody (body : Continuation) (after : Continuation) (count : Nat)
     | againBody (body : Continuation)
+    /-- C++ `PushIntCont` (BOOLEVAL): entering it pushes `value` and jumps to `next`. -/
+    | pushInt (value : Int) (next : Continuation)
     deriving Repr
 
   inductive Value : Type

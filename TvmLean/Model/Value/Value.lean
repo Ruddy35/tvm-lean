@@ -23,6 +23,7 @@ def Value.pretty : Value → String
       | .untilBody _ _ => "<cont:until-body>"
       | .repeatBody _ _ _ => "<cont:repeat-body>"
       | .againBody _ => "<cont:again-body>"
+      | .pushInt n _ => s!"<cont:pushint {n}>"
 
 instance : ToString Value := ⟨Value.pretty⟩
 

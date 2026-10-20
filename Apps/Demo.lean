@@ -59,6 +59,8 @@ def runWithTrace (host : TvmLean.Host) (fuel : Nat) (st : TvmLean.VmState) : IO 
             "<repeatBody>"
         | .againBody _ =>
             "<againBody>"
+        | .pushInt n _ =>
+            s!"<pushInt {n}>"
         | .quit n =>
             s!"<quit {n}>"
         | .excQuit =>

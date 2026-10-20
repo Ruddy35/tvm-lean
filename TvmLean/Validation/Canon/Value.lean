@@ -23,6 +23,7 @@ def canonContTy : Continuation → String
   | .untilBody .. => "vmc_until"
   | .repeatBody .. => "vmc_repeat"
   | .againBody .. => "vmc_again"
+  | .pushInt .. => "vmc_pushint"
 
 partial def canonValue (v : Value) : String :=
   match v with

@@ -64,6 +64,7 @@ def VmState.ccSummary (cc : Continuation) : String :=
   | .untilBody _ _ => "untilBody"
   | .repeatBody _ _ _ => "repeatBody"
   | .againBody _ => "againBody"
+  | .pushInt n _ => s!"pushInt {n}"
   | .envelope _ _ _ => "envelope"
   | .ordinary code _ _ _ =>
       s!"ord(bitPos={code.bitPos},refPos={code.refPos},bitsRem={code.bitsRemaining},refsRem={code.refsRemaining},next8={code.peekByteHex},next16={code.peekWord16Hex})"
@@ -78,6 +79,7 @@ private def stepEvent (st : VmState) : String :=
   | .untilBody .. => "until_body"
   | .repeatBody _ _ count => s!"repeat_body({count})"
   | .againBody .. => "again_body"
+  | .pushInt n _ => s!"push_int({n})"
   | .envelope .. => "envelope"
   | .ordinary code .. =>
       if code.bitsRemaining == 0 then

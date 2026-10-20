@@ -183,6 +183,10 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
         VmState.jumped { st with cc := body }
       else
         VmState.jumped { st with regs := { st.regs with c0 := .againBody body }, cc := body }
+  | .pushInt n next =>
+      -- C++ `PushIntCont::jump` (continuation.cpp:321-330): push `n` and jump to `next`; no
+      -- instruction runs
+      VmState.jumped { st with stack := st.stack.push (.int (.num n)), cc := next }
   | .envelope ext cregs cdata =>
       if cdata.needsMoreArgs st.stack.size then st.raiseException Excno.stkUnd.toInt else
       -- Mirrors C++ `ArgContExt::jump`: apply saved control regs, closure stack and nargs, then jump to `ext`.
