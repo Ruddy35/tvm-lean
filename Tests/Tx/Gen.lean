@@ -573,8 +573,9 @@ def configVariants (cfg0 : Cell) (v : Nat) : List (String × Cell) :=
       ).uint 500 32 |>.uint 2 32).cell),
    ("caps-0", withVersion cfg0 v 0)]
 
-/-- Under each configuration of `configVariants`: the contracts of `programs` with a rich, a poor and
-an old account and an internal message, the rich one with an external message too; those of
+/-- Under each configuration of `configVariants`: the contracts of `programs` with a rich, a poor, an
+old account, one that cannot pay its storage since long and one in debt, with an internal message,
+the rich one with an external message too; those of
 `actionPrograms` (rich, internal); four of `programs` sent a bounceable message with a body; some in
 the masterchain; a deployment. -/
 def configCases (cfg0 : Cell) (v : Nat) (a : BitString) (data : Cell) : Array TxCase := Id.run do
@@ -584,9 +585,10 @@ def configCases (cfg0 : Cell) (v : Nat) (a : BitString) (data : Cell) : Array Tx
       { name := s!"v{v}/config-{cname}/{name}", config := cfg, account := acc, msg, now := 1700000200, lt := 3000000, seed }
     for (pname, prog) in programs do
       let code := asm prog
-      for (bname, bal, lastPaid) in [("rich", 1000000000, 1700000000), ("poor", 30000, 1700000000),
-                                      ("old", 1000000000, 1690000000)] do
-        out := out.push (mk s!"{pname}/{bname}/int" (mkAccount 0 a (.active code data) bal lastPaid 0 1000)
+      for (bname, bal, lastPaid, due) in [("rich", 1000000000, 1700000000, 0), ("poor", 30000, 1700000000, 0),
+                                           ("old", 1000000000, 1690000000, 0), ("broke", 30000, 1600000000, 0),
+                                           ("in-debt", 1000, 1700000000, 150000)] do
+        out := out.push (mk s!"{pname}/{bname}/int" (mkAccount 0 a (.active code data) bal lastPaid due 1000)
           (intMsg 0 a 100000000 false none #[]))
       out := out.push (mk s!"{pname}/rich/ext" (mkAccount 0 a (.active code data) 1000000000 1700000000 0 1000)
         (extMsg 0 a none (natToBits 5 8)))
