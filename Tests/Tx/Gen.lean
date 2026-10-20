@@ -21,8 +21,23 @@ def withVersion (cfg : Cell) (version caps : Nat) : Cell :=
   | .ok (some r, _, _, _) => r
   | _ => cfg
 
+/-- The code cell of `code`: `encodeCp0Code`, whose references (`PUSHREF`, `PUSHCONT` with
+references, ...) become references of the cell. -/
+def asm? (code : List Instr) : Except String Cell := do
+  let mut bits : BitString := #[]
+  let mut refs : Array Cell := #[]
+  for i in code do
+    match encodeCp0Code i with
+    | .ok (b, r) =>
+        bits := bits ++ b
+        refs := refs ++ r
+    | .error e => throw s!"cannot assemble {reprStr i}: {reprStr e}"
+  if bits.size > 1023 || refs.size > 4 then throw "the code does not fit a cell"
+  return Cell.mkOrdinary bits refs
+
+/-- `asm?`, an empty cell if it fails: `programsAssemble` checks the fixed contracts. -/
 def asm (code : List Instr) : Cell :=
-  match assembleCp0 code with
+  match asm? code with
   | .ok c => c
   | .error _ => Cell.empty
 
@@ -79,7 +94,9 @@ def setC5 (c : Cell) : List Instr := [.pushRef c, .popCtr 5]
 
 /-- Contracts that make actions. -/
 def actionPrograms : List (String × List Instr) :=
-  let big := natToBits 0 900
+  -- fits the proposed message (with `addr_none` as the source), not the rewritten one: the body goes
+  -- into a reference (`redoing`)
+  let big := natToBits 0 600
   [("send", sendRaw (relaxedInt 0 other 10000000) 0),
    ("send-pay-fees", sendRaw (relaxedInt 0 other 10000000) 1),
    ("send-too-much", sendRaw (relaxedInt 0 other 5000000000) 0),
@@ -165,6 +182,13 @@ def extMsg (wc : Int) (dest : BitString) (init : Option Cell) (body : BitString)
   ((w.bool false).bitStr body).cell
 
 def seed : BitString := natToBits 0x5eed5eed 256
+
+/-- The contracts of the cases that do not assemble (none should). -/
+def programsAssemble : List String :=
+  (programs ++ actionPrograms).filterMap fun (n, p) =>
+    match asm? p with
+    | .ok _ => none
+    | .error e => some s!"{n}: {e}"
 
 /-- The cases on the configuration `cfg0`, for each version of `versions`. -/
 def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do

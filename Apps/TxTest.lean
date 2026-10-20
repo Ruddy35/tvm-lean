@@ -30,8 +30,17 @@ def main (args : List String) : IO UInt32 := do
   let cfg ← match stdBocDeserialize (base64Decode (← IO.FS.readFile cfgFile).trim) with
     | .ok c => pure c
     | .error _ => throw (IO.userError s!"cannot read {cfgFile}")
+  -- a contract that does not assemble would run as empty code on both sides
+  if !programsAssemble.isEmpty then
+    for e in programsAssemble do IO.eprintln s!"[asm] {e}"
+    IO.Process.exit 1
   let base := if fuzzCount > 0 then fuzzCases cfg fuzzCount fuzzSeed else cases cfg versions
   let all := base.filter (fun c => filter.isEmpty || (c.name.splitOn filter).length > 1)
+  -- a cell that does not serialize (more than 1023 bits, ...) is a broken case, not a result
+  let broken := all.filter fun c => cellB64 c.account == "" || cellB64 c.msg == ""
+  if !broken.isEmpty then
+    for c in broken do IO.eprintln s!"[broken case] {c.name}"
+    IO.Process.exit 1
   let answers ← runOracle all
   let mut failures := 0
   let mut unsupported : Array String := #[]
