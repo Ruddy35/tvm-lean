@@ -55,7 +55,8 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Gen.OwnOpcode,
     `Tests.Harness.Gen.Versions,
     `Tests.Tx.Oracle,
-    `Tests.Tx.Gen
+    `Tests.Tx.Gen,
+    `Tests.Tx.Real
   ]
 
 lean_exe "tvm-lean" where

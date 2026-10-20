@@ -1,0 +1,96 @@
+// Real contracts for the transaction oracle (Tests/Tx/Real.lean): the code the reference compiles
+// from FunC (crypto/smartcont/auto/*.fif), their initial data and messages signed with a fixed key.
+// Prints one line per cell, "name base64-BOC"; tools/txoracle/contracts.txt is its output:
+//   fift -I <ton>/crypto/fift/lib:<ton>/crypto/smartcont -s tools/txoracle/contracts.fif > tools/txoracle/contracts.txt
+"Asm.fif" include
+"TonUtil.fif" include
+
+{ type space 0 boc+>B B>base64 type cr } : put   // ( cell name -- )
+
+1700000200 constant NOW            // `now` of the transaction cases (Tests/Tx/Gen.lean)
+B{4242424242424242424242424242424242424242424242424242424242424242} constant pk
+B{1313131313131313131313131313131313131313131313131313131313131313} constant pk-other
+pk priv>pub constant pub
+variable key   pk key !
+0x2222222222222222222222222222222222222222222222222222222222222222 constant dest  // 0:2222..22
+
+// helpers of highload-wallet-v2.fif
+{ tuck <s 2dup 1 s-fits-with? not rot over 1 i, -rot
+  { drop swap ref, } { s, nip } cond
+} : append-msg-body
+{ <b b{01} s, rot 1 i, b{000100} s, 2swap addr, rot Gram,
+  0 9 64 32 + + 1+ u, swap append-msg-body b>
+} : create-int-msg                   // ( ng wc addr bounce body-builder -- msg )
+{ 0 dest true <b 0 32 u, b> create-int-msg } : transfer   // ( ng -- msg ): a simple transfer to 0:2222..22
+
+// ( addr body -- ext-msg ): the body signed with `key` (the signature first), to 0:addr
+{ dup hashu key @ ed25519_sign_uint
+  <b b{1000100} s, 0 4 roll addr, 0 Gram, b{00} s, swap B, swap <s s, b>
+} : signed-ext
+// ( addr init body -- ext-msg ): the same with the StateInit `init`
+{ dup hashu key @ ed25519_sign_uint
+  <b b{1000100} s, 0 5 roll addr, 0 Gram, b{10} s, 3 roll <s s, b{0} s, swap B, swap <s s, b>
+} : signed-ext-init
+
+// --- wallet v3 (wallet3-code.fc): seqno subwallet_id public_key; a message is
+// signature subwallet_id valid_until seqno, then (mode ^msg)*
+"auto/wallet3-code.fif" include constant w3code
+698983191 constant w3sub
+<b 0 32 u, w3sub 32 u, pub B, b> constant w3data
+<b b{0011} s, w3code ref, w3data ref, null dict, b> constant w3init
+w3init hashu constant w3addr
+w3code "wallet3.code" put
+w3data "wallet3.data" put
+<b w3addr 256 u, b> "wallet3.addr" put
+// ( sub valid seqno mode msg -- body )
+{ <b 5 roll 32 u, 4 roll 32 u, 3 roll 32 u, rot 8 u, swap ref, b> } : w3order
+{ w3addr swap signed-ext } : w3ext
+w3sub 1800000000 0 3 500000000 transfer w3order w3ext "wallet3.msg.ok" put
+w3sub 1800000000 0 1 500000000 transfer w3order w3ext "wallet3.msg.pay-fees" put
+w3sub 1800000000 0 128 0 transfer w3order w3ext "wallet3.msg.all" put
+w3sub 1800000000 0 160 0 transfer w3order w3ext "wallet3.msg.destroy" put
+w3sub 1800000000 0 2 5000000000000 transfer w3order w3ext "wallet3.msg.too-much-ignored" put
+w3sub 1800000000 0 0 5000000000000 transfer w3order w3ext "wallet3.msg.too-much" put
+w3sub 1690000000 0 3 500000000 transfer w3order w3ext "wallet3.msg.expired" put
+w3sub 1800000000 7 3 500000000 transfer w3order w3ext "wallet3.msg.seqno" put
+1 1800000000 0 3 500000000 transfer w3order w3ext "wallet3.msg.subwallet" put
+pk-other key !
+w3sub 1800000000 0 3 500000000 transfer w3order w3ext "wallet3.msg.bad-signature" put
+pk key !
+<b w3sub 32 u, -1 32 i, 0 32 u, b> w3ext "wallet3.msg.no-order" put
+w3addr w3init <b w3sub 32 u, -1 32 i, 0 32 u, b> signed-ext-init "wallet3.msg.deploy" put
+w3addr w3init w3sub 1800000000 0 3 500000000 transfer w3order signed-ext-init "wallet3.msg.deploy-transfer" put
+
+// --- highload wallet v2 (highload-wallet-v2-code.fc): subwallet_id last_cleaned public_key
+// old_queries; a message is signature subwallet_id query_id orders (HashmapE 16 (mode ^msg)),
+// query_id = expiry time << 32 + n
+"auto/highload-wallet-v2-code.fif" include constant hlcode
+0 constant hlsub
+<b hlsub 32 u, 0 64 u, pub B, null dict, b> constant hldata
+<b b{0011} s, hlcode ref, hldata ref, null dict, b> hashu constant hladdr
+hlcode "highload2.code" put
+hldata "highload2.data" put
+<b hladdr 256 u, b> "highload2.addr" put
+variable orders
+{ dictnew orders ! } : no-orders
+{ -rot <b rot 8 u, swap ref, b> <s swap orders @ 16 udict!+ not abort"cannot add order" orders ! } : order  // ( mode msg i -- )
+{ <b hlsub 32 i, swap 64 u, orders @ dict, b> hladdr swap signed-ext } : hlext   // ( query_id -- msg )
+NOW 60 + 32 << constant qid
+no-orders 3 100000000 transfer 0 order 1 200000000 transfer 1 order
+qid 1 + hlext "highload2.msg.two" put
+no-orders 3 100000000 transfer 0 order 1 200000000 transfer 1 order 128 0 transfer 2 order
+  2 1000 transfer 7 order 0 5000000000000 transfer 9 order
+qid 2 + hlext "highload2.msg.five" put
+no-orders qid 3 + hlext "highload2.msg.none" put
+no-orders 3 100000000 transfer 0 order
+NOW 100 - 32 << 4 + hlext "highload2.msg.expired" put
+pk-other key ! qid 5 + hlext "highload2.msg.bad-signature" put pk key !
+// the data after query qid + 1 was processed (last_cleaned 0), and one of a query 70 s old
+dictnew <b b> <s qid 1 + rot 64 udict!+ drop
+  <b b> <s NOW 70 - 32 << rot 64 udict!+ drop constant hlseen
+<b hlsub 32 u, 0 64 u, pub B, hlseen dict, b> "highload2.data.seen" put
+
+// --- elector (elector-code.fc), with the data of gen-zerostate.fif: no elections, credits, past
+// elections; 0 grams; active_id 0, active_hash 0
+"auto/elector-code.fif" include "elector.code" put
+<b 0 1 1+ 1+ 4 + 32 + u, 0 256 u, b> "elector.data" put

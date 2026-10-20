@@ -1,11 +1,13 @@
-import Tests.Tx.Gen
+import Tests.Tx.Real
 
 /-!
 `tvm-lean-tx-test`: whole ordinary transactions of the model against the C++ transaction emulator
 (`tools/txoracle/txoracle.py`, `libemulator.so` of `TVMLEAN_TON_BUILD` or `TVMLEAN_EMULATOR_LIB`).
 For each case the transaction and the new account must have the same hashes, or both sides fail the
-same way. Options: `--versions a,b,...` (default 0..16), `--filter <substring>`; `--fuzz <n>`
-`--seed <s>`: `n` random cases (versions, accounts, contracts with actions, messages) instead.
+same way. The cases are those of `Tests.Tx.cases` and the real contracts of `Tests.Tx.realCases`
+(`tools/txoracle/contracts.txt`). Options: `--versions a,b,...` (default 0..16), `--filter
+<substring>`; `--fuzz <n>` `--seed <s>`: `n` random cases (versions, accounts, contracts with
+actions, messages) instead.
 -/
 
 open TvmLean TvmLean.Tx Tests.Tx
@@ -34,7 +36,10 @@ def main (args : List String) : IO UInt32 := do
   if !programsAssemble.isEmpty then
     for e in programsAssemble do IO.eprintln s!"[asm] {e}"
     IO.Process.exit 1
-  let base := if fuzzCount > 0 then fuzzCases cfg fuzzCount fuzzSeed else cases cfg versions
+  let real ← match realCases (← loadContracts) cfg versions with
+    | .ok r => pure r
+    | .error e => throw (IO.userError e)
+  let base := if fuzzCount > 0 then fuzzCases cfg fuzzCount fuzzSeed else cases cfg versions ++ real
   let all := base.filter (fun c => filter.isEmpty || (c.name.splitOn filter).length > 1)
   -- a cell that does not serialize (more than 1023 bits, ...) is a broken case, not a result
   let broken := all.filter fun c => cellB64 c.account == "" || cellB64 c.msg == ""
