@@ -267,6 +267,10 @@ structure SendMsgParsed where
   dest : Slice
   value : Int
   userFwdFee : Int
+  /-- `ihr_disabled` of an internal message (true for an external one). -/
+  ihrDisabled : Bool
+  /-- `extra_flags` read as Grams: the user's `ihr_fee` before version 12. -/
+  userIhrFee : Int
   extraFlagsLen : Nat
   haveExtraCurrencies : Bool
   haveInit : Bool

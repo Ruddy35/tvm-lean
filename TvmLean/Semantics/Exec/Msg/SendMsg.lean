@@ -53,7 +53,8 @@ set_option maxHeartbeats 1000000 in
 def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tonEnvOp .sendMsg =>
-      -- Matches C++ `exec_send_message` (tonops.cpp) for modern TVM (global_version >= 12).
+      -- Matches C++ `exec_send_message` (tonops.cpp:2121-2357); its branches on the global
+      -- version (6, 10, 11, 12, 14) are marked below.
       -- Stack: ... msg_cell mode -- ... total_fees
       --
       -- Notes:
@@ -125,7 +126,7 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           let (b0, s1) ← s0.takeBitsAsNatCellUnd 1
           if b0 = 0 then
             -- Internal message (CommonMsgInfoRelaxed.int_msg_info).
-            let (_, s2) ← s1.takeBitsAsNatCellUnd 1 -- ihr_disabled (ignored for gv>=11)
+            let (ihrDisabledBit, s2) ← s1.takeBitsAsNatCellUnd 1 -- ihr_disabled
             let (_, s3) ← s2.takeBitsAsNatCellUnd 1 -- bounce
             let (_, s4) ← s3.takeBitsAsNatCellUnd 1 -- bounced
             -- src:MsgAddress dest:MsgAddressInt, as the generated block.tlb unpacker
@@ -148,12 +149,13 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
               else
                 throw .cellUnd
 
-            -- extra_flags:(VarUInteger 16) (gv>=12)
+            -- extra_flags:(VarUInteger 16), before version 12 read as ihr_fee:Grams
             let flagsStart := afterExtra
             let (flagsLenBytes, flags1) ← flagsStart.takeBitsAsNatCellUnd 4
             let flagsBits : Nat := flagsLenBytes * 8
             if !flags1.haveBits flagsBits then
               throw .cellUnd
+            let userIhrFee : Int := Int.ofNat (bitsToNat (flags1.readBits flagsBits))
             let afterFlags := flags1.advanceBits flagsBits
             let extraFlagsLen : Nat := 4 + flagsBits
 
@@ -208,6 +210,8 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
               dest
               value := grams
               userFwdFee
+              ihrDisabled := ihrDisabledBit = 1
+              userIhrFee
               extraFlagsLen
               haveExtraCurrencies
               haveInit
@@ -277,6 +281,8 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
               dest
               value := 0
               userFwdFee := 0
+              ihrDisabled := true
+              userIhrFee := 0
               extraFlagsLen := 0
               haveExtraCurrencies := false
               haveInit
@@ -304,46 +310,95 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           parseAddrWorkchain parsedMsg.dest
       let isMasterchain : Bool := (myWc == -1) || (!parsedMsg.extMsg && destWc == -1)
 
-      -- C++ order: the prices (unpacked config 4 or 5: tuple_index, not a slice -> unknown, not
-      -- parsed -> cell_und), the size limits (6: not a slice -> defaults, not parsed -> cell_und),
-      -- then the root cell is loaded again and the cells below it counted (VmStorageStat).
-      let unpacked ← VM.getUnpackedConfigTuple
-      let pricesIdx : Nat := if isMasterchain then 4 else 5
-      let (lumpPrice, bitPrice, cellPrice, _ihrFactor, firstFrac) ←
-        match unpacked[pricesIdx]? with
-        | none => throw .rangeChk
-        | some (Value.slice cs) =>
-            match parseMsgPrices cs with
-            | .ok p => pure p
-            | .error e => throw e
-        | some _ => throw .unknown
+      -- C++ order: the prices, the size limits, then the root cell is loaded again and the cells
+      -- below it counted (VmStorageStat).
+      let gv : Nat := (← get).globalVersion
+      -- the prices (tonops.cpp:2186-2203): from version 6 the unpacked config 4 or 5 (tuple_index,
+      -- not a slice -> unknown); before, the reference under 24 or 25 in the configuration
+      -- dictionary of parameter 9 (`lookup_ref`, which charges the nodes it loads; not a cell or
+      -- not found -> unknown), loaded (`load_cell_slice_ref`); not parsed -> cell_und
+      let pricesCs : Slice ←
+        if gv ≥ 6 then
+          let unpacked ← VM.getUnpackedConfigTuple
+          let pricesIdx : Nat := if isMasterchain then 4 else 5
+          match unpacked[pricesIdx]? with
+          | none => throw .rangeChk
+          | some (Value.slice cs) => pure cs
+          | some _ => throw .unknown
+        else
+          let configRoot? : Option Cell :=
+            match (← getParam 9) with
+            | .cell c => some c
+            | _ => none
+          let keyBits : BitString := natToBits (if isMasterchain then 24 else 25) 32
+          let pricesCell? : Option Cell ←
+            match dictLookupWithCells (resolve := (← VM.cellResolver)) configRoot? keyBits with
+            | .error e =>
+                for c in dictLookupVisitedCells (resolve := (← VM.cellResolver)) configRoot? keyBits do
+                  VM.registerCellLoad c
+                throw e
+            | .ok (none, loaded) =>
+                for c in loaded do
+                  VM.registerCellLoad c
+                pure none
+            | .ok (some valueSlice, loaded) =>
+                for c in loaded do
+                  VM.registerCellLoad c
+                -- `extract_value_ref`: the value must be exactly one reference
+                if valueSlice.bitsRemaining == 0 && valueSlice.refsRemaining == 1 then
+                  pure (some valueSlice.cell.refs[valueSlice.refPos]!)
+                else
+                  throw .dictErr
+          match pricesCell? with
+          | some c => VM.loadCellSlice c
+          | none => throw .unknown
+      let (lumpPrice, bitPrice, cellPrice, ihrFactor, firstFrac) ←
+        match parseMsgPrices pricesCs with
+        | .ok p => pure p
+        | .error e => throw e
+      -- the size limits (tonops.cpp:2209-2219): from version 6 the unpacked config 6 (not a slice ->
+      -- defaults, not parsed -> cell_und); before, at most 2^13 cells
       let maxCells : Nat ←
-        match unpacked[6]? with
-        | none => throw .rangeChk
-        | some (Value.slice cs) =>
-            match sizeLimitsMaxMsgCells? cs with
-            | some n => pure n
-            | none => throw .cellUnd
-        | some _ => pure (1 <<< 13)
+        if gv ≥ 6 then
+          let unpacked ← VM.getUnpackedConfigTuple
+          match unpacked[6]? with
+          | none => throw .rangeChk
+          | some (Value.slice cs) =>
+              match sizeLimitsMaxMsgCells? cs with
+              | some n => pure n
+              | none => throw .cellUnd
+          | some _ => pure (1 <<< 13)
+        else
+          pure (1 <<< 13)
 
       -- `load_cell_slice(msg_cell)`: charged again, resolved as before
       let msgRoot : Cell := (← VM.loadCellSlice msgCell).cell
 
-      -- storage stat: the cells below the root (not its bits), without the extra-currency
-      -- dictionary (global version >= 10), depth-first from the first reference
-      let refStart : Nat := if parsedMsg.haveExtraCurrencies then 1 else 0
+      -- storage stat: the cells below the root (not its bits), from version 10 without the
+      -- extra-currency dictionary (tonops.cpp:2222-2226), depth-first from the first reference
+      let refStart : Nat := if gv ≥ 10 && parsedMsg.haveExtraCurrencies then 1 else 0
       let todo0 : Array Cell := (msgRoot.refs.extract refStart msgRoot.refs.size).reverse
       let (_seen, cells, bits) ← VM.countMsgCells maxCells todo0 #[] 0 0
 
-      let valueAdjusted : Int ←
+      -- before version 10 a balance (mode 128) or incoming value (mode 64) with extra currencies
+      -- (a cell at index 1, `tuple_index`: range_chk if the tuple is shorter) makes the message
+      -- have them (tonops.cpp:2238-2240, 2251-2253)
+      let extraOf (t : Array Value) : VM Bool := do
+        if gv ≥ 10 then
+          return false
+        match t[1]? with
+        | none => throw .rangeChk
+        | some (Value.cell _) => return true
+        | some _ => return false
+      let valueAndExtra : Int × Bool ←
         if parsedMsg.extMsg then
-          pure (0 : Int)
+          pure ((0 : Int), parsedMsg.haveExtraCurrencies)
         else if (mode &&& 128) = 128 then
           match (← getParam 7) with
           | .tuple bal =>
               if 0 < bal.size then
                 match bal[0]! with
-                | .int (.num n) => pure n
+                | .int (.num n) => pure (n, parsedMsg.haveExtraCurrencies || (← extraOf bal))
                 | .int .nan => throw .rangeChk
                 | _ => throw .typeChk
               else
@@ -354,14 +409,15 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           | .tuple inc =>
               if 0 < inc.size then
                 match inc[0]! with
-                | .int (.num n) => pure (parsedMsg.value + n)
+                | .int (.num n) => pure (parsedMsg.value + n, parsedMsg.haveExtraCurrencies || (← extraOf inc))
                 | .int .nan => throw .rangeChk
                 | _ => throw .typeChk
               else
                 throw .typeChk
           | _ => throw .typeChk
         else
-          pure parsedMsg.value
+          pure (parsedMsg.value, parsedMsg.haveExtraCurrencies)
+      let (valueAdjusted, haveExtraCurrencies) := valueAndExtra
 
       let storedGramsLenBits (x : Int) : VM Nat := do
         if x < 0 then
@@ -371,15 +427,27 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
         let bytes : Nat := (bl + 7) / 8
         return 4 + bytes * 8
 
+      -- C++ `compute_fees` (tonops.cpp:2266-2289): IHR is disabled by the message or, from version
+      -- 11, always; its fee is `fwd_fee * ihr_factor / 2^16`. Before version 14 the user's fees
+      -- count if larger.
+      let ihrDisabled : Bool := parsedMsg.ihrDisabled || gv ≥ 11
+      let computeFees (cellsN bitsN : Nat) : Int × Int :=
+        let feeX : Int := bitPrice * Int.ofNat bitsN + cellPrice * Int.ofNat cellsN
+        let fwdFeeShort : Int := lumpPrice + ceilDivPow2 feeX 16
+        let ihrFeeShort : Int := if ihrDisabled then 0 else (fwdFeeShort * Int.ofNat ihrFactor) / intPow2 16
+        if gv < 14 then
+          (max fwdFeeShort parsedMsg.userFwdFee,
+            if ihrDisabled then ihrFeeShort else max ihrFeeShort parsedMsg.userIhrFee)
+        else
+          (fwdFeeShort, ihrFeeShort)
       let mut cellsI : Nat := cells
       let mut bitsI : Nat := bits
-      let feeX0 : Int := bitPrice * Int.ofNat bitsI + cellPrice * Int.ofNat cellsI
-      let fwdFeeShort0 : Int := lumpPrice + ceilDivPow2 feeX0 16
-      -- TVM 14: the user-provided fwd_fee is ignored (as in the action phase).
-      let mut fwdFee : Int := (if (← get).globalVersion ≥ 14 then fwdFeeShort0 else max fwdFeeShort0 parsedMsg.userFwdFee)
-      let mut ihrFee : Int := 0 -- global_version >= 11 disables IHR
+      let (fwdFee0, ihrFee0) := computeFees cellsI bitsI
+      let mut fwdFee : Int := fwdFee0
+      let mut ihrFee : Int := ihrFee0
 
-      let msgRootBits (initRef : Bool) (bodyRef : Bool) : VM Nat := do
+      -- C++ `msg_root_bits` captures the fees by reference: the current ones are passed
+      let msgRootBits (initRef : Bool) (bodyRef : Bool) (fwdFee ihrFee : Int) : VM Nat := do
         if parsedMsg.extMsg then
           let mySz : Nat := myAddr.bitsRemaining
           let destSz : Nat := parsedMsg.dest.bitsRemaining
@@ -398,7 +466,8 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           total := total + 1 + 32 + 64
           let fwdFeeFirst : Int := (fwdFee * Int.ofNat firstFrac) / intPow2 16
           total := total + (← storedGramsLenBits (fwdFee - fwdFeeFirst))
-          total := total + parsedMsg.extraFlagsLen
+          -- before version 12 the field is ihr_fee (tonops.cpp:2304-2305)
+          total := total + (← if gv ≥ 12 then pure parsedMsg.extraFlagsLen else storedGramsLenBits ihrFee)
           total := total + 1
           if parsedMsg.haveInit then
             total := total + 1 + (if initRef then 0 else parsedMsg.initInlineBits)
@@ -407,7 +476,7 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
           return total
 
       let msgRootRefs (initRef : Bool) (bodyRef : Bool) : Nat :=
-        (if parsedMsg.extMsg then 0 else (if parsedMsg.haveExtraCurrencies then 1 else 0)) +
+        (if parsedMsg.extMsg then 0 else (if haveExtraCurrencies then 1 else 0)) +
           (if parsedMsg.haveInit then (if initRef then 1 else parsedMsg.initRefs) else 0) +
             (if bodyRef then 1 else parsedMsg.bodyRefs)
 
@@ -415,28 +484,26 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
       let mut bodyRef := parsedMsg.bodyRef
 
       if parsedMsg.haveInit && !initRef then
-        let rb ← msgRootBits initRef bodyRef
+        let rb ← msgRootBits initRef bodyRef fwdFee ihrFee
         let rr := msgRootRefs initRef bodyRef
         if rb > 1023 || rr > 4 then
           initRef := true
           cellsI := cellsI + 1
           bitsI := bitsI + parsedMsg.initInlineBits
-          let feeX1 : Int := bitPrice * Int.ofNat bitsI + cellPrice * Int.ofNat cellsI
-          let fwdFeeShort1 : Int := lumpPrice + ceilDivPow2 feeX1 16
-          fwdFee := (if (← get).globalVersion ≥ 14 then fwdFeeShort1 else max fwdFeeShort1 parsedMsg.userFwdFee)
-          ihrFee := 0
+          let (f, h) := computeFees cellsI bitsI
+          fwdFee := f
+          ihrFee := h
 
       if !bodyRef then
-        let rb ← msgRootBits initRef bodyRef
+        let rb ← msgRootBits initRef bodyRef fwdFee ihrFee
         let rr := msgRootRefs initRef bodyRef
         if rb > 1023 || rr > 4 then
           bodyRef := true
           cellsI := cellsI + 1
           bitsI := bitsI + parsedMsg.bodyInlineBits
-          let feeX2 : Int := bitPrice * Int.ofNat bitsI + cellPrice * Int.ofNat cellsI
-          let fwdFeeShort2 : Int := lumpPrice + ceilDivPow2 feeX2 16
-          fwdFee := (if (← get).globalVersion ≥ 14 then fwdFeeShort2 else max fwdFeeShort2 parsedMsg.userFwdFee)
-          ihrFee := 0
+          let (f, h) := computeFees cellsI bitsI
+          fwdFee := f
+          ihrFee := h
 
       VM.pushIntQuiet (.num (fwdFee + ihrFee)) false
 
