@@ -387,10 +387,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                 | none => throw .cellUnd
               if byRef then
                 DictExt.prechargeRootLoad dictCell?
-                match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
-                | .error e =>
-                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
-                    DictExt.registerLoaded loaded
+                match dictDeleteWithLoads (resolve := (← VM.cellResolver)) dictCell? keyBits with
+                | .error (e, loaded0) =>
+                    DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell? loaded0)
                     throw e
                 | .ok (oldVal?, newRoot?, created, loaded) =>
                     let loaded := DictExt.loadedWithoutRoot dictCell? loaded
@@ -406,10 +405,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                         DictExt.pushBool true
               else
                 DictExt.prechargeRootLoad dictCell?
-                match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
-                | .error e =>
-                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
-                    DictExt.registerLoaded loaded
+                match dictDeleteWithLoads (resolve := (← VM.cellResolver)) dictCell? keyBits with
+                | .error (e, loaded0) =>
+                    DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell? loaded0)
                     throw e
                 | .ok (oldVal?, newRoot?, created, loaded) =>
                     let loaded := DictExt.loadedWithoutRoot dictCell? loaded
@@ -542,10 +540,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
               throw .rangeChk
           | some keyBits =>
               DictExt.prechargeRootLoad dictCell?
-              match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
-              | .error e =>
-                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
-                  DictExt.registerLoaded loaded
+              match dictDeleteWithLoads (resolve := (← VM.cellResolver)) dictCell? keyBits with
+              | .error (e, loaded0) =>
+                  DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell? loaded0)
                   throw e
               | .ok (oldVal?, newRoot?, created, loaded) =>
                   let loaded := DictExt.loadedWithoutRoot dictCell? loaded
@@ -632,10 +629,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                       VM.push (.cell c)
           | none =>
               DictExt.prechargeRootLoad dictCell?
-              match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
-              | .error e =>
-                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
-                  DictExt.registerLoaded loaded
+              match dictDeleteWithLoads (resolve := (← VM.cellResolver)) dictCell? keyBits with
+              | .error (e, loaded0) =>
+                  DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell? loaded0)
                   throw e
               | .ok (oldVal?, newRoot?, created, loaded) =>
                   let loaded := DictExt.loadedWithoutRoot dictCell? loaded

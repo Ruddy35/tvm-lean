@@ -617,59 +617,6 @@ def dictMinMaxVisitedCells (root : Option Cell) (n : Nat) (fetchMax invertFirst 
       let firstBit : Bool := restBit != invertFirst
       dictMinMaxVisitedCellsAux (resolve := resolve) cell n 0 firstBit restBit
 
-inductive DictDeleteVisitStatus where
-  | found
-  | none
-  | err
-  deriving Inhabited
-
-structure DictDeleteVisit where
-  status : DictDeleteVisitStatus
-  loaded : Array Cell
-  deriving Inhabited
-
-private def dictDeleteVisitedTraceAux (cell : Cell) (key : BitString) (pos remaining : Nat) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
-    DictDeleteVisit :=
-  let here : Array Cell := #[cell]
-  match parseDictLabel (resolve := resolve) cell remaining with
-  | .error _ =>
-      { status := .err, loaded := here }
-  | .ok lbl =>
-      match dictValidateNodeExt lbl remaining with
-      | .error _ =>
-          { status := .err, loaded := here }
-      | .ok rem0 =>
-          if !dictLabelMatches lbl key pos then
-            { status := .none, loaded := here }
-          else if rem0 = 0 then
-            { status := .found, loaded := here }
-          else
-            let nextPos : Nat := pos + lbl.len
-            if h : nextPos ≥ key.size then
-              { status := .err, loaded := here }
-            else
-              let swBit : Bool := key[nextPos]!
-              let left0 := lbl.remainder.cell.refs[0]!
-              let right0 := lbl.remainder.cell.refs[1]!
-              let child0 : Cell := if swBit then right0 else left0
-              let sibling0 : Cell := if swBit then left0 else right0
-              let childTrace := dictDeleteVisitedTraceAux (resolve := resolve) child0 key (nextPos + 1) (rem0 - 1)
-              match childTrace.status with
-              | .err =>
-                  -- Error while descending: sibling merge path is not reached.
-                  { status := .err, loaded := here ++ childTrace.loaded }
-              | .none =>
-                  { status := .none, loaded := here ++ childTrace.loaded ++ #[sibling0] }
-              | .found =>
-                  { status := .found, loaded := here ++ childTrace.loaded ++ #[sibling0] }
-termination_by key.size - pos
-decreasing_by all_goals (simp_wf; omega)
-
-def dictDeleteVisitedCells (root : Option Cell) (key : BitString) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) : Array Cell :=
-  match root with
-  | none => #[]
-  | some cell => (dictDeleteVisitedTraceAux (resolve := resolve) cell key 0 key.size).loaded
-
 def dictReplaceBuilderAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) (newVal : Builder) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
     Except Excno (Cell × Bool × Nat × Array Cell) := do
   let lbl ← parseDictLabel (resolve := resolve) cell remaining
@@ -962,10 +909,14 @@ def withLoads (loaded : Array Cell) (x : Except Excno α) : Except (Excno × Arr
 def underCell (cell : Cell) (x : Except (Excno × Array Cell) α) : Except (Excno × Array Cell) α :=
   x.mapError fun (e, loaded) => (e, #[cell] ++ loaded)
 
-def dictDeleteAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
-    Except Excno (Option Slice × Option Cell × Nat × Array Cell) := do
-  let lbl ← parseDictLabel (resolve := resolve) cell remaining
-  let ⟨rem0, hle⟩ ← dictValidateNodeExtLe lbl remaining
+/-- C++ `DictionaryFixed::dict_lookup_delete` (dict.cpp:1116): the old value, the new root, the
+cells created and the cells loaded. Every node on the path is loaded before it is parsed, and the
+surviving child of a fork before it is merged into the fork's edge; an error carries the cells
+loaded before it. -/
+def dictDeleteAuxWithLoads (cell : Cell) (key : BitString) (pos remaining : Nat) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
+    Except (Excno × Array Cell) (Option Slice × Option Cell × Nat × Array Cell) := do
+  let lbl ← withLoads #[cell] (parseDictLabel (resolve := resolve) cell remaining)
+  let ⟨rem0, hle⟩ ← withLoads #[cell] (dictValidateNodeExtLe lbl remaining)
   if !dictLabelMatches lbl key pos then
     return (none, some cell, 0, #[cell])
   let payload := lbl.remainder.advanceBits lbl.storedBits
@@ -978,7 +929,8 @@ def dictDeleteAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat)
     let left0 := lbl.remainder.cell.refs[0]!
     let right0 := lbl.remainder.cell.refs[1]!
     let child0 := if swBit then right0 else left0
-    let (oldVal?, childNew?, createdChild, loadedChild) ← dictDeleteAuxWithCells (resolve := resolve) child0 key (nextPos + 1) (rem0 - 1)
+    let (oldVal?, childNew?, createdChild, loadedChild) ←
+      underCell cell (dictDeleteAuxWithLoads (resolve := resolve) child0 key (nextPos + 1) (rem0 - 1))
     match oldVal? with
     | none =>
         -- Not found in subtree: unchanged.
@@ -991,29 +943,34 @@ def dictDeleteAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat)
             let newCell : Cell := Cell.mkOrdinary cell.bits newRefs
             return (some oldVal, some newCell, createdChild + 1, #[cell] ++ loadedChild)
         | none =>
-            -- One child removed: merge current edge with the surviving child.
+            -- One child removed: merge current edge with the surviving child (loaded first).
             let survivorBit : Bool := !swBit
             let survivor : Cell := if swBit then left0 else right0
-            let lbl2 ← parseDictLabel (resolve := resolve) survivor (rem0 - 1)
-            let _ ← dictValidateNodeExt lbl2 (rem0 - 1)
+            let loaded : Array Cell := #[cell] ++ loadedChild ++ #[survivor]
+            let lbl2 ← withLoads loaded (parseDictLabel (resolve := resolve) survivor (rem0 - 1))
+            let _ ← withLoads loaded (dictValidateNodeExt lbl2 (rem0 - 1))
             let childLabelBits := dictLabelBits lbl2
             let combinedLabelBits : BitString := dictLabelBits lbl ++ #[survivorBit] ++ childLabelBits
             let combinedLen : Nat := lbl.len + 1 + lbl2.len
             let enc : BitString := dictLabelEncode combinedLabelBits combinedLen remaining
             let payload2 := lbl2.remainder.advanceBits lbl2.storedBits
             let payloadCell2 : Cell := payload2.toCellRemaining
-            let b0 ← builderStoreBitsChecked Builder.empty enc
-            let b1 ← builderAppendCellChecked b0 payloadCell2
-            return (some oldVal, some b1.finalize, createdChild + 1, #[cell] ++ loadedChild ++ #[survivor])
+            let b0 ← withLoads loaded (builderStoreBitsChecked Builder.empty enc)
+            let b1 ← withLoads loaded (builderAppendCellChecked b0 payloadCell2)
+            return (some oldVal, some b1.finalize, createdChild + 1, loaded)
 termination_by remaining
 decreasing_by all_goals (simp_wf; omega)
 
-def dictDeleteWithCells (root : Option Cell) (key : BitString) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
-    Except Excno (Option Slice × Option Cell × Nat × Array Cell) := do
+/-- `dictDeleteAuxWithLoads` from the root, if any. -/
+def dictDeleteWithLoads (root : Option Cell) (key : BitString) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
+    Except (Excno × Array Cell) (Option Slice × Option Cell × Nat × Array Cell) := do
   match root with
   | none => return (none, none, 0, #[])
-  | some cell =>
-      dictDeleteAuxWithCells (resolve := resolve) cell key 0 key.size
+  | some cell => dictDeleteAuxWithLoads (resolve := resolve) cell key 0 key.size
+
+def dictDeleteWithCells (root : Option Cell) (key : BitString) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
+    Except Excno (Option Slice × Option Cell × Nat × Array Cell) :=
+  (dictDeleteWithLoads (resolve := resolve) root key).mapError Prod.fst
 
 def dictCommonPrefixLen (lbl : DictLabel) (key : BitString) : Nat :=
   let l := lbl.len

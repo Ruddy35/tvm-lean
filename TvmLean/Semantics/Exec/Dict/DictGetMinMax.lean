@@ -58,9 +58,8 @@ def execInstrDictDictGetMinMax (i : Instr) (next : VM Unit) : VM Unit := do
           let mut created : Nat := 0
           let mut loaded1 : Array Cell := #[]
           if remove then
-            match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
-            | .error e =>
-                let loadedDel := dictDeleteVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits
+            match dictDeleteWithLoads (resolve := (← VM.cellResolver)) dictCell? keyBits with
+            | .error (e, loadedDel) =>
                 for c in loadedDel do
                   VM.registerCellLoad c
                 throw e
