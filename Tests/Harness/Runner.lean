@@ -16,6 +16,7 @@ structure RunnerOpts where
   oracleOnly : Bool := false
   fuzzOnly : Bool := false
   opcodeCheck : Bool := false
+  opcodeShare : Bool := false
   jobs? : Option Nat := none
   progress : Bool := true
   deriving Repr

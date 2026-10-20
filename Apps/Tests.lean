@@ -9,6 +9,9 @@ def main (args : List String) : IO UInt32 := do
   let opts ← Tests.parseCliArgs args
   if opts.opcodeCheck then
     return (if (← Tests.opcodeCheck) == 0 then 0 else 1)
+  if opts.opcodeShare then
+    Tests.opcodeShare opts.filter?
+    return 0
   Tests.runAndReport opts
 
 end TvmLeanTestsApp
