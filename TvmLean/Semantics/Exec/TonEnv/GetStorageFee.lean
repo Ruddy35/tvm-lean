@@ -10,6 +10,9 @@ def execInstrTonEnvGetStorageFee (i : Instr) (next : VM Unit) : VM Unit := do
       -- using the already-selected `StoragePrices` entry from `UNPACKEDCONFIGTUPLE[0]`
       -- (computed outside TVM in `Config::get_unpacked_config_tuple`).
       -- Stack: ... cells bits delta is_masterchain -- ... storage_fee
+      -- C++: `check_underflow(global_version >= 9 ? 4 : 0)` before any operand is popped
+      if (← get).globalVersion ≥ 9 then
+        VM.checkUnderflow 4
       let isMasterchain ← VM.popBool
       let max63 : Nat := (1 <<< 63) - 1
       let delta ← VM.popNatUpTo max63

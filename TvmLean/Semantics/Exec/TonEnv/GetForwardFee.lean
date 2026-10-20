@@ -8,6 +8,9 @@ def execInstrTonEnvGetForwardFee (i : Instr) (next : VM Unit) : VM Unit := do
   | .tonEnvOp .getForwardFee =>
       -- Matches C++ `exec_get_forward_fee` (tonops.cpp).
       -- Stack: ... cells bits is_masterchain -- ... fwd_fee
+      -- C++: `check_underflow(global_version >= 9 ? 3 : 0)` before any operand is popped
+      if (← get).globalVersion ≥ 9 then
+        VM.checkUnderflow 3
       let isMasterchain ← VM.popBool
       let max63 : Nat := (1 <<< 63) - 1
       let bits ← VM.popNatUpTo max63

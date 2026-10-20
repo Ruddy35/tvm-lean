@@ -6,7 +6,8 @@ set_option maxHeartbeats 1000000 in
 def execInstrCellStb (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .stb rev quiet =>
-      -- Matches C++ `exec_store_builder(_rev)` (cellops.cpp).
+      -- Matches C++ `exec_store_builder(_rev)` (cellops.cpp): `check_underflow(2)` first.
+      VM.checkUnderflow 2
       if rev then
         -- Stack: ... builder cb2 -- ...  (cb2 on top)
         let cb2 ← VM.popBuilder

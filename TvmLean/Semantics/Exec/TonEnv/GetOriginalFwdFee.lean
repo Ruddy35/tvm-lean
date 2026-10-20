@@ -8,6 +8,9 @@ def execInstrTonEnvGetOriginalFwdFee (i : Instr) (next : VM Unit) : VM Unit := d
   | .tonEnvOp .getOriginalFwdFee =>
       -- Matches C++ `exec_get_original_fwd_fee` (tonops.cpp).
       -- Stack: ... fwd_fee is_masterchain -- ... original_fwd_fee
+      -- C++: `check_underflow(global_version >= 9 ? 2 : 0)` before any operand is popped
+      if (← get).globalVersion ≥ 9 then
+        VM.checkUnderflow 2
       let isMasterchain ← VM.popBool
       let fwdFee ← VM.popIntFinite
       if fwdFee < 0 then

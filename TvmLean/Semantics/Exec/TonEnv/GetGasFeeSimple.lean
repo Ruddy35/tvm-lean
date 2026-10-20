@@ -8,6 +8,9 @@ def execInstrTonEnvGetGasFeeSimple (i : Instr) (next : VM Unit) : VM Unit := do
   | .tonEnvOp .getGasFeeSimple =>
       -- Matches C++ `exec_get_gas_fee_simple` (tonops.cpp).
       -- Stack: ... gas_used is_masterchain -- ... gas_fee_simple
+      -- C++: `check_underflow(global_version >= 9 ? 2 : 0)` before any operand is popped
+      if (← get).globalVersion ≥ 9 then
+        VM.checkUnderflow 2
       let isMasterchain ← VM.popBool
       let max63 : Nat := (1 <<< 63) - 1
       let gasUsed ← VM.popNatUpTo max63
