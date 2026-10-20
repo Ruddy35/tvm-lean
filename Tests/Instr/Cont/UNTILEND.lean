@@ -368,19 +368,26 @@ def suite : InstrSuite where
           throw (IO.userError
             s!"step/false/has-c0: expected c0 unchanged={reprStr marker}, got {reprStr st.regs.c0}") }
     ,
-    { name := "unit/step/untilbody-true-jumps-to-after-and-restores-saved-c0"
+    { name := "unit/step/untilbody-true-jumps-to-after-keeps-c0"
       run := do
+        -- C++ `OrdCont::jump`: entering `after` applies only its own saved registers
         let after : Continuation :=
-          .ordinary (Slice.ofCell Cell.empty) (.quit 77) OrdCregs.empty OrdCdata.empty
-        let st ← expectContinue "step/true" (runUntilBodyStep #[intV 1] (.quit 9) after (.quit 88))
-        let expectedCc : Continuation :=
-          .ordinary (Slice.ofCell Cell.empty) (.quit 0) OrdCregs.empty OrdCdata.empty
+          .ordinary (Slice.ofCell Cell.empty) (.quit 0) { OrdCregs.empty with c0 := some (.quit 77) } OrdCdata.empty
+        let st ← expectContinue "step/true"
+          (runUntilBodyStep #[intV 1] (.quit 9) after (.quit 88))
         if st.stack != #[] then
           throw (IO.userError s!"step/true: expected empty stack, got {reprStr st.stack}")
-        if st.regs.c0 != .quit 77 then
-          throw (IO.userError s!"step/true: expected c0=quit77, got {reprStr st.regs.c0}")
-        if st.cc != expectedCc then
-          throw (IO.userError s!"step/true: expected cc={reprStr expectedCc}, got {reprStr st.cc}") }
+        if st.regs.c0 != .quit 88 then
+          throw (IO.userError s!"step/true: expected c0 unchanged (quit88), got {reprStr st.regs.c0}")
+        if st.cc != after then
+          throw (IO.userError s!"step/true: expected cc=after, got {reprStr st.cc}")
+        -- `after` sets c0 to its saved quit77; its implicit RET then jumps there
+        match VmState.step stubHost st with
+        | .continue st2 =>
+            if st2.cc != .quit 77 then
+              throw (IO.userError s!"step/true: expected the jump to after's saved c0, got {reprStr st2.cc}")
+        | .halt code _ =>
+            throw (IO.userError s!"step/true: unexpected halt {code} entering after") }
     ,
     { name := "unit/step/pop-bool-errors-and-after-nargs-underflow"
       run := do

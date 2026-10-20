@@ -37,16 +37,8 @@ def execInstrFlowLoopExt (i : Instr) (next : VM Unit) : VM Unit := do
           if c ≤ 0 then
             pure ()
           else
-            let afterRaw ←
-              if brk then
-                -- Match C++ `exec_repeat`: `extract_cc(1)` must happen before `c1_envelope_if`.
-                VM.extractCc 1
-              else
-                let st ← get
-                pure <|
-                  match st.cc with
-                  | .ordinary rest _ cregs cdata => .ordinary rest st.regs.c0 cregs cdata
-                  | _ => st.cc
+            -- C++ `exec_repeat`: `after := extract_cc(1)` (saves `c0`), then `c1_envelope_if`.
+            let afterRaw ← VM.extractCc 1
             let st ← get
             let (st', after) := if brk then st.c1Envelope afterRaw else (st, afterRaw)
             set { st' with cc := .repeatBody body after c.toNat }

@@ -138,12 +138,8 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
           if afterNeedsMoreArgs then
             throw .stkUnd
           else
-            match after with
-            | .ordinary code saved cregs cdata =>
-                modify fun st =>
-                  { st with regs := { st.regs with c0 := saved }, cc := .ordinary code (.quit 0) cregs cdata }
-            | _ =>
-                modify fun st => { st with cc := after }
+            -- the jump to `after` applies its own saved registers only (C++ `OrdCont::jump`)
+            modify fun st => { st with cc := after }
       let (res, st') := (action.run st)
       match res with
       | .ok _ =>
@@ -170,11 +166,8 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
           if afterNeedsMoreArgs then
             throw .stkUnd
           else
-            match after with
-            | .ordinary code saved cregs cdata =>
-                modify fun st => { st with regs := { st.regs with c0 := saved }, cc := .ordinary code (.quit 0) cregs cdata }
-            | _ =>
-                modify fun st => { st with cc := after }
+            -- the jump to `after` applies its own saved registers only (C++ `OrdCont::jump`)
+            modify fun st => { st with cc := after }
         else
           -- C++ `UntilCont::jump`: if `body` doesn't have `c0`, re-install this until continuation into `c0`
           -- because `RET` swaps `c0 := quit0` when returning to `c0`.
@@ -217,11 +210,8 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
         if afterNeedsMoreArgs then
           st.raiseException Excno.stkUnd.toInt
         else
-          match after with
-          | .ordinary code saved cregs cdata =>
-              .continue { st with regs := { st.regs with c0 := saved }, cc := .ordinary code (.quit 0) cregs cdata }
-          | _ =>
-              .continue { st with cc := after }
+          -- the jump to `after` applies its own saved registers only (C++ `OrdCont::jump`)
+          .continue { st with cc := after }
       else if body.hasC0 then
         .continue { st with cc := body }
       else

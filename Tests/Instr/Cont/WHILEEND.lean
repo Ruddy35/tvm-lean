@@ -469,21 +469,26 @@ def suite : InstrSuite where
         else
           pure () }
     ,
-    { name := "unit/step/whilecond-false-jumps-to-after-and-restores-saved-c0"
+    { name := "unit/step/whilecond-false-jumps-to-after-keeps-c0"
       run := do
-        let after : Continuation := .ordinary (Slice.ofCell Cell.empty) (.quit 77) OrdCregs.empty OrdCdata.empty
+        -- C++ `OrdCont::jump`: entering `after` applies only its own saved registers
+        let after : Continuation :=
+          .ordinary (Slice.ofCell Cell.empty) (.quit 0) { OrdCregs.empty with c0 := some (.quit 77) } OrdCdata.empty
         let st ← expectContinue "step/false/ordinary-after"
           (runStepWith #[intV 0] (.whileCond (.quit 9) (.quit 5) after) (.quit 88))
-        let expectedCc : Continuation :=
-          .ordinary (Slice.ofCell Cell.empty) (.quit 0) OrdCregs.empty OrdCdata.empty
         if st.stack != #[] then
           throw (IO.userError s!"step/false/ordinary-after: expected empty stack, got {reprStr st.stack}")
-        else if st.regs.c0 != .quit 77 then
-          throw (IO.userError s!"step/false/ordinary-after: expected c0=quit77, got {reprStr st.regs.c0}")
-        else if st.cc != expectedCc then
-          throw (IO.userError s!"step/false/ordinary-after: expected cc={reprStr expectedCc}, got {reprStr st.cc}")
-        else
-          pure () }
+        if st.regs.c0 != .quit 88 then
+          throw (IO.userError s!"step/false/ordinary-after: expected c0 unchanged (quit88), got {reprStr st.regs.c0}")
+        if st.cc != after then
+          throw (IO.userError s!"step/false/ordinary-after: expected cc=after, got {reprStr st.cc}")
+        -- `after` sets c0 to its saved quit77; its implicit RET then jumps there
+        match VmState.step stubHost st with
+        | .continue st2 =>
+            if st2.cc != .quit 77 then
+              throw (IO.userError s!"step/false/ordinary-after: expected the jump to after's saved c0, got {reprStr st2.cc}")
+        | .halt code _ =>
+            throw (IO.userError s!"step/false/ordinary-after: unexpected halt {code} entering after") }
     ,
     { name := "unit/step/whilecond-false-nonordinary-after-keeps-c0"
       run := do

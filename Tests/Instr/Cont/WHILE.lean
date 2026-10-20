@@ -403,20 +403,26 @@ def suite : InstrSuite where
           throw (IO.userError
             s!"step/whilecond-true/has-c0: expected c0 unchanged={reprStr marker}, got {reprStr st.regs.c0}") }
     ,
-    { name := "unit/step/whilecond-false-jumps-after-and-restores-saved-c0"
+    { name := "unit/step/whilecond-false-jumps-after-keeps-c0"
       run := do
+        -- C++ `OrdCont::jump`: entering `after` applies only its own saved registers
         let after : Continuation :=
-          .ordinary (Slice.ofCell Cell.empty) (.quit 77) OrdCregs.empty OrdCdata.empty
+          .ordinary (Slice.ofCell Cell.empty) (.quit 0) { OrdCregs.empty with c0 := some (.quit 77) } OrdCdata.empty
         let st ← expectContinue "step/whilecond-false"
           (runWhileCondStep #[intV 0] condNoC0 bodyNoC0 after (.quit 99))
-        let expectedCc : Continuation :=
-          .ordinary (Slice.ofCell Cell.empty) (.quit 0) OrdCregs.empty OrdCdata.empty
         if st.stack != #[] then
           throw (IO.userError s!"step/whilecond-false: expected empty stack, got {reprStr st.stack}")
-        if st.regs.c0 != .quit 77 then
-          throw (IO.userError s!"step/whilecond-false: expected restored c0=quit77, got {reprStr st.regs.c0}")
-        if st.cc != expectedCc then
-          throw (IO.userError s!"step/whilecond-false: expected cc={reprStr expectedCc}, got {reprStr st.cc}") }
+        if st.regs.c0 != .quit 99 then
+          throw (IO.userError s!"step/whilecond-false: expected c0 unchanged (quit99), got {reprStr st.regs.c0}")
+        if st.cc != after then
+          throw (IO.userError s!"step/whilecond-false: expected cc=after, got {reprStr st.cc}")
+        -- `after` sets c0 to its saved quit77; its implicit RET then jumps there
+        match VmState.step stubHost st with
+        | .continue st2 =>
+            if st2.cc != .quit 77 then
+              throw (IO.userError s!"step/whilecond-false: expected the jump to after's saved c0, got {reprStr st2.cc}")
+        | .halt code _ =>
+            throw (IO.userError s!"step/whilecond-false: unexpected halt {code} entering after") }
     ,
     { name := "unit/step/whilebody-cond-hasc0-vs-no-c0"
       run := do

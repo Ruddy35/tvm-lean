@@ -410,20 +410,20 @@ def suite : InstrSuite where
         else
           pure ()
 
+        -- C++ `OrdCont::jump`: entering `after` applies only its own saved registers
         let afterOrd : Continuation :=
-          .ordinary (Slice.ofCell Cell.empty) (.quit 9) OrdCregs.empty OrdCdata.empty
+          .ordinary (Slice.ofCell Cell.empty) (.quit 0) { OrdCregs.empty with c0 := some (.quit 9) } OrdCdata.empty
         let stDoneOrd0 : VmState :=
           { base with regs := { base.regs with c0 := .quit 3 }, cc := .repeatBody bodyRet afterOrd 0 }
         let stDoneOrd := stepOnce stDoneOrd0
-        if stDoneOrd.regs.c0 != .quit 9 then
-          throw (IO.userError s!"repeatBody/runtime-done-ordinary: expected c0=quit9, got {reprStr stDoneOrd.regs.c0}")
-        else
-          match stDoneOrd.cc with
-          | .ordinary _ saved _ _ =>
-              if saved != .quit 0 then
-                throw (IO.userError s!"repeatBody/runtime-done-ordinary: expected cc.saved=quit0, got {reprStr saved}")
-          | _ =>
-              throw (IO.userError s!"repeatBody/runtime-done-ordinary: expected ordinary cc, got {reprStr stDoneOrd.cc}")
+        if stDoneOrd.regs.c0 != .quit 3 then
+          throw (IO.userError s!"repeatBody/runtime-done-ordinary: expected c0 unchanged (quit3), got {reprStr stDoneOrd.regs.c0}")
+        if stDoneOrd.cc != afterOrd then
+          throw (IO.userError s!"repeatBody/runtime-done-ordinary: expected cc=after, got {reprStr stDoneOrd.cc}")
+        -- `after` sets c0 to its saved quit9; its implicit RET then jumps there
+        let stAfter := stepOnce stDoneOrd
+        if stAfter.cc != .quit 9 then
+          throw (IO.userError s!"repeatBody/runtime-done-ordinary: expected the jump to after's saved c0, got {reprStr stAfter.cc}")
 
         let stHasC00 : VmState :=
           { base with regs := { base.regs with c0 := .quit 5 }, cc := .repeatBody bodyRetWithC0 (.quit 8) 2 }
