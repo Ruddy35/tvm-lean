@@ -11,14 +11,11 @@ def execInstrTonEnvConfigParam (i : Instr) (next : VM Unit) : VM Unit := do
       let idxVal ← VM.popInt
       VM.pushC7Param 9
       let dictRoot? ← VM.popMaybeCell
+      -- `idx->export_bits(key, 32, true)`: a signed 32-bit key; out of range or NaN: not found
       let keyBits? : Option BitString :=
         match idxVal with
         | .nan => none
-        | .num n =>
-            if decide (n < 0 ∨ n ≥ intPow2 32) then
-              none
-            else
-              some (natToBits n.toNat 32)
+        | .num n => dictKeyBits? n 32 false
       match keyBits? with
       | none =>
           if opt then
@@ -28,6 +25,9 @@ def execInstrTonEnvConfigParam (i : Instr) (next : VM Unit) : VM Unit := do
       | some keyBits =>
           match dictLookupWithCells (resolve := (← VM.cellResolver)) dictRoot? keyBits with
           | .error e =>
+              -- `Dictionary::lookup_ref` charges the nodes it loads before the malformed one
+              for c in dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictRoot? keyBits do
+                VM.registerCellLoad c
               throw e
           | .ok (none, loaded) =>
               for c in loaded do
