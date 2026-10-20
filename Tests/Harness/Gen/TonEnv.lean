@@ -33,6 +33,10 @@ def addrPool : Array Value :=
      sl (natToBits 0b10 2 ++ #[false] ++ natToBits 0 8 ++ natToBits 1 100), -- truncated addr_std
      sl (addrStdBits 0 0x42 ++ natToBits 5 3),                             -- addr_std + 3 extra bits
      sl #[true],                                                           -- too short
+     sl (natToBits 0b01 2 ++ natToBits 3 5),                               -- addr_extern, length cut
+     sl (natToBits 0b01 2 ++ natToBits 100 9 ++ natToBits 5 10),           -- addr_extern, data cut
+     sl (natToBits 0b10 2 ++ #[false] ++ natToBits 5 4),                   -- addr_std, workchain cut
+     sl (natToBits 0b10 2),                                                -- addr_std, nothing after the tag
      iv 5, .null ]
 
 /-- A full parameter tuple of length `len` (the slots TON defines get values of the right shape). -/
