@@ -117,6 +117,7 @@ fuzz на нескольких версиях; новые случаи орак�
 | Файл | Что изменено | Основание в C++ |
 |---|---|---|
 | `Model/Cell/Primitives.lean` (`dictDeleteAuxWithLoads`), `Exec/Dict/Ext.lean` (`pfxLookupDeleteWithCells`) | **ошибка исходной модели:** удаление, после которого у развилки остаются оба ребёнка, пишет метку развилки заново (`dictLabelEncode`, как `append_dict_label`), а не копирует биты старой ячейки: метка могла быть записана другим своим кодом (`parse_label` читает любой), узел словаря — ячейкой-библиотекой. `DICT*DEL*`, `DICT*REMMIN/MAX*`, `DICT*SETGETOPTREF` с `null`, `PFXDICTDEL`; в транзакции — `clamp` валют резерва и удаление `CHANGELIB` | `dict_lookup_delete`, `pfx_dict_lookup_delete` (`dict.cpp:1165, 975`), `append_dict_label` (`dict.cpp:565`) |
+| `Exec/Dict/Ext.lean` (`PFXDICTSET`/`ADD`/`REPLACE`, `PFXDICTDEL`, `PFXDICTGET*`, `PFXDICTSWITCH`, ошибка `SUBDICT*GET`) | **ошибка исходной модели:** ячейка-библиотека в префиксном словаре (корень или узел) загружается как корень своей библиотеки (`VM.cellResolver`), а не `cell_und`; при ошибке `SUBDICT*GET` списываются узлы и за ячейкой-библиотекой | `LabelParser` (`dict.cpp:264`) → `load_cell_slice_ref`; `load_cell_slice_impl` (`cells/CellSlice.cpp:1107-1120`) |
 
 ## 2. Тотальность (поведение не меняется)
 

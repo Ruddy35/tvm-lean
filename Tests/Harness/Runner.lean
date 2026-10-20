@@ -142,12 +142,13 @@ def shortStackCases (suite : InstrSuite) : Array OracleCase :=
           { base with name := s!"sweep/short-stack/{vl}{k}", initStack := Array.replicate k v }
 
 /-- Every oracle case run for `suite`: its own, the short stacks, and the generators run for every
-suite (`Tests.Gen.CellDepth`, `Tests.Gen.OwnOpcode`, `Tests.Gen.Loops`, the overflow and label cases of `Tests.Gen.Dict`,
+suite (`Tests.Gen.CellDepth`, `Tests.Gen.OwnOpcode`, `Tests.Gen.Loops`, the overflow, label and library cases of `Tests.Gen.Dict`,
 `Tests.Gen.Versions`). -/
 def suiteOracleCases (suite : InstrSuite) : Array OracleCase :=
   suite.oracle ++ shortStackCases suite ++ Tests.Gen.CellDepth.casesFor suite.id.name ++
     Tests.Gen.OwnOpcode.casesFor suite.id.name ++ Tests.Gen.Loops.casesFor suite.id.name ++
     Tests.Gen.Dict.overflowCasesFor suite.id.name ++ Tests.Gen.Dict.labelCasesFor suite.id.name ++
+    Tests.Gen.Dict.libCasesFor suite.id.name ++
     Tests.Gen.Versions.casesFor suite.id.name
 
 private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResult := do

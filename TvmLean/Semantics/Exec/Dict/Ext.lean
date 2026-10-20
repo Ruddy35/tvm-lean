@@ -295,8 +295,8 @@ private def pfxLookupDeleteWithCells (root : Option Cell) (key : BitString) (n :
               match childNew? with
               | some childNew =>
                   -- Both children present: rebuild fork with updated child. C++ writes the label anew
-                  -- (`append_dict_label`, dict.cpp:975), not the bits of `cell`, whose label may be
-                  -- encoded otherwise.
+                  -- (`append_dict_label`, dict.cpp:975), not the bits of `cell`, which may be a library
+                  -- cell or have its label encoded otherwise.
                   let newRefs : Array Cell := if swBit then #[left0, childNew] else #[childNew, right0]
                   let newCell : Cell := Cell.mkOrdinary (dictLabelEncode labelBits lbl.len n ++ #[true]) newRefs
                   return (some oldVal, some newCell, createdChild + 1, #[cell] ++ loadedChild)
@@ -676,7 +676,8 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
               match dictCell? with
               | some root =>
                   if k > 0 && k ≤ n then
-                    DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell? (DictExt.dictExtractPrefixVisited n prefixBits k root 0))
+                    DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell?
+                      (DictExt.dictExtractPrefixVisited (resolve := (← VM.cellResolver)) n prefixBits k root 0))
               | none => pure ()
               throw e
           | .ok (newRoot?, _changed, created, loaded) =>
@@ -704,7 +705,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
             DictExt.prechargeRootLoad dictCell?
             let storeVal : Builder → Except Excno Builder :=
               fun b => builderAppendCellChecked b newValue.toCellRemaining
-            match DictExt.pfxSetGenAuxWithCells dictCell? keyBits n storeVal mode with
+            match DictExt.pfxSetGenAuxWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits n storeVal mode with
             | .error (e, loaded0) =>
                 -- the nodes loaded before the error are charged, then the error is raised (C++ order)
                 DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell? loaded0)
@@ -728,7 +729,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
             DictExt.pushBool false
           else
             DictExt.prechargeRootLoad dictCell?
-            match DictExt.pfxLookupDeleteWithCells dictCell? keyBits n with
+            match DictExt.pfxLookupDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits n with
             | .error (e, loaded0) =>
                 -- the nodes loaded before the error are charged, then the error is raised (C++ order)
                 DictExt.registerLoaded (DictExt.loadedWithoutRoot dictCell? loaded0)
@@ -750,7 +751,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
           let cs0 ← VM.popSlice
           DictExt.prechargeRootLoad dictCell?
           let keyBits : BitString := cs0.readBits cs0.bitsRemaining
-          match DictExt.pfxLookupPrefixWithCells dictCell? keyBits keyBits.size n with
+          match DictExt.pfxLookupPrefixWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits keyBits.size n with
           | .error (e, loaded0) =>
               -- the nodes loaded before the error are charged, then the error is raised (C++ order)
               let loaded :=
@@ -808,7 +809,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
           -- Precharge root load; keep it out of `loaded` to avoid double-charging.
           VM.registerCellLoad dictCell
           let keyBits : BitString := cs0.readBits cs0.bitsRemaining
-          match DictExt.pfxLookupPrefixWithCells (some dictCell) keyBits keyBits.size keyLen with
+          match DictExt.pfxLookupPrefixWithCells (resolve := (← VM.cellResolver)) (some dictCell) keyBits keyBits.size keyLen with
           | .error (e, loaded0) =>
               DictExt.registerLoaded (DictExt.loadedWithoutRoot (some dictCell) loaded0)
               throw e

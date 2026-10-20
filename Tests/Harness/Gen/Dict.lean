@@ -194,17 +194,15 @@ private def otherLabelDict (pfx : Bool) (r enc : String) : Cell × Array BitStri
   (root, #[bitsOf r ++ #[false, false] ++ zs (m - 1), bitsOf r ++ #[false, true] ++ zs (m - 1), bitsOf r ++ #[true] ++ zs m])
 
 /-- Deletions from a dictionary whose root label is encoded as C++ does not write it, or whose root
-is a library cell (a dictionary but not a prefix-code one: the model followed no library in those):
-deleting a key below the fork that keeps both children of the root writes the root's label anew
+is a library cell: deleting a key below the fork that keeps both children of the root writes the root's label anew
 (`dict.cpp:1165`, `975` for a prefix-code dictionary; the model copied the old root's bits),
 deleting the root's leaf merges the root's edge with its other child. -/
 def labelCasesFor (suite : String) : Array OracleCase :=
   -- (name, root, library collections, keys)
   let dicts (pfx : Bool) : Array (String × Cell × Array Cell × Array BitString) :=
     otherLabels.map (fun (name, r, enc) => let (root, keys) := otherLabelDict pfx r enc; (name, root, #[], keys)) ++
-      (if pfx then #[] else
-        let (root, keys) := otherLabelDict pfx "" "00"
-        #[("library", Tests.Gen.VmCore.libCell root, #[Tests.Gen.VmCore.libCollection #[root]], keys)])
+      let (root, keys) := otherLabelDict pfx "" "00"
+      #[("library", Tests.Gen.VmCore.libCell root, #[Tests.Gen.VmCore.libCollection #[root]], keys)]
   let cases (pfx : Bool) (op : Instr) (keyOf : BitString → Value) : Array OracleCase :=
     (dicts pfx).flatMap fun (name, root, libs, keys) =>
       keys.mapIdx fun j k =>
@@ -222,6 +220,68 @@ def labelCasesFor (suite : String) : Array OracleCase :=
       (dicts false).map fun (name, root, libs, _) =>
         { name := s!"oracle/label/{name}", instr := { name := suite }, program := #[.dictGetMinMax 18],
           initStack := #[.cell root, iv 4], initLibraries := libs }
+  | _ => #[]
+
+/-- Prefix-code dictionaries with library cells (C++ loads each node with `load_cell_slice_ref`,
+`LabelParser`, dict.cpp:264, which goes on from a library cell to its library's root,
+`load_cell_slice_impl`, CellSlice.cpp:1107-1120, cell_und if the VM's collections lack it): the
+dictionary of `otherLabelDict` (its root label as C++ writes it) with its root, its inner fork or
+the leaf of its last key a library cell, the library in the VM's collection or not. -/
+private def libPfxDicts : Array (String × Cell × Array Cell) :=
+  let root := (otherLabelDict true "" "00").1
+  let withRef (i : Nat) (c : Cell) : Cell := Cell.mkOrdinary root.bits (root.refs.set! i c)
+  (#[("root", Tests.Gen.VmCore.libCell root, root),
+     ("fork", withRef 0 (Tests.Gen.VmCore.libCell root.refs[0]!), root.refs[0]!),
+     ("leaf", withRef 1 (Tests.Gen.VmCore.libCell root.refs[1]!), root.refs[1]!)] : Array (String × Cell × Cell)).flatMap
+    fun (n, d, lib) => #[(s!"{n}-hit", d, #[Tests.Gen.VmCore.libCollection #[lib]]), (s!"{n}-miss", d, #[])]
+
+/-- `PFXDICT*` on the dictionaries of `libPfxDicts` (the model followed no library in a prefix-code
+dictionary), and `SUBDICTGET` failing below a fork that is a library cell: the nodes loaded before
+the failure are charged, the library's root among them (the model loaded none past the library
+cell). -/
+def libCasesFor (suite : String) : Array OracleCase :=
+  let mk (name : String) (stack : Cell → Array Value) (prog : Array Instr) (code? : Cell → Option Cell := fun _ => none) :
+      Array OracleCase :=
+    libPfxDicts.map fun (dn, d, libs) =>
+      { name := s!"oracle/lib/{dn}/{name}", instr := { name := suite }, program := prog, codeCell? := code? d,
+        initStack := stack d, initLibraries := libs }
+  -- the keys, a proper prefix of a key, a key extended past its leaf
+  let probes : Array String := #["0000", "0100", "1000", "01", "10001"]
+  let get (op : Instr) : Array OracleCase :=
+    probes.flatMap fun k => mk k (fun d => #[key k, .cell d, iv 4]) #[op]
+  -- a new key splitting the edge of a leaf below the fork, the leaf of the root replaced, a key
+  -- below the fork replaced
+  let set (mode : DictSetMode) : Array OracleCase :=
+    #["0110", "1000", "0000"].flatMap fun k => mk k (fun d => #[val 9, key k, .cell d, iv 4]) #[.dictExt (.pfxSet mode)]
+  match suite with
+  | "PFXDICTGET" => get (.dictExt (.pfxGet .get))
+  | "PFXDICTGETQ" => get (.dictExt (.pfxGet .getQ))
+  | "PFXDICTGETJMP" => get (.dictExt (.pfxGet .getJmp))
+  | "PFXDICTGETEXEC" => get (.dictExt (.pfxGet .getExec))
+  | "PFXDICTSET" => set .set
+  | "PFXDICTADD" => set .add
+  | "PFXDICTREPLACE" => set .replace
+  -- both children of the root kept, the root's edge merged, a leaf below the fork merged into it
+  | "PFXDICTDEL" =>
+      #["0000", "1000", "0100"].flatMap fun k => mk k (fun d => #[key k, .cell d, iv 4]) #[.dictExt .pfxDel]
+  | "PFXDICTSWITCH" =>
+      probes.flatMap fun k =>
+        mk k (fun _ => #[key k]) #[] (fun d => some (Cell.mkOrdinary (natToBits ((0x3d2b <<< 10) + 4) 24) #[d]))
+  | "SUBDICTGET" =>
+      -- the fork below the root (3 key bits left) keeps the leaf of 0100 and has a node whose label
+      -- (3 bits, where 2 are left) does not parse in place of the leaf of 0000
+      let root := (otherLabelDict false "" "00").1
+      let fork := root.refs[0]!
+      let fork' := Cell.mkOrdinary fork.bits (fork.refs.set! 0 (Cell.mkOrdinary (bitsOf "11111") #[]))
+      let dicts : Array (String × Cell × Array Cell) :=
+        #[("fork", Cell.mkOrdinary root.bits (root.refs.set! 0 fork'), #[]),
+          ("fork-lib-hit", Cell.mkOrdinary root.bits (root.refs.set! 0 (Tests.Gen.VmCore.libCell fork')),
+            #[Tests.Gen.VmCore.libCollection #[fork']]),
+          ("fork-lib-miss", Cell.mkOrdinary root.bits (root.refs.set! 0 (Tests.Gen.VmCore.libCell fork')), #[])]
+      dicts.flatMap fun (dn, d, libs) =>
+        #["0", "00", "000", "01"].map fun p =>
+          { name := s!"oracle/lib/{dn}/{p}", instr := { name := suite }, program := #[.dictExt (.subdictGet false false false)],
+            initStack := #[key p, iv p.length, .cell d, iv 4], initLibraries := libs }
   | _ => #[]
 
 /-- Oracle cases of the suite named `suite`. -/
