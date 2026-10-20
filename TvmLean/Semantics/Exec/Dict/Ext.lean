@@ -688,7 +688,8 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
               DictExt.pushDictRoot newRoot?
 
       | .pfxSet mode =>
-          VM.checkUnderflow 4
+          -- C++ `exec_pfx_dict_set` (dictops.cpp:570): `check_underflow(4)` from version 9, 3 before
+          VM.checkUnderflow (if (← get).globalVersion ≥ 9 then 4 else 3)
           let n ← VM.popNatUpTo 1023
           let dictCell? ← VM.popMaybeCell
           let keySlice ← VM.popSlice
@@ -714,7 +715,8 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                 DictExt.pushBool ok
 
       | .pfxDel =>
-          VM.checkUnderflow 3
+          -- C++ `exec_pfx_dict_delete` (dictops.cpp:584): `check_underflow(3)` from version 9, 2 before
+          VM.checkUnderflow (if (← get).globalVersion ≥ 9 then 3 else 2)
           let n ← VM.popNatUpTo 1023
           let dictCell? ← VM.popMaybeCell
           let keySlice ← VM.popSlice
