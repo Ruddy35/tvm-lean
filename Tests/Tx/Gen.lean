@@ -453,6 +453,19 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (mk "lib-code/deploy" (mkAccount 0 siAddr .none 0 0 0 0) (intMsg 0 siAddr 100000000 false (some siLib) #[]))
     out := out.push (withLibs (mk "lib-code/deploy-global" (mkAccount 0 siAddr .none 0 0 0 0)
       (intMsg 0 siAddr 100000000 false (some siLib) #[])) (globalLibsOf [libBody]))
+    -- special accounts of parameter 31 (masterchain only): no storage or forwarding fees, the special
+    -- gas limit, no action fines; the same address in the basechain is ordinary
+    let specials := ((Config.decode cfg).bind fun c => dictEntries c.specialSmc 256).getD #[]
+    for (key, _) in specials.toList.take 2 do
+      let tag := (bitStringToBytesBE key).toList.take 1 |>.map (·.toNat) |>.headD 0
+      for (pname, prog) in programs.filter (fun (n, _) => ["accept", "c7", "burn", "throw42"].contains n) ++
+          actionPrograms.filter (fun (n, _) => ["send", "send-all", "send-all-delete", "send-too-much",
+            "send-big-body", "reserve", "set-public-lib"].contains n) do
+        for (wname, wc) in [("mc", (-1 : Int)), ("bc", 0)] do
+          for (bname, bal, paid) in [("rich", 1000000000, 1700000000), ("old", 5000000, 1600000000)] do
+            let acc := mkAccount wc key (.active (asm prog) data) bal paid 0 1000
+            out := out.push (mk s!"p31-{tag}/{pname}/{wname}/{bname}/int" acc (intMsg wc key 100000000 true none #[]))
+            out := out.push (mk s!"p31-{tag}/{pname}/{wname}/{bname}/ext" acc (extMsg wc key none #[]))
     -- accounts with an anycast address (`addr` is addr_orig, the account lives at the rewritten
     -- address): messages to the rewritten address or to the anycast form, contracts that read
     -- MYADDR or send (the source is replaced by the address with its anycast before version 10)
