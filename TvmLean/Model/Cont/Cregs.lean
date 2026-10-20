@@ -50,6 +50,10 @@ mutual
     | tuple (t : Array Value)
     | cont (k : Continuation)
     | null
+    /-- A cell entry without a cell: C++ `Stack::push_cell` of a null `Ref<Cell>` (`restore_parent_vm`
+    before version 11, vm.cpp:812-817). It is not null (`ISNULL` is false, its type is a cell's)
+    and not a cell (`pop_cell`, `pop_maybe_cell`: type_chk); Fift prints it as `null`. -/
+    | nullCell
     deriving Repr
 end
 

@@ -28,6 +28,7 @@ def canonContTy : Continuation → String
 partial def canonValue (v : Value) : String :=
   match v with
   | .null => "null"
+  | .nullCell => "null"
   | .int .nan => "nan"
   | .int (.num n) => s!"int:{n}"
   | .cell c => s!"cell:{bytesHex (Cell.hashBytes c)}"
@@ -40,6 +41,7 @@ partial def canonValue (v : Value) : String :=
 
 partial def valueEqNormalized : Value → Value → Bool
   | .null, .null => true
+  | .nullCell, .nullCell => true
   | .int x, .int y => x == y
   | .cell x, .cell y => x == y
   | .builder x, .builder y => x == y

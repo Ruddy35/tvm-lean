@@ -251,15 +251,20 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
     | none => childRegs2
     | some c => { childRegs2 with c4 := c }
 
+  -- `exec_runvm_common` clamps the child's limits by the gas left (contops.cpp:260-261)
+  let parentRem0 : Int := (← get).gas.gasRemaining
+
   -- C++ `run_child_vm`: with isolated gas the parent pays its free gas now and its counters restart;
-  -- the child starts with the parent's counters (and gas limits clamped by what is left after that).
+  -- the child starts with the parent's counters; from version 10 its gas limits are clamped again by
+  -- what is left after that (vm.cpp:752-757).
   if isolateGas then
     VM.consumeGas (← get).freeGasConsumed
     modify fun st => { st with chksgnCounter := 0, getExtraBalanceCounter := 0, freeGasConsumed := 0 }
 
   let parentAfterPops ← get
 
-  let parentRem : Int := parentAfterPops.gas.gasRemaining
+  let parentRem : Int :=
+    if parentAfterPops.globalVersion ≥ 10 then parentAfterPops.gas.gasRemaining else parentRem0
   let gasMax : Int := min gasMax1 parentRem
   let gasLimit : Int := min gasLimit0 parentRem
   let childGas : GasLimits := GasLimits.ofLimits gasLimit gasMax 0
@@ -323,16 +328,19 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
 
   parentAfter := { parentAfter with stack := parentAfter.stack.push (.int (.num resCode)) }
 
+  -- the committed `c4` and `c5` of the child; if it did not commit, null from version 11, before a
+  -- cell entry without a cell (the committed state's null cells, vm.cpp:811-826)
+  let uncommitted : Value := if parentAfter.globalVersion ≥ 11 then .null else .nullCell
   if withData then
     if childFinal.cstate.committed then
       parentAfter := { parentAfter with stack := parentAfter.stack.push (.cell childFinal.cstate.c4) }
     else
-      parentAfter := { parentAfter with stack := parentAfter.stack.push .null }
+      parentAfter := { parentAfter with stack := parentAfter.stack.push uncommitted }
   if returnActions then
     if childFinal.cstate.committed then
       parentAfter := { parentAfter with stack := parentAfter.stack.push (.cell childFinal.cstate.c5) }
     else
-      parentAfter := { parentAfter with stack := parentAfter.stack.push .null }
+      parentAfter := { parentAfter with stack := parentAfter.stack.push uncommitted }
   if returnGas then
     parentAfter := { parentAfter with stack := parentAfter.stack.push (.int (.num childConsumed)) }
 

@@ -8,6 +8,7 @@ def Value.pretty : Value → String
   | .int .nan => "NaN"
   | .int (.num n) => toString n
   | .null => "null"
+  | .nullCell => "<cell:none>"
   | .cell _ => "<cell>"
   | .slice _ => "<slice>"
   | .builder _ => "<builder>"
@@ -50,6 +51,7 @@ def arrayBeq {α : Type} [BEq α] (a b : Array α) : Bool :=
 -- `x[i]?` is always `some`, so the result is the same as before.
 def Value.beq : Value → Value → Bool
   | .null, .null => true
+  | .nullCell, .nullCell => true
   | .int x, .int y => x == y
   | .cell x, .cell y => x == y
   | .slice x, .slice y => x == y

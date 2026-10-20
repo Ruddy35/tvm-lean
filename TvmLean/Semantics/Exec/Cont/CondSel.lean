@@ -4,7 +4,7 @@ namespace TvmLean
 
 private def sameValueType : Value → Value → Bool
   | .int _, .int _ => true
-  | .cell _, .cell _ => true
+  | .cell _, .cell _ | .cell _, .nullCell | .nullCell, .cell _ | .nullCell, .nullCell => true
   | .slice _, .slice _ => true
   | .builder _, .builder _ => true
   | .tuple _, .tuple _ => true

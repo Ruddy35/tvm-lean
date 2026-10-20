@@ -682,6 +682,7 @@ def runTestCase (cfg : RunConfig) (tc : TestCase) : IO TestResult := do
                         let describeValue (v : Value) : String :=
                           match v with
                           | .null => "null"
+                          | .nullCell => "null"
                           | .int .nan => "nan"
                           | .int (.num n) => s!"int({n})"
                           | .cell c => s!"cell({cellHashHex c})"

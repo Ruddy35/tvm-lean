@@ -36,6 +36,7 @@ private def valueToToken (v : Value) : Except String String := do
   | .int (.num n) => pure (toString n)
   | .int .nan => throw "cannot encode NaN directly in oracle stack token stream"
   | .null => pure "N"
+  | .nullCell => throw "cannot encode a cell entry without a cell in oracle stack token stream"
   | .cell c =>
       let hex ← toBocHex c
       pure s!"CB:{hex}"

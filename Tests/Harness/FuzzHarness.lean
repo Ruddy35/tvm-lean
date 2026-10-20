@@ -87,6 +87,7 @@ private def oracleTokenEncodable : Value → Bool
   | .int (.num _) => true
   | .int .nan => false
   | .null => true
+  | .nullCell => false
   | .cell _ => true
   | .slice s => isFullCellSlice s
   | .builder _ => true
@@ -128,6 +129,7 @@ private def valueKindTag (v : Value) : String :=
   match v with
   | .int _ => "int"
   | .null => "null"
+  | .nullCell => "null-cell"
   | .cell _ => "cell"
   | .slice _ => "slice"
   | .builder _ => "builder"
