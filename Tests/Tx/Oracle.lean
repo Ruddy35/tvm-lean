@@ -15,7 +15,8 @@ namespace Tests.Tx
 open TvmLean TvmLean.Tx
 
 /-- A transaction case: the configuration, the `ShardAccount`, the inbound message, the time, the
-logical time and the block's random seed. -/
+logical time and the block's random seed; `tickTock`: a tick (`false`) or tock (`true`) transaction,
+the message unused. -/
 structure TxCase where
   name : String
   config : Cell
@@ -24,6 +25,13 @@ structure TxCase where
   now : Nat
   lt : Nat
   seed : BitString
+  tickTock : Option Bool := none
+
+/-- The model's run of a case. -/
+def TxCase.emulate (c : TxCase) : Outcome :=
+  match c.tickTock with
+  | some isTock => emulateTickTock c.config c.account isTock c.now c.lt c.seed
+  | none => TvmLean.Tx.emulate c.config c.account c.msg c.now c.lt c.seed
 
 def base64Chars : Array Char :=
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toList.toArray
@@ -72,12 +80,15 @@ inductive TxAnswer where
 def runOracle (cases : Array TxCase) (workDir : String := ".") : IO (Array TxAnswer) := do
   let reqFile := s!"{workDir}/.txoracle-req-{← IO.monoNanosNow}.jsonl"
   let lines := cases.map fun c =>
-    Lean.Json.compress (Lean.Json.mkObj [
+    Lean.Json.compress (Lean.Json.mkObj ([
       ("config", Lean.Json.str (cellB64 c.config)), ("account", Lean.Json.str (cellB64 c.account)),
       ("msg", Lean.Json.str (cellB64 c.msg)), ("utime", Lean.Json.num c.now), ("lt", Lean.Json.num c.lt),
       ("rand_seed", Lean.Json.str (String.join ((bitStringToBytesBE c.seed).toList.map fun x =>
         let s := (Nat.toDigits 16 x.toNat).asString
-        if s.length = 1 then "0" ++ s else s)))])
+        if s.length = 1 then "0" ++ s else s)))] ++
+      (match c.tickTock with
+       | some isTock => [("tick_tock", Lean.Json.str (if isTock then "tock" else "tick"))]
+       | none => [])))
   IO.FS.writeFile reqFile (String.intercalate "\n" lines.toList ++ "\n")
   let script := (← IO.getEnv "TVMLEAN_TXORACLE").getD "tools/txoracle/txoracle.py"
   let out ← IO.Process.output { cmd := "sh", args := #["-c", s!"python3 {script} < {reqFile}"] }

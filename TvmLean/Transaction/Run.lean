@@ -87,10 +87,19 @@ structure BouncePhase where
   fwdFees : Nat
   fwdFeesCollected : Nat := 0
 
+/-- C++ `Transaction::trans_type`: an ordinary transaction on an inbound message, or a tick or tock
+transaction (no message; the collator runs them for special accounts). -/
+inductive TxKind where
+  | ord
+  | tick
+  | tock
+  deriving BEq, Inhabited
+
 /-- The state of the transaction (C++ `Transaction` fields). A `CurrencyCollection` is its grams and
 the root of its extra currencies (`balance` and `balanceExtra`, ...). -/
 structure Tx where
   cfg : Config
+  kind : TxKind := .ord
   gv : Nat
   account : Account
   now : Nat
@@ -395,6 +404,10 @@ def Tx.inMsgParams (t : Tx) : Value :=
   let info := t.inMsgInfo
   let b (x : Bool) : Value := .int (.num (if x then -1 else 0))
   let n (x : Nat) : Value := .int (.num (Int.ofNat x))
+  -- no message (tick-tock): zeros, `addr_none`, nulls
+  if t.kind != .ord then
+    .tuple #[n 0, n 0, .slice (Slice.ofCell (Cell.mkOrdinary #[false, false])), n 0, n 0, n 0, n 0, n 0, .null, .null]
+  else
   .tuple #[b info.bounce, b info.bounced, .slice (Slice.ofCell (Cell.mkOrdinary info.src)), n info.fwdFee,
            n info.createdLt, n info.createdAt, n info.value.grams, n t.msgBalanceRemaining,
            match t.msgExtra with | some c => .cell c | none => .null,
@@ -461,9 +474,14 @@ def Tx.checkInMsgStateHash (t : Tx) : Option Tx := do
 with the libraries of `compute_vm_libraries`, `max_data_depth`, c7. -/
 def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed : BitString)
     (sl : SizeLimits) : VmState × Int :=
+  -- `prepare_vm_stack`: tick-tock gets the balance, the address, whether it is tock and -2
   let stack : Stack :=
-    #[.int (.num (Int.ofNat t.balance)), .int (.num (Int.ofNat t.msgBalanceRemaining)), .cell t.inMsg,
-      .slice t.inMsgBody, .int (.num (if t.inMsgExtern then -1 else 0))]
+    if t.kind != .ord then
+      #[.int (.num (Int.ofNat t.balance)), .int (.num (Int.ofNat (bitsToNat t.account.addr))),
+        .int (.num (if t.kind == .tock then -1 else 0)), .int (.num (-2))]
+    else
+      #[.int (.num (Int.ofNat t.balance)), .int (.num (Int.ofNat t.msgBalanceRemaining)), .cell t.inMsg,
+        .slice t.inMsgBody, .int (.num (if t.inMsgExtern then -1 else 0))]
   let libs : Array Cell :=
     (if t.gv < 15 then #[t.inMsgLibrary, t.newLibrary].filterMap id else #[])
   let base0 := VmState.initial code (Int.ofNat gasLimit) (Int.ofNat gasMax) (Int.ofNat gasCredit)
@@ -493,7 +511,9 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
   if t.balance = 0 then return ← skip t 3
   -- `compute_gas_limits`
   let gasMax := if t.account.isSpecial then gas.specialGasLimit else t.gasBoughtFor gas t.balance
-  let gasLimit := if t.account.isSpecial && t.gv ≥ 5 then gasMax else Nat.min (t.gasBoughtFor gas t.msgBalanceRemaining) gasMax
+  -- tick-tock may use all the gas the balance buys
+  let gasLimit := if t.kind != .ord || (t.account.isSpecial && t.gv ≥ 5) then gasMax
+    else Nat.min (t.gasBoughtFor gas t.msgBalanceRemaining) gasMax
   let gasCredit := if t.inMsgExtern then Nat.min gas.gasCredit gasMax else 0
   let t := { t with computePhase := { gasMax, gasLimit, gasCredit } }
   if gasLimit = 0 ∧ gasCredit = 0 then return ← skip t 3
@@ -535,6 +555,7 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
     | some c => pure c
     | none => throw "no code"
   let precompiled : Option Nat :=
+    if t.kind != .ord then none else
     (dictGet t.cfg.precompiledList (bytesToBits code.hashBytes)).bind fun v =>
       match (do if (← Reader.uint 8) != 0xb0 then Reader.fail
                 Reader.uint 64 : Reader Nat) v with
@@ -688,29 +709,33 @@ def Tx.serialize (t : Tx) (newState : Cell) : Option Cell := do
     | .ok (r, _, _, _) => some r
     | .error _ => none
   if t.outMsgs.size ≥ 2 ^ 15 then none
-  let msgs : W := ({} : W).maybeRef (some t.inMsg) |>.maybeRef outDict
+  let msgs : W := ({} : W).maybeRef (if t.kind == .ord then some t.inMsg else none) |>.maybeRef outDict
   let update : W := ((({} : W).uint 0x72 8).bitStr (bytesToBits t.account.totalState.hashBytes)).bitStr
     (bytesToBits newState.hashBytes)
   let cp := t.computePhase
   let act := cp.success
   let actOk := act && (t.actionPhase.map (·.success)).getD false
   let sp ← t.storagePhase
-  let wsp : W := ({} : W)
-  let d : W := ((wsp.uint 0 4).bool (!t.bounceEnabled))
-  let d := (d.bool true)
-  let d := (d.grams sp.feesCollected).maybeGramsNz sp.feesDue
-  let d := if sp.deleted || sp.frozen then d.uint (if sp.deleted then 3 else 2) 2 else d.uint 0 1
-  let d := match t.creditPhase with
-    | some credit => ((d.bool true).maybeGramsNz 0).currencies credit
-    | none => d.bool false
+  let storage (d : W) : W :=
+    let d := (d.grams sp.feesCollected).maybeGramsNz sp.feesDue
+    if sp.deleted || sp.frozen then d.uint (if sp.deleted then 3 else 2) 2 else d.uint 0 1
+  -- trans_ord$0000 credit_first storage_ph:(Maybe ...) credit_ph:(Maybe ...), or
+  -- trans_tick_tock$001 is_tock storage_ph:TrStoragePhase
+  let d : W :=
+    if t.kind != .ord then storage (({} : W).uint (if t.kind == .tick then 2 else 3) 4)
+    else
+      let d := storage (((({} : W).uint 0 4).bool (!t.bounceEnabled)).bool true)
+      match t.creditPhase with
+      | some credit => ((d.bool true).maybeGramsNz 0).currencies credit
+      | none => d.bool false
   let d := d.computePhase cp
   let d ← if act then do
       let ap ← t.actionPhase
       pure ((d.bool true).ref (W.actionPhase {} ap).cell)
     else pure (d.bool false)
   let d := d.bool (!actOk)
-  -- bounce:(Maybe TrBouncePhase)
-  let d := match t.bouncePhase with
+  -- bounce:(Maybe TrBouncePhase), not in tick-tock
+  let d := if t.kind != .ord then d else match t.bouncePhase with
     | none => d.bool false
     | some bp =>
         let d := d.bool true

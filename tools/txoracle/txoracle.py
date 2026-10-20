@@ -6,7 +6,8 @@ as the collator does) through `libemulator.so` of the reference build.
 Reads one JSON object per line on stdin and writes one per line on stdout:
   in:  {"config": <b64 BOC of the config dictionary>, "account": <b64 BOC of a ShardAccount>,
         "msg": <b64 BOC of a Message>, "utime": n, "lt": n, "rand_seed": <64 hex digits>,
-        "libs": <b64 BOC of the library dictionary, optional>, "ignore_chksig": bool (optional)}
+        "libs": <b64 BOC of the library dictionary, optional>, "ignore_chksig": bool (optional),
+        "tick_tock": "tick" or "tock" (optional: a tick-tock transaction, no message)}
   out: the emulator's JSON answer: {"success": true, "transaction": b64, "shard_account": b64, ...},
        {"success": false, "external_not_accepted": true, "vm_exit_code": n, ...} or
        {"success": false, "error": "..."}
@@ -34,6 +35,8 @@ def load():
         f.argtypes = args
     lib.transaction_emulator_emulate_transaction.restype = ctypes.c_void_p
     lib.transaction_emulator_emulate_transaction.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
+    lib.transaction_emulator_emulate_tick_tock_transaction.restype = ctypes.c_void_p
+    lib.transaction_emulator_emulate_tick_tock_transaction.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_bool]
     lib.transaction_emulator_destroy.argtypes = [ctypes.c_void_p]
     lib.string_destroy.argtypes = [ctypes.c_void_p]
     lib.emulator_set_verbosity_level.argtypes = [ctypes.c_int]
@@ -53,7 +56,11 @@ def emulate(lib, req):
               and (not req.get("libs") or lib.transaction_emulator_set_libs(em, req["libs"].encode())))
         if not ok:
             return {"success": False, "error": "cannot set the emulator parameters"}
-        p = lib.transaction_emulator_emulate_transaction(em, req["account"].encode(), req["msg"].encode())
+        tt = req.get("tick_tock")
+        if tt:
+            p = lib.transaction_emulator_emulate_tick_tock_transaction(em, req["account"].encode(), tt == "tock")
+        else:
+            p = lib.transaction_emulator_emulate_transaction(em, req["account"].encode(), req["msg"].encode())
         res = json.loads(ctypes.string_at(p).decode())
         lib.string_destroy(p)
         res.pop("vm_log", None)

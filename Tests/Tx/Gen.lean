@@ -293,12 +293,44 @@ def extraCases (mk : String → Cell → Cell → TxCase) (a : BitString) (data 
       (intMsg 0 a 100000000 false none #[]))
   return out
 
+/-- Contracts for tick-tock: the stack is `balance address is_tock -2`. -/
+def tickTockPrograms : List (String × List Instr) :=
+  [("tt-stack", [.newc, .stIntFixed false false false 8, .stIntFixed false false false 8,
+                 .stIntFixed true false false 256, .stIntFixed true false false 64, .endc, .popCtr 4])]
+
 /-- The contracts of the cases that do not assemble (none should). -/
 def programsAssemble : List String :=
-  (programs ++ actionPrograms ++ extraPrograms).filterMap fun (n, p) =>
+  (programs ++ actionPrograms ++ extraPrograms ++ tickTockPrograms).filterMap fun (n, p) =>
     match asm? p with
     | .ok _ => none
     | .error e => some s!"{n}: {e}"
+
+/-- Tick-tock transactions: of the configuration contract (special), of an ordinary masterchain and
+basechain account; contracts that read the stack, use gas, make actions; accounts without gas,
+without state, with storage fees due. -/
+def tickTockCases (cfg : Cell) (mk : String → Cell → Cell → TxCase) (a : BitString) (data : Cell) :
+    Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let cfgAddr := (Config.decode cfg).map (·.configAddr) |>.getD a
+  let tt (name : String) (acc : Cell) (isTock : Bool) : TxCase :=
+    { mk s!"tt/{name}/{if isTock then "tock" else "tick"}" acc Cell.empty with tickTock := some isTock }
+  let progs := tickTockPrograms ++ programs.filter (fun (n, _) => ["empty", "throw42", "burn", "c7", "c7-v4",
+    "in-msg-params", "accept-loop", "commit-throw", "c7-extra"].contains n) ++
+    actionPrograms.filter (fun (n, _) => ["send", "send-all", "send-all-delete", "reserve", "set-code",
+      "set-lib", "send-mc", "c5-bad-tag"].contains n)
+  for (pname, prog) in progs do
+    for (aname, wc, addr) in [("special", (-1 : Int), cfgAddr), ("mc", -1, a), ("bc", 0, a)] do
+      for isTock in [false, true] do
+        out := out.push (tt s!"{pname}/{aname}" (mkAccount wc addr (.active (asm prog) data) 1000000000 1700000000 0 1000) isTock)
+  for (aname, wc, addr) in [("special", (-1 : Int), cfgAddr), ("mc", -1, a), ("bc", 0, a)] do
+    out := out.push (tt s!"no-gas/{aname}" (mkAccount wc addr (.active (asm []) data) 0 1700000000 0 1000) false)
+    out := out.push (tt s!"old/{aname}" (mkAccount wc addr (.active (asm []) data) 50000 1600000000 0 1000) true)
+    out := out.push (tt s!"extra/{aname}" (mkAccount wc addr (.active (asm (programs.lookup "c7-extra" |>.getD [])) data)
+      1000000000 1700000000 0 1000 extra2) false)
+    out := out.push (tt s!"uninit/{aname}" (mkAccount wc addr .uninit 1000000000 1700000000 0 1000) false)
+    out := out.push (tt s!"frozen/{aname}" (mkAccount wc addr (.frozen (natToBits 5 256)) 1000000000 1600000000 0 1000) true)
+  out := out.push (tt "none" (mkAccount 0 a .none 0 0 0 0) false)
+  return out
 
 /-- The cases on the configuration `cfg0`, for each version of `versions`. -/
 def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
@@ -357,6 +389,7 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (mk "uninit/int" (mkAccount 0 a .uninit 50000000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
     out := out.push (mk "frozen/int" (mkAccount 0 a (.frozen (natToBits 77 256)) 5000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
     out := out ++ extraCases mk a data
+    out := out ++ tickTockCases cfg mk a data
     -- amounts with a leading zero byte: the generated TL-B code reads them, block::tlb does not
     let code := asm [.tonEnvOp .accept]
     for k in [1, 2, 3] do
