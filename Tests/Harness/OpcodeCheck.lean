@@ -33,12 +33,6 @@ private def instrEncodings : Nat → Cell → Array BitString
         out := out ++ instrEncodings fuel r
       return out
 
-/-- The prefixes a spec row may mean: `prefixBits` is either the checked prefix itself or a sample
-encoding of `skipLenBits` bits whose top `checkLenBits` bits are the prefix. -/
-private def rowPrefixes (row : InstrSpecRow) : Array BitString :=
-  let sample := (natToBits row.prefixBits row.skipLenBits).extract 0 row.checkLenBits
-  if row.prefixBits < 2 ^ row.checkLenBits then #[natToBits row.prefixBits row.checkLenBits, sample] else #[sample]
-
 /-- Prints the suites whose oracle never runs their own opcode; returns how many there are. -/
 def opcodeCheck : IO Nat := do
   let suites ← registeredSuites
@@ -49,7 +43,7 @@ def opcodeCheck : IO Nat := do
     match allInstrRows.find? (fun r => r.id.name == suite.id.name) with
     | none => pure ()
     | some row =>
-        let pfxs := rowPrefixes row
+        let pfxs := specRowPrefixes row
         let runs := cases.any fun c =>
           let code? : Option Cell :=
             match c.codeCell? with

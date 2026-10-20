@@ -5,6 +5,7 @@ import Tests.Harness.Gen.CellDepth
 import Tests.Harness.Gen.Loops
 import Tests.Harness.Gen.Dict
 import Tests.Harness.Gen.OwnOpcode
+import TvmLean.Spec.Index
 
 namespace Tests
 
@@ -93,13 +94,46 @@ private def oracleFailureReason (out : OracleRunResult) : String :=
           | none => "oracle comparison failed"
       | none => "oracle comparison failed"
 
+/-- The prefixes a spec row may mean: `prefixBits` is either the checked prefix itself or a sample
+encoding of `skipLenBits` bits whose top `checkLenBits` bits are the prefix. -/
+def specRowPrefixes (row : TvmLean.InstrSpecRow) : Array TvmLean.BitString :=
+  let sample := (TvmLean.natToBits row.prefixBits row.skipLenBits).extract 0 row.checkLenBits
+  if row.prefixBits < 2 ^ row.checkLenBits then #[TvmLean.natToBits row.prefixBits row.checkLenBits, sample] else #[sample]
+
+/-- Whether the instruction `i` is the suite's own opcode (its encoding starts with the prefix of the
+suite's spec row); true for a suite without a spec row. -/
+def isSuiteOpcode (suite : InstrSuite) (i : TvmLean.Instr) : Bool :=
+  match TvmLean.allInstrRows.find? (fun r => r.id.name == suite.id.name) with
+  | none => true
+  | some row =>
+      match TvmLean.encodeCp0 i with
+      | .ok e => (specRowPrefixes row).any fun p => e.size ≥ p.size && e.extract 0 p.size == p
+      | .error _ => false
+
+/-- Whether the code cell `cc` is one instruction of the suite's own opcode, as raw bits (the
+alternative encodings of `Tests.Gen.OwnOpcode`): no references, decoded in full, starting with the
+prefix of the suite's spec row. -/
+def codeIsSuiteOpcode (suite : InstrSuite) (cc : TvmLean.Cell) : Bool :=
+  match TvmLean.allInstrRows.find? (fun r => r.id.name == suite.id.name) with
+  | none => false
+  | some row =>
+      cc.refs.isEmpty &&
+        (match TvmLean.decodeCp0WithBits (TvmLean.Slice.ofCell cc) with
+         | .ok (_, used, _) => used == cc.bits.size
+         | .error _ => false) &&
+        (specRowPrefixes row).any fun p => cc.bits.size ≥ p.size && cc.bits.extract 0 p.size == p
+
 /-- Short stacks for every suite: C++ checks the stack depth (`check_underflow`) before popping
 the operands, so a stack too short for an instruction is stk_und whatever its values, while a
 model that pops first fails on the first value of a wrong type. The suite's first oracle case
-that runs a single instruction is run on 0..5 copies of `null` and of `1` (its `c7`, libraries
-and gas kept). -/
+that runs its own opcode alone (as a program or a raw code cell) is run on 0..5 copies of `null`
+and of `1` (its `c7`, libraries and gas kept). -/
 def shortStackCases (suite : InstrSuite) : Array OracleCase :=
-  match suite.oracle.find? (fun c => c.program.size == 1 && c.codeCell?.isNone) with
+  let ownAlone (c : OracleCase) : Bool :=
+    match c.codeCell? with
+    | some cc => codeIsSuiteOpcode suite cc
+    | none => match c.program.toList with | [i] => isSuiteOpcode suite i | _ => false
+  match (suite.oracle ++ Tests.Gen.OwnOpcode.casesFor suite.id.name).find? ownAlone with
   | none => #[]
   | some base =>
       (#[("null", TvmLean.Value.null), ("int", TvmLean.Value.int (.num 1))] : Array (String × TvmLean.Value)).flatMap fun (vl, v) =>
