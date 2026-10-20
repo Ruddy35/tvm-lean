@@ -161,3 +161,49 @@ dnsdata "dns.data" put
 <b dnsid 32 u, NOW 100 - 32 << 9 + 64 u, 0 6 u, b> dnsext "dns.msg.expired" put
 <b 12 32 u, NOW 60 + 32 << 10 + 64 u, 0 6 u, b> dnsext "dns.msg.wrong-id" put
 pk-other key ! 11 dnshead 0 6 u, b> dnsext "dns.msg.bad-signature" put pk key !
+
+// --- simple wallet (simple-wallet-code.fc): seqno public_key; a message is signature seqno
+// [mode ^msg]; wallet v2 (wallet-code.fc): seqno public_key; signature seqno valid_until (mode ^msg)*
+{ <b b{0011} s, rot ref, swap ref, null dict, b> hashu } : addr-of   // ( code data -- addr )
+"auto/simple-wallet-code.fif" include constant swcode
+<b 0 32 u, pub B, b> constant swdata
+swcode swdata addr-of constant swaddr
+swcode "simple-wallet.code" put  swdata "simple-wallet.data" put  <b swaddr 256 u, b> "simple-wallet.addr" put
+{ swaddr swap signed-ext } : swext
+<b 0 32 u, 3 8 u, 500000000 transfer ref, b> swext "simple-wallet.msg.ok" put
+<b 0 32 u, b> swext "simple-wallet.msg.none" put
+<b 3 32 u, 3 8 u, 500000000 transfer ref, b> swext "simple-wallet.msg.seqno" put
+pk-other key ! <b 0 32 u, 3 8 u, 500000000 transfer ref, b> swext "simple-wallet.msg.bad-signature" put pk key !
+"auto/wallet-code.fif" include constant w2code
+<b 0 32 u, pub B, b> constant w2data
+w2code w2data addr-of constant w2addr
+w2code "wallet2.code" put  w2data "wallet2.data" put  <b w2addr 256 u, b> "wallet2.addr" put
+{ w2addr swap signed-ext } : w2ext
+<b 0 32 u, 1800000000 32 u, 3 8 u, 100000000 transfer ref, 1 8 u, 200000000 transfer ref,
+   0 8 u, 5000000000000 transfer ref, 2 8 u, 300000000 transfer ref, b> w2ext "wallet2.msg.four" put
+<b 0 32 u, 1800000000 32 u, b> w2ext "wallet2.msg.none" put
+<b 0 32 u, NOW 32 u, 3 8 u, 100000000 transfer ref, b> w2ext "wallet2.msg.expired" put
+<b 1 32 u, 1800000000 32 u, 3 8 u, 100000000 transfer ref, b> w2ext "wallet2.msg.seqno" put
+pk-other key ! <b 0 32 u, 1800000000 32 u, 3 8 u, 100000000 transfer ref, b> w2ext "wallet2.msg.bad-signature" put pk key !
+
+// --- proof-of-work test giver (pow-testgiver-code.fc): seqno subwallet public_key seed complexity
+// last_success ^(amount target_delta min_cpl max_cpl); "Mine" messages (unsigned, the hash of the
+// body below the complexity), "RScl" (rescale the complexity), signed transfers
+"auto/pow-testgiver-code.fif" include constant pgcode
+{ <b 0 32 u, 77 32 u, pub B, 0x1234 128 u, swap 256 u, NOW 100 - 32 u,
+     <b 1000000000 Gram, 5 32 u, 8 8 u, 250 8 u, b> ref, b> } : pgdata   // ( complexity -- data )
+1 252 << pgdata constant pgeasy   // complexity 2^252 (the messages below are mined for it)
+pgcode pgeasy addr-of constant pgaddr
+pgcode "pow.code" put  pgeasy "pow.data.easy" put  1 pgdata "pow.data.hard" put  <b pgaddr 256 u, b> "pow.addr" put
+{ <b b{1000100} s, 0 pgaddr addr, 0 Gram, b{01} s, swap ref, b> } : pgext   // ( body -- ext-msg ), not signed
+// ( expire rseed rdata -- body ): Mine for 0:2222..22 (flags 0)
+{ <b 0x4d696e65 32 u, 0 8 i, 3 roll 32 u, dest 256 u, over 256 u, rot 128 u, swap 256 u, b> } : mine
+// ( expire rseed -- body ): the first rdata from 1 whose body hashes below 2^252
+variable rd
+{ 0 rd ! { rd @ 1+ rd ! 2dup rd @ mine hashu 1 252 << < } until rd @ mine } : mine-solved
+NOW 30 + 0x1234 mine-solved pgext "pow.msg.mine" put
+NOW 30 + 0x9999 mine-solved pgext "pow.msg.mine-wrong-seed" put
+NOW 5 - 0x1234 mine-solved pgext "pow.msg.mine-expired" put
+<b 0x5253636c 32 u, NOW 10 - 32 u, b> pgext "pow.msg.rescale" put
+<b 0x5253636c 32 u, NOW 10 + 32 u, b> pgext "pow.msg.rescale-early" put
+<b 77 32 u, NOW 100 + 32 u, 0 32 u, 500000000 transfer ref, 3 8 u, b> pgaddr swap signed-ext "pow.msg.transfer" put

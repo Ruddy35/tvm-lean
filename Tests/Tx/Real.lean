@@ -27,7 +27,12 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
 - manual DNS (`dns-manual-code.fc`), its records in a prefix-code dictionary: setting a record, a
   chain of operations that sets, deletes a category, deletes a name, clears a table and sends a
   message, replacing and clearing the root, a new key, an invalid operation, a name without its zero
-  byte, new code, an expired query, a wrong contract id and a wrong signature; an internal message.
+  byte, new code, an expired query, a wrong contract id and a wrong signature; an internal message;
+- the simple wallet (`simple-wallet-code.fc`) and wallet v2 (`wallet-code.fc`, four messages in one
+  order): transfers, no order, wrong seqno, expiry and signature;
+- the proof-of-work test giver (`pow-testgiver-code.fc`, `randomize_lt`, `random`, `muldivr`): a
+  solution ("Mine") under a complexity every hash meets and one none meets, with a wrong seed and
+  expired; rescaling the complexity, too early; a signed transfer.
 -/
 
 namespace Tests.Tx
@@ -74,6 +79,14 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
   let dns := (← get "dns.code", ← get "dns.data", (← get "dns.addr").bits)
   let dnsmsgs ← ["set", "multi", "root-null", "root-clear", "set-key", "bad-op", "bad-name", "set-code", "expired",
     "wrong-id", "bad-signature"].mapM fun n => return (n, ← get s!"dns.msg.{n}")
+  let simple (pfx : String) (msgs : List String) : Except String (Cell × Cell × BitString × List (String × Cell)) := do
+    return (← get s!"{pfx}.code", ← get s!"{pfx}.data", (← get s!"{pfx}.addr").bits,
+      ← msgs.mapM fun n => return (n, ← get s!"{pfx}.msg.{n}"))
+  let wallets ← [("simple-wallet", ["ok", "none", "seqno", "bad-signature"]),
+    ("wallet2", ["four", "none", "expired", "seqno", "bad-signature"])].mapM fun (p, ms) => return (p, ← simple p ms)
+  let pow := (← get "pow.code", ← get "pow.data.easy", ← get "pow.data.hard", (← get "pow.addr").bits)
+  let powmsgs ← ["mine", "mine-wrong-seed", "mine-expired", "rescale", "rescale-early", "transfer"].mapM fun n =>
+    return (n, ← get s!"pow.msg.{n}")
   let cfgCode ← get "config.code"
   let pub := (← get "key.pub").bits
   let cfgBodies ← ["set-param", "set-key", "set-code", "elector-code", "noop", "unknown", "seqno", "expired", "vote",
@@ -105,6 +118,14 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
         out := out.push (mk s!"dns/{n}/{bname}" (mkAccount 0 addr (.active code data) bal 1700000000 0 1000) m)
     out := out.push (mk "dns/internal" (mkAccount 0 addr (.active code data) 1000000000 1700000000 0 1000)
       (intMsg 0 addr 100000000 true none (natToBits 0x12345678 32)))
+    for (p, (code, data, addr, msgs)) in wallets do
+      for (bname, bal) in [("rich", 1000000000), ("poor", 2000000)] do
+        for (n, m) in msgs do
+          out := out.push (mk s!"{p}/{n}/{bname}" (mkAccount 0 addr (.active code data) bal 1700000000 0 1000) m)
+    let (code, easy, hard, addr) := pow
+    for (dname, data) in [("easy", easy), ("hard", hard)] do
+      for (n, m) in powmsgs do
+        out := out.push (mk s!"pow/{n}/{dname}" (mkAccount 0 addr (.active code data) 100000000000 1700000000 0 1000) m)
     let (code, data) := el
     let elAcc := mkAccount (-1) elAddr (.active code data) 500000000000 1700000000 0 1000
     for (n, body) in [("transfer", natToBits 0 32), ("stake", natToBits 0x4e73744b 32 ++ natToBits 7 64),
