@@ -12,7 +12,8 @@ keccak256, keccak512), the algorithm taken from the stack, invalid algorithms, s
 mixed, data that is not byte-aligned, appending to a builder (and overflowing it), reversed order,
 and gas running out between the entries of HASHEXT (`SETGASLIMIT` before it: C++ charges each
 entry with `consume_gas`, which throws at the first overrun). Results, exceptions and the per-byte
-gas are compared with C++.
+gas are compared with C++. The digests, computed in Lean, on data of the lengths around the blocks of
+each hash (`hashExtLengths`) and on random data (`fuzzFor`).
 -/
 
 namespace Tests.Gen.Crypto
@@ -109,13 +110,39 @@ private def hashExtGasCases (suite : String) (append rev : Bool) : Array OracleC
           initStack := pre ++ #[big, big, big, iv 3] }
   return out
 
+/-- `n` bytes of varying content. -/
+private def noise (n seed : Nat) : BitString :=
+  bitsOfBytes (Array.ofFn (n := n) fun i => UInt8.ofNat ((seed * 131 + i.1 * 197 + i.1 * i.1 * 7) % 256))
+
+/-- Data lengths in bytes around the blocks of the hashes, where the padding takes one more byte,
+a few, or a whole block: 64 bytes of SHA-256, 128 of SHA-512 and BLAKE2b, 136 of Keccak-256, 72 of
+Keccak-512. -/
+private def hashExtLengths : Array Nat :=
+  #[55, 56, 63, 64, 65, 70, 71, 72, 73, 111, 112, 119, 120, 127, 128, 129, 134, 135, 136, 137, 143,
+    144, 145, 255, 256, 257, 271, 272, 273, 1000]
+
+/-- HASHEXT with every algorithm on data of each length of `hashExtLengths`, in entries of at most
+127 bytes. -/
+private def hashExtLengthCases (suite : String) (append rev : Bool) : Array OracleCase := Id.run do
+  let pre : Array Value := if append then #[bl #[]] else #[]
+  let mut out : Array OracleCase := #[]
+  for len in hashExtLengths do
+    let entries : Array Value := (Array.range ((len + 126) / 127)).map fun j =>
+      sl (noise (Nat.min 127 (len - 127 * j)) (len + j))
+    for id in [0:5] do
+      out := out.push
+        { name := s!"oracle/len{len}/id{id}", instr := { name := suite },
+          program := #[.cryptoOp (.hashExt id append rev)],
+          initStack := pre ++ entries ++ #[iv (Int.ofNat entries.size)] }
+  return out
+
 private def hashExtVariants (append rev : Bool) : Array (String × Instr) :=
   #[0, 1, 2, 3, 4].map (fun id => (s!"id{id}", Instr.cryptoOp (.hashExt id append rev)))
 
 private def hashExtCases (suite : String) (append rev : Bool) : Array OracleCase :=
   cross suite (hashExtVariants append rev) (hashExtStacks append false) ++
     cross suite #[("id-from-stack", .cryptoOp (.hashExt 255 append rev))] (hashExtStacks append true) ++
-    hashExtGasCases suite append rev
+    hashExtGasCases suite append rev ++ hashExtLengthCases suite append rev
 
 
 /-! ### Ed25519 (`CHKSIGNU`, `CHKSIGNS`) -/
@@ -698,7 +725,9 @@ private def casesBase (suite : String) : Array OracleCase :=
         #[.builder { bits := bytes 1 1, refs := #[cellPool[1]!, cellPool[5]!] }], #[sl #[]], #[.null], #[]]
   | "SHA256U" => cross suite #[("sha256u", .cryptoOp .sha256U)]
       #[#[sl #[]], #[sl (bytes 1 0x61)], #[sl (bytes 3 0x616263)], #[sl (bytes 127 5)], #[unaligned],
-        #[.slice (Slice.ofCell cellPool[2]!)], #[bl (bytes 1 1)], #[.null], #[]]
+        #[.slice (Slice.ofCell cellPool[2]!)], #[bl (bytes 1 1)], #[.null], #[]] ++
+      cross suite #[("sha256u-len", .cryptoOp .sha256U)]
+        (#[55, 56, 63, 64, 65, 119, 120, 126].map fun n => #[sl (noise n n)])
   | "HASHEXT" => hashExtCases suite false false
   | "HASHEXTR" => hashExtCases suite false true
   | "HASHEXTA" => hashExtCases suite true false
@@ -737,5 +766,58 @@ private def casesBase (suite : String) : Array OracleCase :=
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   casesBase suite ++ chargeLimitCasesFor suite
+
+private def randBytes (n : Nat) (rng0 : StdGen) : Array UInt8 × StdGen := Id.run do
+  let mut out : Array UInt8 := #[]
+  let mut rng := rng0
+  for _ in [0:n] do
+    let (b, rng') := randNat rng 0 255
+    out := out.push (UInt8.ofNat b)
+    rng := rng'
+  return (out, rng)
+
+/-- Up to 127 random bytes, one time in 16 with 4 bits more (data that is not byte-aligned). -/
+private def randHashData (rng0 : StdGen) : BitString × StdGen :=
+  let (n, rng1) := randNat rng0 0 127
+  let (bs, rng2) := randBytes n rng1
+  let (k, rng3) := randNat rng2 0 15
+  (bitsOfBytes bs ++ (if k = 0 ∧ n < 127 then natToBits 5 4 else #[]), rng3)
+
+/-- HASHEXT{A}{R} on up to 8 random entries (slices and builders), with a random algorithm (or one
+from the stack, 0..5) and, for HASHEXTA, a builder of up to 70 bytes (the digest overflowing it
+from 64). -/
+private def genHashExtFuzz (suite : String) (append rev : Bool) (rng0 : StdGen) : OracleCase × StdGen := Id.run do
+  let (id, rng1) := randNat rng0 0 5
+  let (cnt, rng2) := randNat rng1 0 8
+  let mut rng := rng2
+  let mut entries : Array Value := #[]
+  for _ in [0:cnt] do
+    let (bits, rng') := randHashData rng
+    let (isBuilder, rng'') := randBool rng'
+    entries := entries.push (if isBuilder then bl bits else sl bits)
+    rng := rng''
+  let (blen, rng3) := randNat rng 0 70
+  let (sid, rng4) := randNat rng3 0 5
+  let pre : Array Value := if append then #[bl (bytes blen 0xa5)] else #[]
+  let post : Array Value := if id = 5 then #[iv (Int.ofNat sid)] else #[]
+  ({ name := s!"fuzz/id{id}/n{cnt}", instr := { name := suite },
+     program := #[.cryptoOp (.hashExt (if id = 5 then 255 else id) append rev)],
+     initStack := pre ++ entries ++ #[iv (Int.ofNat cnt)] ++ post }, rng4)
+
+/-- SHA256U on a slice of random data. -/
+private def genSha256UFuzz (rng0 : StdGen) : OracleCase × StdGen :=
+  let (bits, rng1) := randHashData rng0
+  ({ name := s!"fuzz/bits{bits.size}", instr := { name := "SHA256U" },
+     program := #[.cryptoOp .sha256U], initStack := #[sl bits] }, rng1)
+
+/-- Fuzz specs of the suite named `suite`: random data for the hash instructions computed in Lean. -/
+def fuzzFor (suite : String) : Array FuzzSpec :=
+  match suite with
+  | "HASHEXT" => #[{ seed := 2026102001, count := 400, gen := genHashExtFuzz suite false false }]
+  | "HASHEXTR" => #[{ seed := 2026102002, count := 400, gen := genHashExtFuzz suite false true }]
+  | "HASHEXTA" => #[{ seed := 2026102003, count := 400, gen := genHashExtFuzz suite true false }]
+  | "HASHEXTAR" => #[{ seed := 2026102004, count := 400, gen := genHashExtFuzz suite true true }]
+  | "SHA256U" => #[{ seed := 2026102005, count := 300, gen := genSha256UFuzz }]
+  | _ => #[]
 
 end Tests.Gen.Crypto

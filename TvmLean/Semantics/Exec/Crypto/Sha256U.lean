@@ -3,15 +3,14 @@ import TvmLean.Semantics.Exec.Common
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCryptoSha256U (host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCryptoSha256U (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cryptoOp .sha256U =>
       let s ← VM.popSlice
       if s.bitsRemaining % 8 ≠ 0 then
         throw .cellUnd
       let bytes : Array UInt8 := bitStringToBytesBE (s.readBits s.bitsRemaining)
-      let digest : ByteArray := host.hashSha256 (ByteArray.mk bytes)
-      let n : Nat := byteArrayToNatBE digest
+      let n : Nat := byteArrayToNatBE (ByteArray.mk (sha256Digest bytes))
       VM.push (.int (.num (Int.ofNat n)))
   | _ => next
 

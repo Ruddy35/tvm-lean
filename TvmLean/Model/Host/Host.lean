@@ -36,10 +36,5 @@ structure Host where
   blsG2InGroup : ByteArray → Bool
   blsG2IsZero : ByteArray → Bool
   blsPairing : Array ByteArray → Array ByteArray → UInt8
-  hashSha256 : ByteArray → ByteArray
-  hashSha512 : ByteArray → ByteArray
-  hashBlake2b : ByteArray → ByteArray
-  hashKeccak256 : ByteArray → ByteArray
-  hashKeccak512 : ByteArray → ByteArray
 
 end TvmLean

@@ -35,10 +35,5 @@ def stubHost : Host where
   blsG2InGroup := fun _ => false
   blsG2IsZero := fun _ => false
   blsPairing := fun _ _ => 0
-  hashSha256 := fun _ => ByteArray.mk #[]
-  hashSha512 := fun _ => ByteArray.mk #[]
-  hashBlake2b := fun _ => ByteArray.mk #[]
-  hashKeccak256 := fun _ => ByteArray.mk #[]
-  hashKeccak512 := fun _ => ByteArray.mk #[]
 
 end TvmLean

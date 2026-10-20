@@ -1,6 +1,5 @@
 import TvmLean.Model.Host.Host
 import TvmLean.Native.Extern.Crypto
-import TvmLean.Native.Extern.Hash
 
 namespace TvmLean
 
@@ -37,10 +36,5 @@ def nativeHost : Host where
   blsG2InGroup := blsG2InGroupNative
   blsG2IsZero := blsG2IsZeroNative
   blsPairing := blsPairingNative
-  hashSha256 := hashSha256Native
-  hashSha512 := hashSha512Native
-  hashBlake2b := hashBlake2bNative
-  hashKeccak256 := hashKeccak256Native
-  hashKeccak512 := hashKeccak512Native
 
 end TvmLean

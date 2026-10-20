@@ -3,7 +3,7 @@ import TvmLean.Semantics.Exec.Common
 namespace TvmLean
 
 set_option maxHeartbeats 1000000 in
-def execInstrCryptoHashExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+def execInstrCryptoHashExt (_host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .cryptoOp (.hashExt hashId0 append rev) =>
       -- Mirrors C++ `exec_hash_ext` (tonops.cpp).
@@ -43,15 +43,6 @@ def execInstrCryptoHashExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit 
         | 4 => pure 6
         | _ => throw .rangeChk
 
-      let digestSize : Nat :=
-        match hashId with
-        | 0 => 32
-        | 3 => 32
-        | 1 => 64
-        | 2 => 64
-        | 4 => 64
-        | _ => 0
-
       let st0 ← get
       let stack0 := st0.stack
 
@@ -89,17 +80,15 @@ def execInstrCryptoHashExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit 
         | .ok bs => pure bs
         | .error e => throw e
 
+      -- C++ `vm::Hasher` (crypto/vm/Hasher.cpp): SHA-256 and SHA-512 of OpenSSL, BLAKE2b-512 of
+      -- OpenSSL `EVP_blake2b512`, Keccak-256 and Keccak-512 of crypto/keccak
       let digest : ByteArray :=
         match hashId with
-        | 0 => host.hashSha256 (ByteArray.mk inputBytes)
-        | 1 => host.hashSha512 (ByteArray.mk inputBytes)
-        | 2 => host.hashBlake2b (ByteArray.mk inputBytes)
-        | 3 => host.hashKeccak256 (ByteArray.mk inputBytes)
-        | 4 => host.hashKeccak512 (ByteArray.mk inputBytes)
-        | _ => ByteArray.mk #[]
-
-      if digest.size != digestSize then
-        VM.unimplementedInstr { name := Instr.pretty i } "hashExt host backend returned unexpected digest size"
+        | 0 => ByteArray.mk (sha256Digest inputBytes)
+        | 1 => ByteArray.mk (sha512Digest inputBytes)
+        | 2 => Blake2b.blake2b512 (ByteArray.mk inputBytes)
+        | 3 => Keccak.keccak256 (ByteArray.mk inputBytes)
+        | _ => Keccak.keccak512 (ByteArray.mk inputBytes)
 
       if append then
         let b ← VM.popBuilder

@@ -19,12 +19,13 @@
 
 ## Криптография модели на Linux
 
-Нативная криптография модели (`c/tvmlean_crypto_ext.c`: secp256k1, P-256, ristretto255, BLS12-381;
-`c/tvmlean_hash.cpp`: SHA-2, blake2b, keccak) собирается и линкуется с теми же библиотеками, что и
-C++ TVM, если заданы `TVMLEAN_TON_BUILD` (каталог cmake-сборки `ton`, не сборки с покрытием) и
-`TVMLEAN_TON_SRC` (исходники, для заголовков blst). Без них используется системная libsodium, а
-операции над кривыми — заглушки (их случаи оракула не проходят). Ed25519 (`CHKSIGNU/S`) — на Lean
-(`TvmLean/Model/Crypto/Ed25519.lean`), внешних функций не требует.
+Нативная криптография модели (`c/tvmlean_crypto_ext.c`: secp256k1, P-256, ristretto255, BLS12-381)
+собирается и линкуется с теми же библиотеками, что и C++ TVM, если заданы `TVMLEAN_TON_BUILD`
+(каталог cmake-сборки `ton`, не сборки с покрытием) и `TVMLEAN_TON_SRC` (исходники, для заголовков
+blst). Без них операции над кривыми — заглушки (их случаи оракула не проходят). Ed25519
+(`CHKSIGNU/S`, `TvmLean/Model/Crypto/Ed25519.lean`) и хеши `HASHEXT`/`SHA256U` (SHA-256/512 в
+`TvmLean/Model/Basics/Bytes.lean`, `TvmLean/Model/Crypto/Blake2b.lean`, `TvmLean/Model/Crypto/Keccak.lean`)
+— на Lean, внешних функций не требуют.
 
 ## Полная сверка
 
