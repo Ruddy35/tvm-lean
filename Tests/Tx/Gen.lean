@@ -28,6 +28,19 @@ def withBlackhole (cfg : Cell) (addr : BitString) : Cell :=
   | .ok (some r, _, _, _) => r
   | _ => cfg
 
+/-- The configuration with parameter 45 (`precompiled_contracts_config#c0`) listing the code hashes
+with their `gas_usage`. -/
+def withPrecompiled (cfg : Cell) (list : List (Cell × Nat)) : Cell := Id.run do
+  let mut root : Option Cell := none
+  for (code, g) in list do
+    match dictSetBuilderWithCells root (bytesToBits code.hashBytes) { bits := natToBits 0xb0 8 ++ natToBits g 64, refs := #[] } .set with
+    | .ok (r, _, _, _) => root := r
+    | .error _ => pure ()
+  let p45 := (({} : W).uint 0xc0 8).maybeRef root |>.cell
+  match dictSetRefWithCells (some cfg) (natToBits 45 32) p45 .set with
+  | .ok (some r, _, _, _) => r
+  | _ => cfg
+
 /-- The code cell of `code`: `encodeCp0Code`, whose references (`PUSHREF`, `PUSHCONT` with
 references, ...) become references of the cell. -/
 def asm? (code : List Instr) : Except String Cell := do
@@ -397,6 +410,21 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (mk "frozen/int" (mkAccount 0 a (.frozen (natToBits 77 256)) 5000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
     out := out ++ extraCases mk a data
     out := out ++ tickTockCases cfg mk a data
+    -- precompiled contracts (parameter 45): the VM runs with the gas limits of the configuration and
+    -- the gas usage of the list is reported; out of gas, C++ fails
+    let pre := ["accept", "throw42", "c7-v6", "accept-loop", "burn", "empty"].filterMap fun n =>
+      (programs.lookup n).map fun p => (n, asm p)
+    for (usage, uname) in [(100, "cheap"), (20000, "dear"), (100000000, "too-dear")] do
+      let cfgP := withPrecompiled cfg (pre.map fun (_, c) => (c, usage))
+      let mkP (name : String) (acc msg : Cell) : TxCase := { mk name acc msg with config := cfgP }
+      for (pname, code) in pre do
+        let acc := mkAccount 0 a (.active code data) 1000000000 1700000000 0 1000
+        out := out.push (mkP s!"precompiled/{uname}/{pname}/int" acc (intMsg 0 a 100000000 false none #[]))
+        out := out.push (mkP s!"precompiled/{uname}/{pname}/int-small" acc (intMsg 0 a 30000 true none #[]))
+        out := out.push (mkP s!"precompiled/{uname}/{pname}/ext" acc (extMsg 0 a none #[]))
+        out := out.push (mkP s!"precompiled/{uname}/{pname}/special"
+          (mkAccount (-1) ((Config.decode cfg).map (·.configAddr) |>.getD a) (.active code data) 1000000000 1700000000 0 1000)
+          (intMsg (-1) ((Config.decode cfg).map (·.configAddr) |>.getD a) 100000000 false none #[]))
     -- the blackhole address burns the grams of an inbound message (masterchain only)
     let cfgB := withBlackhole cfg a
     let mkB (name : String) (acc msg : Cell) : TxCase := { mk name acc msg with config := cfgB }

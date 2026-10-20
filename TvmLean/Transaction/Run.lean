@@ -498,9 +498,9 @@ def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed
 
 /-- `Transaction::prepare_compute_phase` (no precompiled contract has an implementation: a
 precompiled code runs the VM with the gas limits of the configuration, its gas usage reported).
-`Except.error` for a path not modelled. -/
+`Except.error` for a path not modelled, `.ok none` where C++ fails (a precompiled contract out of gas). -/
 def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed : BitString) :
-    Except String Tx := do
+    Except String (Option Tx) := do
   -- `original_balance`: from version 9 the balance less the message's value, before it the account's
   -- balance less the fees so far (invalid below zero)
   let t ← if t.gv ≥ 9 then
@@ -509,7 +509,8 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
       | _ => throw "original balance"
     else pure { t with originalBalance := t.originalBalance - t.totalFees,
                        originalInvalid := t.originalBalance < t.totalFees }
-  let skip (t : Tx) (reason : Nat) : Except String Tx := .ok { t with computePhase := { t.computePhase with skipReason := reason } }
+  let skip (t : Tx) (reason : Nat) : Except String (Option Tx) :=
+    .ok (some { t with computePhase := { t.computePhase with skipReason := reason } })
   if t.balance = 0 then return ← skip t 3
   -- `compute_gas_limits`
   let gasMax := if t.account.isSpecial then gas.specialGasLimit else t.gasBoughtFor gas t.balance
@@ -584,7 +585,8 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
   if accepted && t.useMsgState then
     t := { t with wasActivated := true, accStatus := .active }
   if let some usage := precompiled then
-    if cp.outOfGas then throw "precompiled out of gas"
+    -- "Precompiled smc got out_of_gas in TVM": prepare_compute_phase fails
+    if cp.outOfGas then return none
     cp := { cp with gasUsed := usage, vmSteps := 0 }
   if success then
     cp := { cp with newData := some stF.cstate.c4, actions := some stF.cstate.c5 }
@@ -600,7 +602,7 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
       cp := { cp with gasFees := fees }
       t := { t with totalFees := t.totalFees + fees, balance := t.balance - fees }
   -- C++ never sets `msg_state_used` and `account_activated` of the compute phase (both stay false)
-  return { t with computePhase := cp }
+  return some { t with computePhase := cp }
 
 
 /-! ## The new state (`Transaction::compute_state`) and the transaction (`serialize`, `commit`) -/

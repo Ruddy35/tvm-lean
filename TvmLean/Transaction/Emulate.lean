@@ -78,7 +78,8 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
     | .ok (some t) => pure t
   let t ← match t.computePhaseRun gas sl randSeed with
     | .error e => return .unsupported e
-    | .ok t => pure t
+    | .ok none => return .failed "compute phase"
+    | .ok (some t) => pure t
   if !t.computePhase.accepted && !external && t.computePhase.skipReason == 0 then
     return .failed "not accepted"
   let t ← if t.computePhase.success then
@@ -124,7 +125,8 @@ def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : N
   let some t := t.storagePhaseRun pricing gas false | return .failed "storage phase"
   let t ← match t.computePhaseRun gas sl randSeed with
     | .error e => return .unsupported e
-    | .ok t => pure t
+    | .ok none => return .failed "compute phase"
+    | .ok (some t) => pure t
   if !t.computePhase.accepted && t.computePhase.skipReason == 0 then
     return .failed "not accepted"
   let t ← if t.computePhase.success then
