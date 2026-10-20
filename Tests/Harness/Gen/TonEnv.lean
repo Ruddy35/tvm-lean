@@ -54,6 +54,20 @@ def params (len : Nat) : Array Value :=
 private def paramsWrongTypes : Array Value :=
   (params 18).set! 7 (iv 1) |>.set! 13 (iv 2) |>.set! 14 (iv 3) |>.set! 17 (iv 4)
 
+/-- `c7` whose `CONFIGROOT` (`c7[0][9]`) is a configuration dictionary (HashmapE 32 ^Cell, signed
+keys 0, 8, 34, -1, each value a cell holding its key), or a cell that is not a dictionary. -/
+private def configC7Pool : Array (String × Array Value) :=
+  let entries : List Int := [0, 8, 34, -1]
+  let root := entries.foldl (fun root k =>
+    match dictSetRefWithCells root (natToBits ((k + 2 ^ 32).toNat % 2 ^ 32) 32)
+        (Cell.mkOrdinary (natToBits ((k + 256).toNat % 256) 8) #[]) .set with
+    | .ok (some r, _, _, _) => some r
+    | _ => root) none
+  let withRoot (v : Value) : Array Value := #[tup ((params 18).set! 9 v)]
+  #[("config-dict", withRoot (match root with | some r => .cell r | none => .null)),
+    ("config-not-dict", withRoot (.cell (Cell.mkOrdinary #[true] #[]))),
+    ("config-int", withRoot (iv 9))]
+
 /-- The `c7` pool (contents of `c7`; `#[]` = the oracle's default). -/
 def c7Pool : Array (String × Array Value) :=
   #[ ("default", #[]),
@@ -291,8 +305,10 @@ def casesFor (suite : String) : Array OracleCase :=
   | "SETGASLIMIT" => cross suite #[("setgaslimit", env .setGasLimit)] #[("default", #[])]
       (ints1 #[0, 1, 100, 1000000, -1, 2 ^ 63, 2 ^ 64])
   | "CONFIGDICT" => one .configDict
-  | "CONFIGPARAM" => cross suite #[("param", env (.configParam false))] c7Pool (ints1 #[0, 1, 8, 34, -1, 2 ^ 32])
-  | "CONFIGOPTPARAM" => cross suite #[("optparam", env (.configParam true))] c7Pool (ints1 #[0, 1, 8, 34, -1, 2 ^ 32])
+  | "CONFIGPARAM" => cross suite #[("param", env (.configParam false))] (c7Pool ++ configC7Pool)
+      (ints1 #[0, 1, 8, 34, -1, 2 ^ 32, -(2 ^ 31), 2 ^ 31])
+  | "CONFIGOPTPARAM" => cross suite #[("optparam", env (.configParam true))] (c7Pool ++ configC7Pool)
+      (ints1 #[0, 1, 8, 34, -1, 2 ^ 32, -(2 ^ 31), 2 ^ 31])
   | "PARSEMSGADDR" => cross suite #[("parse", env (.parseMsgAddr false))] #[("default", #[])] (addrPool.map (fun a => #[a]))
   | "PARSEMSGADDRQ" => cross suite #[("parseq", env (.parseMsgAddr true))] #[("default", #[])] (addrPool.map (fun a => #[a]))
   | "REWRITESTDADDR" => cross suite #[("rw", env (.rewriteStdAddr false))] #[("default", #[])] (addrPool.map (fun a => #[a]))
