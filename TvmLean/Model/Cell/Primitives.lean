@@ -953,6 +953,15 @@ def dictNearestVisitedCells (root : Option Cell) (hint : BitString) (fetchNext a
       let firstBit : Bool := restBit != invertFirst
       (dictNearestVisitedTraceAux (resolve := resolve) cell hint hint.size 0 allowEq firstBit restBit).loaded
 
+/-- An error of `x`, with the cells loaded before it: C++ charges each load as it happens, so the
+loads made before an error are paid. -/
+def withLoads (loaded : Array Cell) (x : Except Excno α) : Except (Excno × Array Cell) α :=
+  x.mapError (·, loaded)
+
+/-- The walk below `cell`: an error there also leaves `cell` loaded. -/
+def underCell (cell : Cell) (x : Except (Excno × Array Cell) α) : Except (Excno × Array Cell) α :=
+  x.mapError fun (e, loaded) => (e, #[cell] ++ loaded)
+
 def dictDeleteAuxWithCells (cell : Cell) (key : BitString) (pos remaining : Nat) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
     Except Excno (Option Slice × Option Cell × Nat × Array Cell) := do
   let lbl ← parseDictLabel (resolve := resolve) cell remaining
