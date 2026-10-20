@@ -13,6 +13,7 @@ def execInstrCellStbRef (i : Instr) (next : VM Unit) : VM Unit := do
       let b ← VM.popBuilder
       if b.canExtendBy 0 1 then
         modify fun st => st.consumeGas cellCreateGasPrice
+        VM.checkNewCellDepth cb2.refs
         let c : Cell := cb2.finalize
         VM.push (.builder { b with refs := b.refs.push c })
         if quiet then
@@ -30,6 +31,7 @@ def execInstrCellStbRef (i : Instr) (next : VM Unit) : VM Unit := do
       let cb2 ← VM.popBuilder
       if b.canExtendBy 0 1 then
         modify fun st => st.consumeGas cellCreateGasPrice
+        VM.checkNewCellDepth cb2.refs
         let c : Cell := cb2.finalize
         VM.push (.builder { b with refs := b.refs.push c })
         if quiet then

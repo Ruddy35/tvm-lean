@@ -19,9 +19,14 @@ def Builder.storeBits (b : Builder) (bs : BitString) : Builder :=
 def Builder.finalize (b : Builder) : Cell :=
   Cell.mkOrdinary b.bits b.refs
 
+/-- C++ `CellBuilder::finalize{,_copy,_novm}` of an ordinary cell: `DataCell::create` rejects a
+cell deeper than `Cell.maxDepth` (`CellWriteError`, cell_ov in `VmState::run_inner`). -/
+def Builder.finalizeChecked (b : Builder) : Except Excno Cell :=
+  if Cell.refsDepthOk b.refs then .ok b.finalize else .error .cellOv
+
 def Builder.finalizeCopy (b : Builder) (special : Bool := false) : Except Excno Cell := do
   if !special then
-    return b.finalize
+    return (← b.finalizeChecked)
 
   -- We emulate C++ `vm::DataCell::create(..., is_special=true)` validation by
   -- searching for the unique level mask that makes the exotic cell well-formed.
@@ -34,7 +39,9 @@ def Builder.finalizeCopy (b : Builder) (special : Bool := false) : Except Excno 
       , levelMask := m
       }
     match Cell.computeLevelInfo? c with
-    | .ok _ => return c
+    | .ok info =>
+        -- `DataCell::create` also rejects a depth above `Cell.maxDepth` at any level
+        if info.depths.all (· ≤ Cell.maxDepth) then return c else throw .cellOv
     | .error _ => continue
   throw .cellOv
 

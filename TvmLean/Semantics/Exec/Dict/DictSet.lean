@@ -58,8 +58,7 @@ def execInstrDictDictSet (i : Instr) (next : VM Unit) : VM Unit := do
             let loaded := dropFirstRootLoad dictCell? loaded
             for c in loaded do
               VM.registerCellLoad c
-            if created > 0 then
-              VM.chargeCellCreates created
+            VM.chargeDictSetCreates newRoot? created (dictKeyPath · keyBits)
             match newRoot? with
             | none => VM.push .null
             | some c => VM.push (.cell c)
@@ -87,8 +86,7 @@ def execInstrDictDictSet (i : Instr) (next : VM Unit) : VM Unit := do
             let loaded := dropFirstRootLoad dictCell? loaded
             for c in loaded do
               VM.registerCellLoad c
-            if created > 0 then
-              VM.chargeCellCreates created
+            VM.chargeDictSetCreates newRoot? created (dictKeyPath · keyBits)
             match newRoot? with
             | none => VM.push .null
             | some c => VM.push (.cell c)

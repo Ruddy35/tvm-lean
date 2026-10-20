@@ -29,6 +29,8 @@ def execInstrCellExt (i : Instr) (next : VM Unit) : VM Unit := do
       | .btos =>
           VM.checkUnderflow 1
           let b ← VM.popBuilder
+          -- `finalize_novm`: not charged, cell_ov above `Cell.maxDepth`
+          VM.checkNewCellDepth b.refs
           let c : Cell := b.finalize
           VM.push (.slice (Slice.ofCell c))
       | .stLeInt unsigned bytes =>
@@ -75,6 +77,8 @@ def execInstrCellExt (i : Instr) (next : VM Unit) : VM Unit := do
       | .hashbu =>
           VM.checkUnderflow 1
           let b ← VM.popBuilder
+          -- `finalize_novm`: not charged, cell_ov above `Cell.maxDepth`
+          VM.checkNewCellDepth b.refs
           let c : Cell := b.finalize
           let h : Nat := bytesToNatBE (Cell.hashBytes c)
           VM.pushIntQuiet (.num (Int.ofNat h)) false

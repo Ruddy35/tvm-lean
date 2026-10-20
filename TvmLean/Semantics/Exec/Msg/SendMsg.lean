@@ -445,6 +445,8 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
         let prev := st.regs.c5
         let actionBits := natToBits 0x0ec3c86d 32 ++ natToBits mode 8
         let newHead : Cell := Cell.mkOrdinary actionBits #[prev, msgCell]
+        -- `install_output_action(st, cb.finalize())`
+        VM.checkNewCellDepth newHead.refs
         set { st with regs := { st.regs with c5 := newHead } }
       else
         pure ()

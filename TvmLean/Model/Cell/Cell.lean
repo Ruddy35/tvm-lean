@@ -461,4 +461,41 @@ def Cell.hashBytes (c : Cell) : Array UInt8 :=
   | .ok info => info.getHash Cell.maxLevel
   | .error _ => Array.replicate 32 0
 
+/-- C++ `CellTraits::max_depth` (cells/CellTraits.h): no cell is deeper, at any level. -/
+def Cell.maxDepth : Nat := 1024
+
+mutual
+/-- C++ `Cell::get_depth(level)` of a valid cell, as `Cell.computeLevelInfo?` computes it
+(`CellLevelInfo.getDepth`) but without the hashes: an ordinary cell is one deeper than its deepest
+reference at the same level, a Merkle proof or update one deeper than its references one level up;
+a pruned branch (its stored depths) and a library cell (0) have no references. Levels above the
+cell's own level are its level. -/
+def Cell.depthAt : Cell → Nat → Nat
+  | c@⟨bits, ⟨refs⟩, special, levelMask⟩, i =>
+    let k := Nat.min (LevelMask.getLevel levelMask) i
+    if !special then
+      if refs.isEmpty then 0 else Cell.maxRefDepthAt refs k + 1
+    else
+      let ty := bitsToNat (bits.take 8)
+      if bits.size ≥ 8 && (ty == 3 || ty == 4) then
+        Cell.maxRefDepthAt refs (Nat.min Cell.maxLevel (k + 1)) + 1
+      else
+        match c.computeLevelInfo? with
+        | .ok info => info.getDepth i
+        | .error _ => 0
+termination_by structural c => c
+/-- The largest `Cell.depthAt` of a list of references at level `i` (0 for none). -/
+def Cell.maxRefDepthAt : List Cell → Nat → Nat
+  | [], _ => 0
+  | r :: rs, i => Nat.max (Cell.depthAt r i) (Cell.maxRefDepthAt rs i)
+termination_by structural rs => rs
+end
+
+/-- Whether C++ `DataCell::create` (cells/DataCell.cpp:78, `CellChecker::check_and_compute_level_info`)
+accepts the depth of a new ordinary cell with references `refs`: its depth at each level, one more
+than its deepest reference's there, is at most `Cell.maxDepth`. A reference's depth above its own
+level is its depth at that level, so only those levels are checked. -/
+def Cell.refsDepthOk (refs : Array Cell) : Bool :=
+  refs.all fun r => (List.range (LevelMask.getLevel r.levelMask + 1)).all fun i => r.depthAt i < Cell.maxDepth
+
 end TvmLean

@@ -24,6 +24,8 @@ def execInstrMsgChangeLib (i : Instr) (next : VM Unit) : VM Unit := do
         natToBits modeByte 8 ++
         natToBits hash.toNat 256
       let newHead : Cell := Cell.mkOrdinary bits #[prev]
+      -- `install_output_action(st, cb.finalize())`
+      VM.checkNewCellDepth newHead.refs
       set { st with regs := { st.regs with c5 := newHead } }
   | _ => next
 

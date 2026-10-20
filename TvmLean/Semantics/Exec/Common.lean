@@ -26,6 +26,35 @@ def VM.loadCellSlice (c : Cell) : VM Slice := do
   | .ok r => return Slice.ofCell r
   | .error e => throw e
 
+/-- C++ `DataCell::create` (cells/DataCell.cpp:78) of a new ordinary cell with references `refs`,
+its creation already charged: cell_ov if it would be deeper than `Cell.maxDepth` (`CellBuilder::
+finalize` throws `CellWriteError`, `VmState::run_inner` turns it into cell_ov). -/
+def VM.checkNewCellDepth (refs : Array Cell) : VM Unit := do
+  if !Cell.refsDepthOk refs then
+    throw .cellOv
+
+/-- Gas for the `created` cells of a dictionary set operation (C++ `dict_set`, `dict_lookup_set`,
+`pfx_dict_set`, dict.cpp) whose new root is `newRoot?`; `path` gives the nodes on the key's path in
+it, root first (`dictKeyPath`, `pfxDictKeyPath`). C++ creates the cells bottom-up — the leaf of the
+key, the lower part of a split edge (when `created` exceeds the path by one), then the forks of the
+path up to the root — each charged before `DataCell::create`, which fails at the first one deeper
+than `Cell.maxDepth` (cell_ov). Depth grows towards the root, so the root decides whether one fails;
+the cells up to the lowest failing one are then charged. -/
+def VM.chargeDictSetCreates (newRoot? : Option Cell) (created : Nat) (path : Cell → Array Cell) : VM Unit := do
+  if created == 0 then
+    return
+  match newRoot? with
+  | some root =>
+      if !Cell.refsDepthOk root.refs then
+        let nodes := path root
+        let split : Nat := created - nodes.size
+        -- the lowest node over the limit, counted from the leaf
+        let up : Nat := (nodes.reverse.findIdx? (fun c => !Cell.refsDepthOk c.refs)).getD 0
+        VM.chargeCellCreates (if up == 0 then 1 else up + split + 1)
+        throw .cellOv
+  | none => pure ()
+  VM.chargeCellCreates created
+
 /-- C++ `VmState::throw_exception` called by an instruction: `raise` makes the exception stack and
 continuation, then the exception gas is charged (out of gas at once) and the jump to `c2` fails with
 stk_und if `c2` expects more arguments than the stack holds (`adjust_jump_cont`). -/

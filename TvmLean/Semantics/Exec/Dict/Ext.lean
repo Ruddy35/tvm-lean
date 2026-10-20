@@ -444,7 +444,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                 | .ok (oldVal?, newRoot?, _ok, created, loaded) =>
                     let loaded := DictExt.loadedWithoutRoot dictCell? loaded
                     DictExt.registerLoaded loaded
-                    DictExt.consumeCreatedGas created
+                    VM.chargeDictSetCreates newRoot? created (dictKeyPath · keyBits)
                     DictExt.pushDictRoot newRoot?
                     match oldVal? with
                     | some oldVal =>
@@ -468,7 +468,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                 | .ok (oldVal?, newRoot?, _ok, created, loaded) =>
                     let loaded := DictExt.loadedWithoutRoot dictCell? loaded
                     DictExt.registerLoaded loaded
-                    DictExt.consumeCreatedGas created
+                    VM.chargeDictSetCreates newRoot? created (dictKeyPath · keyBits)
                     DictExt.pushDictRoot newRoot?
                     match oldVal? with
                     | some oldVal =>
@@ -511,7 +511,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
           | .ok (oldVal?, newRoot?, _ok, created, loaded) =>
               let loaded := DictExt.loadedWithoutRoot dictCell? loaded
               DictExt.registerLoaded loaded
-              DictExt.consumeCreatedGas created
+              VM.chargeDictSetCreates newRoot? created (dictKeyPath · keyBits)
               DictExt.pushDictRoot newRoot?
               match oldVal? with
               | some oldVal =>
@@ -621,7 +621,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
               | .ok (oldVal?, newRoot?, _ok, created, loaded) =>
                   let loaded := DictExt.loadedWithoutRoot dictCell? loaded
                   DictExt.registerLoaded loaded
-                  DictExt.consumeCreatedGas created
+                  VM.chargeDictSetCreates newRoot? created (dictKeyPath · keyBits)
                   DictExt.pushDictRoot newRoot?
                   match oldVal? with
                   | none => VM.push .null
@@ -708,7 +708,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
             | .ok (newRoot?, ok, created, loaded0) =>
                 let loaded := DictExt.loadedWithoutRoot dictCell? loaded0
                 DictExt.registerLoaded loaded
-                DictExt.consumeCreatedGas created
+                VM.chargeDictSetCreates newRoot? created (pfxDictKeyPath · keyBits n)
                 DictExt.pushDictRoot newRoot?
                 DictExt.pushBool ok
 

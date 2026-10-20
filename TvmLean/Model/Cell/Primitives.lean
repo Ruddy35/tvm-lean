@@ -1114,6 +1114,46 @@ def dictSetGenAuxWithCells (root : Option Cell) (key : BitString)
 termination_by key.size
 decreasing_by all_goals (simp_wf; have hn : n = Array.size key := rfl; omega)
 
+/-- The nodes on the path of `key` in a dictionary with `key.size`-bit keys: from `root` down to the
+leaf of `key`, or to where the path ends. For the result of a set operation for `key`, the nodes it
+created along the path. -/
+def dictKeyPath (root : Cell) (key : BitString) : Array Cell :=
+  go (key.size + 1) root 0 #[]
+where
+  go : Nat → Cell → Nat → Array Cell → Array Cell
+    | 0, _, _, acc => acc
+    | fuel + 1, cell, pos, acc =>
+        let acc := acc.push cell
+        match parseDictLabel cell (key.size - pos) with
+        | .error _ => acc
+        | .ok lbl =>
+            let pos' := pos + lbl.len
+            if pos' ≥ key.size then acc
+            else
+              match lbl.remainder.cell.refs[if key[pos']! then 1 else 0]? with
+              | some child => go fuel child (pos' + 1) acc
+              | none => acc
+
+/-- `dictKeyPath` in a prefix dictionary with keys of at most `n` bits: a node is a label, then 0 and
+the value (a leaf) or 1 and two references (a fork). -/
+def pfxDictKeyPath (root : Cell) (key : BitString) (n : Nat) : Array Cell :=
+  go (key.size + 1) root 0 n #[]
+where
+  go : Nat → Cell → Nat → Nat → Array Cell → Array Cell
+    | 0, _, _, _, acc => acc
+    | fuel + 1, cell, pos, n, acc =>
+        let acc := acc.push cell
+        match parseDictLabel cell n with
+        | .error _ => acc
+        | .ok lbl =>
+            let payload := lbl.remainder.advanceBits lbl.storedBits
+            let pos' := pos + lbl.len
+            if !payload.haveBits 1 || !(payload.readBits 1)[0]! || pos' ≥ key.size || n < lbl.len + 1 then acc
+            else
+              match payload.cell.refs[if key[pos']! then 1 else 0]? with
+              | some child => go fuel child (pos' + 1) (n - lbl.len - 1) acc
+              | none => acc
+
 def dictSetRefWithCells (root : Option Cell) (key : BitString) (valRef : Cell) (mode : DictSetMode) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
     Except Excno (Option Cell × Bool × Nat × Array Cell) := do
   let storeVal : Builder → Except Excno Builder :=

@@ -8,6 +8,8 @@ def execInstrCellEndc (i : Instr) (next : VM Unit) : VM Unit := do
   | .endc =>
       let b ← VM.popBuilder
       modify fun st => st.consumeGas cellCreateGasPrice
+      -- `finalize_copy`: charged, then `DataCell::create` (cell_ov above `Cell.maxDepth`)
+      VM.checkNewCellDepth b.refs
       VM.push (.cell b.finalize)
   | _ => next
 

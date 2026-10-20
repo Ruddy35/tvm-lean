@@ -30,6 +30,8 @@ def execInstrMsgRawReserveX (i : Instr) (next : VM Unit) : VM Unit := do
         | none => #[prev]
         | some y => #[prev, y]
       let newHead : Cell := Cell.mkOrdinary bits refs
+      -- `install_output_action(st, cb.finalize())`
+      VM.checkNewCellDepth newHead.refs
       set { st with regs := { st.regs with c5 := newHead } }
   | _ => next
 
