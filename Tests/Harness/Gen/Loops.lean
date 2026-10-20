@@ -19,6 +19,10 @@ Here the condition and the body are inline continuations (`PUSHCONT`), and the l
   jumps to the saved continuation, no instruction is run;
 - chains of loop continuations ending in one `jump_to` (nested `REPEATEND`, `UNTILEND`): every jump
   after the eighth costs 1 gas (`free_nested_cont_jump`, `vm.h:391`), also out of gas.
+
+`TRY`, `TRYARGS` and `IFNOTJMP` jump with `VmState::jump` too (`contops.cpp:367-368, 1219`):
+their continuation is run with `nargs` above the stack depth; for `TRY` the stk_und reaches the new
+handler.
 -/
 
 namespace Tests.Gen.Loops
@@ -122,6 +126,9 @@ private def boolevalCases : Array OracleCase :=
     mk s "after-loops" #[k (nestRepeatEnd 8), .contExt .booleval, pi 9],
     mk s "jmpx" #[k #[.pushCtr 0, pi 3, .xchg0 1, .jmpx], .contExt .booleval, pi 9]]
 
+/-- A continuation pushing 1 that expects `n` arguments. -/
+private def needs (n : Int) : Array Instr := #[k #[pi 1], .setContArgs 0 n]
+
 /-- The cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
@@ -145,6 +152,13 @@ def casesFor (suite : String) : Array OracleCase :=
   | "REPEATENDBRK" => #[mk suite "nest8" (nestRepeatEnd 8 true)]
   | "AGAIN" => againCases
   | "BOOLEVAL" => boolevalCases
+  | "TRY" =>
+      #[mk suite "cont-nargs" (needs 3 ++ #[k #[pi 66], .try_, pi 99]),
+        mk suite "cont-nargs-ok" (#[pi 5, pi 5, pi 5] ++ needs 3 ++ #[k #[pi 66], .try_, pi 99])]
+  | "TRYARGS" => #[mk suite "cont-nargs" (#[pi 5] ++ needs 2 ++ #[k #[pi 66], .tryArgs 1 1, pi 99])]
+  | "IFNOTJMP" =>
+      #[mk suite "cont-nargs" (#[pi 0] ++ needs 2 ++ #[.ifnotjmp, pi 99]),
+        mk suite "cont-nargs-ok" (#[pi 7, pi 0] ++ needs 1 ++ #[.ifnotjmp, pi 99])]
   | _ => #[]
 
 end Tests.Gen.Loops
