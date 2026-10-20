@@ -6,6 +6,7 @@ set_option maxHeartbeats 1000000 in
 def execInstrStackBlkSwapX (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .blkSwapX =>
+      VM.checkUnderflow 2
       let y ← VM.popNatUpTo ((1 <<< 30) - 1)
       let x ← VM.popNatUpTo ((1 <<< 30) - 1)
       let st ← get
