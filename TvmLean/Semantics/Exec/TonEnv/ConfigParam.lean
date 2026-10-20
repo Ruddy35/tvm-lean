@@ -26,7 +26,7 @@ def execInstrTonEnvConfigParam (i : Instr) (next : VM Unit) : VM Unit := do
           else
             VM.pushSmallInt 0
       | some keyBits =>
-          match dictLookupWithCells dictRoot? keyBits with
+          match dictLookupWithCells (resolve := (← VM.cellResolver)) dictRoot? keyBits with
           | .error e =>
               throw e
           | .ok (none, loaded) =>

@@ -35,9 +35,9 @@ private def loadedWithoutRoot (dictCell? : Option Cell) (loaded : Array Cell) : 
 which it fails. C++ loads (and charges) each node before validating it, so on the error path these
 loads are still paid for. Same traversal and termination measure as `dictExtractPrefixGo`. -/
 def dictExtractPrefixVisited (keyBits : Nat) (pfx : BitString) (prefixLen : Nat)
-    (cell : Cell) (m : Nat) : Array Cell :=
+    (cell : Cell) (m : Nat) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) : Array Cell :=
   let remaining : Nat := keyBits - m
-  match parseDictLabel cell remaining with
+  match parseDictLabel (resolve := resolve) cell remaining with
   | .error _ => #[cell]
   | .ok lbl =>
       match dictValidateNodeExt lbl remaining with
@@ -52,7 +52,7 @@ def dictExtractPrefixVisited (keyBits : Nat) (pfx : BitString) (prefixLen : Nat)
             else
               let m1 : Nat := m + lbl.len
               let child := lbl.remainder.cell.refs[if pfx[m1]! then 1 else 0]!
-              #[cell] ++ dictExtractPrefixVisited keyBits pfx prefixLen child (m1 + 1)
+              #[cell] ++ dictExtractPrefixVisited (resolve := resolve) keyBits pfx prefixLen child (m1 + 1)
           else
             #[cell]
 termination_by prefixLen - m
@@ -84,10 +84,10 @@ private def pfxLabelCommonPrefixLen (labelBits keyBits : BitString) (m : Nat) : 
 parsed, so an error carries the cells loaded up to and including the failing node: their loads are
 charged before the error is raised, as in C++ (`LabelParser` loads the cell, then fails). -/
 private def pfxLookupPrefixGo (keyBits : BitString) (keyLen : Nat) (cell : Cell) (nRem m pos : Nat)
-    (loaded : Array Cell) : Except (Excno × Array Cell) (Option Slice × Nat × Array Cell) := do
+    (loaded : Array Cell) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) : Except (Excno × Array Cell) (Option Slice × Nat × Array Cell) := do
   let loaded := loaded.push cell
   let lbl ←
-    match parseDictLabel cell nRem with
+    match parseDictLabel (resolve := resolve) cell nRem with
     | .ok l => pure l
     | .error e => throw (e, loaded)
   let labelBits : BitString := dictLabelBits lbl
@@ -116,18 +116,18 @@ private def pfxLookupPrefixGo (keyBits : BitString) (keyLen : Nat) (cell : Cell)
   else
     let swBit : Bool := keyBits[pos]!
     let child := payload.cell.refs[if swBit then 1 else 0]!
-    pfxLookupPrefixGo keyBits keyLen child (nRem - 1) (m - 1) (pos + 1) loaded
+    pfxLookupPrefixGo (resolve := resolve) keyBits keyLen child (nRem - 1) (m - 1) (pos + 1) loaded
 termination_by m
 decreasing_by all_goals (simp_wf; omega)
 
-private def pfxLookupPrefixWithCells (root : Option Cell) (keyBits : BitString) (keyLen : Nat) (n : Nat) :
+private def pfxLookupPrefixWithCells (root : Option Cell) (keyBits : BitString) (keyLen : Nat) (n : Nat) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
     Except (Excno × Array Cell) (Option Slice × Nat × Array Cell) := do
   match root with
   | none => return (none, 0, #[])
-  | some rootCell => pfxLookupPrefixGo keyBits keyLen rootCell n keyLen 0 #[]
+  | some rootCell => pfxLookupPrefixGo (resolve := resolve) keyBits keyLen rootCell n keyLen 0 #[]
 
 private def pfxSetGenAuxWithCells (root : Option Cell) (key : BitString) (n : Nat)
-    (storeVal : Builder → Except Excno Builder) (mode : DictSetMode) :
+    (storeVal : Builder → Except Excno Builder) (mode : DictSetMode) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
     Except Excno (Option Cell × Bool × Nat × Array Cell) := do
   let m : Nat := key.size
   if m > n then
@@ -142,7 +142,7 @@ private def pfxSetGenAuxWithCells (root : Option Cell) (key : BitString) (n : Na
       let b2 ← storeVal b1
       return (some b2.finalize, true, 1, #[])
   | some cell =>
-      let lbl ← parseDictLabel cell n
+      let lbl ← parseDictLabel (resolve := resolve) cell n
       let labelBits : BitString := dictLabelBits lbl
       let l : Nat :=
         let keyPart := key.take (Nat.min m lbl.len)
@@ -213,7 +213,7 @@ private def pfxSetGenAuxWithCells (root : Option Cell) (key : BitString) (n : Na
         let right0 := payload.cell.refs[1]!
         if swBit then
           let (rightNew?, ok, createdChild, loadedChild) ←
-            pfxSetGenAuxWithCells (some right0) childKey (nRem - 1) storeVal mode
+            pfxSetGenAuxWithCells (resolve := resolve) (some right0) childKey (nRem - 1) storeVal mode
           if !ok then
             return (some cell, false, 0, #[cell] ++ loadedChild)
           match rightNew? with
@@ -227,7 +227,7 @@ private def pfxSetGenAuxWithCells (root : Option Cell) (key : BitString) (n : Na
               return (some b.finalize, true, createdChild + 1, #[cell] ++ loadedChild)
         else
           let (leftNew?, ok, createdChild, loadedChild) ←
-            pfxSetGenAuxWithCells (some left0) childKey (nRem - 1) storeVal mode
+            pfxSetGenAuxWithCells (resolve := resolve) (some left0) childKey (nRem - 1) storeVal mode
           if !ok then
             return (some cell, false, 0, #[cell] ++ loadedChild)
           match leftNew? with
@@ -242,13 +242,13 @@ private def pfxSetGenAuxWithCells (root : Option Cell) (key : BitString) (n : Na
 termination_by key.size
 decreasing_by all_goals (simp_wf; omega)
 
-private def pfxLookupDeleteWithCells (root : Option Cell) (key : BitString) (n : Nat) :
+private def pfxLookupDeleteWithCells (root : Option Cell) (key : BitString) (n : Nat) (resolve : Cell → Except Excno Cell := Cell.rejectSpecial) :
     Except Excno (Option Slice × Option Cell × Nat × Array Cell) := do
   let m : Nat := key.size
   match root with
   | none => return (none, none, 0, #[])
   | some cell =>
-      let lbl ← parseDictLabel cell n
+      let lbl ← parseDictLabel (resolve := resolve) cell n
       let labelBits : BitString := dictLabelBits lbl
       let l : Nat :=
         let keyPart := key.take (Nat.min m lbl.len)
@@ -285,7 +285,7 @@ private def pfxLookupDeleteWithCells (root : Option Cell) (key : BitString) (n :
           let right0 := payload.cell.refs[1]!
           let child0 := if swBit then right0 else left0
           let (oldVal?, childNew?, createdChild, loadedChild) ←
-            pfxLookupDeleteWithCells (some child0) childKey (n - lbl.len - 1)
+            pfxLookupDeleteWithCells (resolve := resolve) (some child0) childKey (n - lbl.len - 1)
           match oldVal? with
           | none =>
               return (none, some cell, 0, #[cell] ++ loadedChild)
@@ -301,7 +301,7 @@ private def pfxLookupDeleteWithCells (root : Option Cell) (key : BitString) (n :
                   let survivorBit : Bool := !swBit
                   let survivor : Cell := if swBit then left0 else right0
                   let childN : Nat := n - lbl.len - 1
-                  let lbl2 ← parseDictLabel survivor childN
+                  let lbl2 ← parseDictLabel (resolve := resolve) survivor childN
                   let childLabelBits : BitString := dictLabelBits lbl2
                   let combinedLabelBits : BitString := dictLabelBits lbl ++ #[survivorBit] ++ childLabelBits
                   let combinedLen : Nat := lbl.len + 1 + lbl2.len
@@ -385,9 +385,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                 | none => throw .cellUnd
               if byRef then
                 DictExt.prechargeRootLoad dictCell?
-                match dictDeleteWithCells dictCell? keyBits with
+                match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
                 | .error e =>
-                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells dictCell? keyBits)
+                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
                     DictExt.registerLoaded loaded
                     throw e
                 | .ok (oldVal?, newRoot?, created, loaded) =>
@@ -404,9 +404,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                         DictExt.pushBool true
               else
                 DictExt.prechargeRootLoad dictCell?
-                match dictDeleteWithCells dictCell? keyBits with
+                match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
                 | .error e =>
-                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells dictCell? keyBits)
+                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
                     DictExt.registerLoaded loaded
                     throw e
                 | .ok (oldVal?, newRoot?, created, loaded) =>
@@ -436,9 +436,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                   | some bs => pure bs
                   | none => throw .cellUnd
                 DictExt.prechargeRootLoad dictCell?
-                match dictLookupSetRefWithCells dictCell? keyBits newValueRef setMode with
+                match dictLookupSetRefWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits newValueRef setMode with
                 | .error e =>
-                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells dictCell? keyBits)
+                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
                     DictExt.registerLoaded loaded
                     throw e
                 | .ok (oldVal?, newRoot?, _ok, created, loaded) =>
@@ -460,9 +460,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                   | some bs => pure bs
                   | none => throw .cellUnd
                 DictExt.prechargeRootLoad dictCell?
-                match dictLookupSetSliceWithCells dictCell? keyBits newValue setMode with
+                match dictLookupSetSliceWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits newValue setMode with
                 | .error e =>
-                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells dictCell? keyBits)
+                    let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
                     DictExt.registerLoaded loaded
                     throw e
                 | .ok (oldVal?, newRoot?, _ok, created, loaded) =>
@@ -503,9 +503,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
             | none => throw .cellUnd
           let ok_f : Bool := mode != .add
           DictExt.prechargeRootLoad dictCell?
-          match dictLookupSetBuilderWithCells dictCell? keyBits newValue mode with
+          match dictLookupSetBuilderWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits newValue mode with
           | .error e =>
-              let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells dictCell? keyBits)
+              let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
               DictExt.registerLoaded loaded
               throw e
           | .ok (oldVal?, newRoot?, _ok, created, loaded) =>
@@ -540,9 +540,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
               throw .rangeChk
           | some keyBits =>
               DictExt.prechargeRootLoad dictCell?
-              match dictDeleteWithCells dictCell? keyBits with
+              match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
               | .error e =>
-                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells dictCell? keyBits)
+                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictDeleteVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
                   DictExt.registerLoaded loaded
                   throw e
               | .ok (oldVal?, newRoot?, created, loaded) =>
@@ -571,9 +571,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
               VM.push .null
           | some keyBits =>
               DictExt.prechargeRootLoad dictCell?
-              match dictLookupWithCells dictCell? keyBits with
+              match dictLookupWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
               | .error e =>
-                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells dictCell? keyBits)
+                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
                   DictExt.registerLoaded loaded
                   throw e
               | .ok (none, loaded) =>
@@ -613,9 +613,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
           match newValue? with
           | some newValue =>
               DictExt.prechargeRootLoad dictCell?
-              match dictLookupSetRefWithCells dictCell? keyBits newValue .set with
+              match dictLookupSetRefWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits newValue .set with
               | .error e =>
-                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells dictCell? keyBits)
+                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
                   DictExt.registerLoaded loaded
                   throw e
               | .ok (oldVal?, newRoot?, _ok, created, loaded) =>
@@ -630,9 +630,9 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
                       VM.push (.cell c)
           | none =>
               DictExt.prechargeRootLoad dictCell?
-              match dictDeleteWithCells dictCell? keyBits with
+              match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
               | .error e =>
-                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells dictCell? keyBits)
+                  let loaded := DictExt.loadedWithoutRoot dictCell? (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
                   DictExt.registerLoaded loaded
                   throw e
               | .ok (oldVal?, newRoot?, created, loaded) =>
@@ -666,7 +666,7 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
               throw .cellUnd
           if k > 0 then
             DictExt.prechargeRootLoad dictCell?
-          match dictExtractPrefixSubdictWithCells dictCell? n prefixBits k rp with
+          match dictExtractPrefixSubdictWithCells (resolve := (← VM.cellResolver)) dictCell? n prefixBits k rp with
           -- C++ `exec_subdict_get` (dictops.cpp, TON v2026.08) has no special case for
           -- signed-int RP keys: `cell_und` from label parsing propagates unchanged; `dict_err`
           -- only comes from `cut_prefix_subdict` returning false (handled in the extraction).

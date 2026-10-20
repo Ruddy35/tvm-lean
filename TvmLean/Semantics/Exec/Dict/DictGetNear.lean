@@ -38,9 +38,9 @@ def execInstrDictDictGetNear (i : Instr) (next : VM Unit) : VM Unit := do
               match dictCell? with
               | some c => VM.registerCellLoad c
               | none => pure ()
-              match dictNearestWithCells dictCell? hintBits goUp allowEq sgnd with
+              match dictNearestWithCells (resolve := (← VM.cellResolver)) dictCell? hintBits goUp allowEq sgnd with
               | .error e =>
-                  let loaded := dropFirstRootLoad dictCell? (dictNearestVisitedCells dictCell? hintBits goUp allowEq sgnd)
+                  let loaded := dropFirstRootLoad dictCell? (dictNearestVisitedCells (resolve := (← VM.cellResolver)) dictCell? hintBits goUp allowEq sgnd)
                   for c in loaded do
                     VM.registerCellLoad c
                   throw e
@@ -51,9 +51,9 @@ def execInstrDictDictGetNear (i : Instr) (next : VM Unit) : VM Unit := do
                 match dictCell? with
                 | some c => VM.registerCellLoad c
                 | none => pure ()
-                match dictMinMaxWithCells dictCell? n (!goUp) sgnd with
+                match dictMinMaxWithCells (resolve := (← VM.cellResolver)) dictCell? n (!goUp) sgnd with
                 | .error e =>
-                    let loaded := dropFirstRootLoad dictCell? (dictMinMaxVisitedCells dictCell? n (!goUp) sgnd)
+                    let loaded := dropFirstRootLoad dictCell? (dictMinMaxVisitedCells (resolve := (← VM.cellResolver)) dictCell? n (!goUp) sgnd)
                     for c in loaded do
                       VM.registerCellLoad c
                     throw e
@@ -84,9 +84,9 @@ def execInstrDictDictGetNear (i : Instr) (next : VM Unit) : VM Unit := do
         match dictCell? with
         | some c => VM.registerCellLoad c
         | none => pure ()
-        match dictNearestWithCells dictCell? hintBits goUp allowEq false with
+        match dictNearestWithCells (resolve := (← VM.cellResolver)) dictCell? hintBits goUp allowEq false with
         | .error e =>
-            let loaded := dropFirstRootLoad dictCell? (dictNearestVisitedCells dictCell? hintBits goUp allowEq false)
+            let loaded := dropFirstRootLoad dictCell? (dictNearestVisitedCells (resolve := (← VM.cellResolver)) dictCell? hintBits goUp allowEq false)
             for c in loaded do
               VM.registerCellLoad c
             throw e

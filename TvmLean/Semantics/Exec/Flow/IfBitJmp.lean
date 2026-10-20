@@ -40,13 +40,15 @@ def execInstrFlowIfBitJmp (i : Instr) (next : VM Unit) : VM Unit := do
         pure ()
   | .contExt (.ifbitjmpref idx code) =>
       if (← popIntFiniteKeepAndBit idx) then
-        VM.registerCellLoad code.cell
+        -- C++ `ref_to_cont(load_cell_slice_ref)`
+        let code ← VM.loadCellSlice code.cell
         VM.jump (.ordinary code (.quit 0) OrdCregs.empty OrdCdata.empty)
       else
         pure ()
   | .contExt (.ifnbitjmpref idx code) =>
       if !(← popIntFiniteKeepAndBit idx) then
-        VM.registerCellLoad code.cell
+        -- C++ `ref_to_cont(load_cell_slice_ref)`
+        let code ← VM.loadCellSlice code.cell
         VM.jump (.ordinary code (.quit 0) OrdCregs.empty OrdCdata.empty)
       else
         pure ()

@@ -21,23 +21,6 @@ def intSignedBitSizeTwos (n : Int) : Nat :=
   else
     natLenBits (-n - 1).toNat + 1
 
-def lookupLibraryIn? (hashBits : BitString) (libCollection : Cell) : Option Cell :=
-  -- Mirrors TON `lookup_library_in` used by `VmState::load_library`.
-  -- Returns `none` if dictionary lookup fails or the value does not match the expected layout.
-  match dictLookup (some libCollection) hashBits with
-  | .error _ => none
-  | .ok none => none
-  | .ok (some val) =>
-      if !val.haveRefs 1 then
-        none
-      else
-        let root := val.cell.refs[val.refPos]!
-        let keyBytes := bitStringToBytesBE hashBits
-        if Cell.hashBytes root == keyBytes then
-          some root
-        else
-          none
-
 set_option maxHeartbeats 1000000 in
 def execInstrCellExt (i : Instr) (next : VM Unit) : VM Unit := do
   match i with

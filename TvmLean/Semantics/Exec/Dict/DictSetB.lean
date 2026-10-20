@@ -46,9 +46,9 @@ def execInstrDictDictSetB (i : Instr) (next : VM Unit) : VM Unit := do
       match dictCell? with
       | some c => VM.registerCellLoad c
       | none => pure ()
-      match dictSetBuilderWithCells dictCell? keyBits newVal mode with
+      match dictSetBuilderWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits newVal mode with
       | .error e =>
-          let loaded := dropFirstRootLoad dictCell? (dictLookupVisitedCells dictCell? keyBits)
+          let loaded := dropFirstRootLoad dictCell? (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits)
           for c in loaded do
             VM.registerCellLoad c
           throw e

@@ -7,12 +7,9 @@ def execInstrCellCtos (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .ctos =>
       let c ← VM.popCell
-      -- C++ `CTOS` uses `load_cell_slice_ref`, which charges a cell load/reload.
-      VM.registerCellLoad c
-      -- `load_cell_slice_ref` charges before it rejects exotic/special cells.
-      if c.special then
-        throw .cellUnd
-      VM.push (.slice (Slice.ofCell c))
+      -- C++ `load_cell_slice_ref`: the load is charged, a library cell loads as its library's root,
+      -- other exotic cells are cell_und
+      VM.push (.slice (← VM.loadCellSlice c))
   | _ => next
 
 end TvmLean

@@ -21,9 +21,9 @@ def execInstrDictDictGetExec (i : Instr) (next : VM Unit) : VM Unit := do
           match dictCell? with
           | some c => VM.registerCellLoad c
           | none => pure ()
-          match dictLookupWithCells dictCell? keyBits with
+          match dictLookupWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
           | .error e =>
-              let loadedAll := dictLookupVisitedCells dictCell? keyBits
+              let loadedAll := dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits
               let loaded :=
                 match dictCell? with
                 | none => loadedAll

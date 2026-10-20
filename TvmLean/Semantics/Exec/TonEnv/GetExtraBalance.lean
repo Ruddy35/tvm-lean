@@ -59,10 +59,10 @@ def execInstrTonEnvGetExtraBalance (i : Instr) (next : VM Unit) : VM Unit := do
             VM.registerCellLoad c
 
       let keyBits : BitString := natToBits id 32
-      match dictLookupWithCells dictRoot? keyBits with
+      match dictLookupWithCells (resolve := (← VM.cellResolver)) dictRoot? keyBits with
       | .error e =>
           -- the cells loaded before the error are charged
-          chargeLoads (dictLookupVisitedCells dictRoot? keyBits)
+          chargeLoads (dictLookupVisitedCells (resolve := (← VM.cellResolver)) dictRoot? keyBits)
           throw e
       | .ok (none, loaded) =>
           chargeLoads loaded

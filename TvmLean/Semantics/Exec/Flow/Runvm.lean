@@ -403,7 +403,10 @@ def childStep (host : Host) (st : VmState) : ChildStepResult :=
               if decide (st1.gas.gasRemaining < 0) then
                 outOfGasHalt st1
               else
-                .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
+                -- C++ `load_cell_slice_ref`: a library cell runs its library's root; exotic cells are cell_und
+                match libraryResolver st1.libraries refCell with
+                | .ok root => .continue { st1 with cc := .ordinary (Slice.ofCell root) (.quit 0) OrdCregs.empty OrdCdata.empty }
+                | .error e => childRaiseException st1 e.toInt
             else
               childRaiseException st0 Excno.cellUnd.toInt
         else

@@ -34,9 +34,9 @@ def execInstrDictDictGetMinMax (i : Instr) (next : VM Unit) : VM Unit := do
       match dictCell? with
       | some c => VM.registerCellLoad c
       | none => pure ()
-      match dictMinMaxWithCells dictCell? n fetchMax invertFirst with
+      match dictMinMaxWithCells (resolve := (← VM.cellResolver)) dictCell? n fetchMax invertFirst with
       | .error e =>
-          let loaded := dropFirstRootLoad dictCell? (dictMinMaxVisitedCells dictCell? n fetchMax invertFirst)
+          let loaded := dropFirstRootLoad dictCell? (dictMinMaxVisitedCells (resolve := (← VM.cellResolver)) dictCell? n fetchMax invertFirst)
           for c in loaded do
             VM.registerCellLoad c
           throw e
@@ -58,9 +58,9 @@ def execInstrDictDictGetMinMax (i : Instr) (next : VM Unit) : VM Unit := do
           let mut created : Nat := 0
           let mut loaded1 : Array Cell := #[]
           if remove then
-            match dictDeleteWithCells dictCell? keyBits with
+            match dictDeleteWithCells (resolve := (← VM.cellResolver)) dictCell? keyBits with
             | .error e =>
-                let loadedDel := dictDeleteVisitedCells dictCell? keyBits
+                let loadedDel := dictDeleteVisitedCells (resolve := (← VM.cellResolver)) dictCell? keyBits
                 for c in loadedDel do
                   VM.registerCellLoad c
                 throw e

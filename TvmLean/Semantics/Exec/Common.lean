@@ -12,6 +12,20 @@ def VM.checkUnderflow (n : Nat) : VM Unit := do
   if st.stack.size < n then
     throw .stkUnd
 
+/-- The cell loader of C++ `load_cell_slice_impl` (cells/CellSlice.cpp) in this VM: a library cell
+is replaced by the root of its library from `VmState.libraries`, any other exotic cell is cell_und.
+Passed as `resolve` to the dictionary functions, which load every node this way. -/
+def VM.cellResolver : VM (Cell → Except Excno Cell) := do
+  return libraryResolver (← get).libraries
+
+/-- C++ `load_cell_slice` / `load_cell_slice_ref`: the load of `c` is charged (a library cell's,
+not its root's), then `c` is resolved as by `VM.cellResolver`. -/
+def VM.loadCellSlice (c : Cell) : VM Slice := do
+  VM.registerCellLoad c
+  match libraryResolver (← get).libraries c with
+  | .ok r => return Slice.ofCell r
+  | .error e => throw e
+
 /-- C++ `VmState::throw_exception` called by an instruction: `raise` makes the exception stack and
 continuation, then the exception gas is charged (out of gas at once) and the jump to `c2` fails with
 stk_und if `c2` expects more arguments than the stack holds (`adjust_jump_cont`). -/

@@ -244,7 +244,10 @@ def VmState.stepTrace (host : Host) (st : VmState) (step : Nat) : TraceEntry × 
                 if decide (st1.gas.gasRemaining < 0) then
                   st1.outOfGasHalt
                 else
-                  .continue { st1 with cc := .ordinary (Slice.ofCell refCell) (.quit 0) OrdCregs.empty OrdCdata.empty }
+                  -- C++ `load_cell_slice_ref`: a library cell runs its library's root; exotic cells are cell_und
+                  match libraryResolver st1.libraries refCell with
+                  | .ok root => .continue { st1 with cc := .ordinary (Slice.ofCell root) (.quit 0) OrdCregs.empty OrdCdata.empty }
+                  | .error e => st1.raiseException e.toInt
               else
                 st0.raiseException Excno.cellUnd.toInt
             let stAfter :=
