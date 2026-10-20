@@ -82,8 +82,6 @@ def VM.popTuple : VM (Array Value) := do
   | .tuple t => return t
   | _ => throw .typeChk
 
-def childFuelDefault : Nat := 50_000
-
 set_option maxHeartbeats 1000000 in
 def execInstrFlowChildNoRunvm (_host : Host) (i : Instr) (next : VM Unit) : VM Unit :=
   execInstrFlowSetcp i <|
@@ -152,10 +150,11 @@ def execInstrChildNoRunvm (host : Host) (i : Instr) : VM Unit :=
                         execInstrDict host i <|
                           throw .invOpcode
 
-/-- The child VM of `RUNVM` runs with the same `VmState::run` as the parent (C++ `run_child_vm`);
-its instructions are `execInstrChildNoRunvm`. Returns the exit code and the final state. -/
-def childRun (host : Host) (fuel : Nat) (st : VmState) : Int × VmState :=
-  match st.runWith (execInstrChildNoRunvm host) fuel with
+/-- The child VM of `RUNVM` runs with the same `VmState::run` as the parent (C++ `run_child_vm`)
+until it halts, which its gas bounds (`GasLimits.stepBound`); its instructions are
+`execInstrChildNoRunvm`. Returns the exit code and the final state. -/
+def childRun (host : Host) (st : VmState) : Int × VmState :=
+  match st.runWith (execInstrChildNoRunvm host) st.gas.stepBound with
   | .halt exitCode st' => (exitCode, st')
   | .continue st' => (Excno.fatal.toInt, st')
 
@@ -279,7 +278,7 @@ def runChildVm (host : Host) (parent : VmState) (mode : Nat) : VM VmState := do
       maxDataDepth := parentAfterPops.maxDataDepth
       globalVersion := parentAfterPops.globalVersion }
 
-  let (childExit, childFinal) := childRun host childFuelDefault child
+  let (childExit, childFinal) := childRun host child
   let mut resCode : Int := ~~~ childExit
 
   let childConsumed : Int := childFinal.gas.gasConsumed

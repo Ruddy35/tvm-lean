@@ -288,6 +288,13 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
                       -- TVM behavior: convert VM errors into an exception jump to c2.
                       st1.raiseException e.toInt
 
+/-- Steps within which a VM with gas `g` halts, the fuel for a VM that only gas bounds (the child
+of `RUNVM`): every step charges gas (an instruction, an implicit `RET` or `JMPREF`, an exception)
+except the free jumps of a chain, at most `freeNestedContJump` in a row, and at most
+`max (gasLimit + gasCredit) gasMax` gas is charged before the VM runs out of gas. -/
+def GasLimits.stepBound (g : GasLimits) : Nat :=
+  (freeNestedContJump + 1) * ((max (g.gasLimit + g.gasCredit) g.gasMax).toNat + 2)
+
 /-- C++ `VmState::run` with `run_inner`: step until the VM halts, then `try_commit` after exit code 0
 or 1 (`(res | 1) == -1`); `fuel` bounds the number of steps. -/
 def VmState.runWith (exec : Instr → VM Unit) (fuel : Nat) (st : VmState) : StepResult :=
