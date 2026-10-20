@@ -2,8 +2,11 @@
 # Line and branch coverage of the C++ VM (crypto/vm) accumulated by runs of the coverage fift.
 #   WS, TON_SRC, BUILD as in build-cpp-coverage.sh;  OUT = report directory.
 #   SCOPE  exec (default): the code run when the VM executes a contract — crypto/vm without the
-#          cell databases (db/), BOC serialization (boc*, large-boc-serializer), Merkle proofs and
-#          updates, and fift's own memo/atom; all: the whole of crypto/vm.
+#          cell databases (db/, cells/ExtCell), BOC serialization (boc*, large-boc-serializer),
+#          Merkle proofs and updates and their cell kinds (cells/Merkle*, cells/PrunnedCell,
+#          cells/UsageCell, cells/CellUsageTree), cell strings (cells/CellString), and fift's own
+#          memo/atom and stack-entry parser (utils.cpp); none of them is called by the VM's
+#          instructions or run loop. all: the whole of crypto/vm.
 # Reset counters before a measured run:  find "$BUILD" -name '*.gcda' -delete
 # A full run (oracle and fuzz) executes the hottest lines billions of times; gcovr takes such
 # counts for the old gcov bug 68080 ("suspicious hits") unless told to only warn.
@@ -13,7 +16,9 @@ OUT=${OUT:-./cpp-coverage}; SCOPE=${SCOPE:-exec}; mkdir -p "$OUT"
 G=$WS/tools/venv/bin/gcovr
 EXCL=()
 if [ "$SCOPE" = exec ]; then
-  for p in 'db/' 'boc[^/]*' 'large-boc-serializer[^/]*' 'cells/Merkle[^/]*' 'memo[^/]*' 'atom[^/]*'; do
+  for p in 'db/' 'boc[^/]*' 'large-boc-serializer[^/]*' 'cells/Merkle[^/]*' 'cells/ExtCell[^/]*' \
+      'cells/PrunnedCell[^/]*' 'cells/UsageCell[^/]*' 'cells/CellUsageTree[^/]*' 'cells/CellString[^/]*' \
+      'memo[^/]*' 'atom[^/]*' 'utils[.]cpp'; do
     EXCL+=(--exclude "$TON_SRC/crypto/vm/$p")
   done
 fi
