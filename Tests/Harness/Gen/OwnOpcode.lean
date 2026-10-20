@@ -152,6 +152,83 @@ private def setGetCases (suite : String) (op : Nat) (unsigned byRef : Bool) : Ar
   #[mk suite "value-type" code #[(if byRef then .slice (Slice.ofCell Cell.empty) else .cell Cell.empty), iv 5, (dicts[2]!).2, iv 4],
     mk suite "underflow" code #[iv 5, (dicts[2]!).2, iv 4], mk suite "n-big" code #[value, iv 5, (dicts[2]!).2, iv 1024]]
 
+/-! ### Opcodes most of whose suite runs a neighbour (`--opcode-check` finds them in few cases) -/
+
+/-- A dictionary with 4-bit keys whose values are code: `PUSHINT k` for key `k` (signed). -/
+private def codeDict (keys : Array Int) : Value :=
+  let root := keys.foldl (fun root k =>
+    let bits := natToBits ((k + 16).toNat % 16) 4
+    match dictSetSliceWithCells root bits (Slice.ofCell (Cell.mkOrdinary (natToBits (0x70 + ((k + 16).toNat % 16)) 8) #[])) .set with
+    | .ok (some r, _, _, _) => some r
+    | _ => root) none
+  match root with
+  | some r => .cell r
+  | none => .null
+
+/-- `DICTIGETEXEC` / `DICTUGETEXEC` (i D n -- ): the value runs as a continuation (`PUSHINT`). -/
+private def getExecCases (suite : String) (op : Nat) (unsigned : Bool) : Array OracleCase :=
+  let code := codeWith #[] (natToBits op 16)
+  let d := codeDict (if unsigned then #[0, 3, 9, 15] else #[0, 3, -7, -1])
+  let keys : Array Int := if unsigned then #[0, 3, 9, 15, 4, 16, -1] else #[0, 3, -7, -1, 4, 8, -9]
+  (keys.map fun k => mk suite s!"key{k}" code #[iv 42, iv k, d, iv 4]) ++
+  #[mk suite "empty" code #[iv 3, .null, iv 4], mk suite "underflow" code #[d, iv 4],
+    mk suite "type-key" code #[.null, d, iv 4], mk suite "n-big" code #[iv 3, d, iv 1024]]
+
+/-- `DICTIMIN` (D n -- x i -1 | 0): the least signed key. -/
+private def dictIMinCases (suite : String) : Array OracleCase :=
+  let code := codeWith #[] (natToBits 0xf484 16)
+  (dicts.map fun (dn, d) => mk suite dn code #[d, iv 4]) ++
+  #[mk suite "negatives" code #[(match dictSetRefWithCells none (natToBits 9 4) Cell.empty .set with
+        | .ok (some r, _, _, _) => .cell r | _ => .null), iv 4],
+    mk suite "n0" code #[(dicts[2]!).2, iv 0], mk suite "underflow" code #[(dicts[2]!).2], mk suite "type" code #[iv 1, iv 4]]
+
+/-- `DICTSETREF` (c k D n -- D'): slice key, the value a reference. -/
+private def dictSetRefCases (suite : String) : Array OracleCase :=
+  let code := codeWith #[] (natToBits 0xf413 16)
+  let c : Value := .cell (Cell.mkOrdinary (natToBits 0xee 8) #[])
+  (dicts.flatMap fun (dn, d) =>
+    #["0101", "0000", "1110", "011"].map fun k => mk suite s!"{dn}/key{k}" code #[c, sliceKey k, d, iv 4]) ++
+  #[mk suite "value-slice" code #[.slice (Slice.ofCell Cell.empty), sliceKey "0101", (dicts[2]!).2, iv 4],
+    mk suite "underflow" code #[sliceKey "0101", (dicts[2]!).2, iv 4]]
+
+/-- `PLDDICT` (s -- D), `LDDICTQ` (s -- D s' -1 | s 0): a `Maybe ^Cell`. -/
+private def loadDictCases (suite : String) (op : Nat) : Array OracleCase :=
+  let code := codeWith #[] (natToBits op 16)
+  let sl (bits : BitString) (refs : Array Cell) : Value := .slice (Slice.ofCell (Cell.mkOrdinary bits refs))
+  #[mk suite "nothing" code #[sl #[false] #[]], mk suite "nothing-tail" code #[sl #[false, true] #[Cell.empty]],
+    mk suite "just" code #[sl #[true] #[Cell.empty]], mk suite "just-tail" code #[sl #[true, false, true] #[Cell.empty, Cell.empty]],
+    mk suite "just-no-ref" code #[sl #[true] #[]], mk suite "empty" code #[sl #[] #[]], mk suite "refs-only" code #[sl #[] #[Cell.empty]],
+    mk suite "type" code #[iv 1], mk suite "underflow" code #[]]
+
+/-- `THROW n` in its long form (`0xf2c4_` + 11 bits), n from 0 to 2047: uncaught, and inside
+`TRY` with an empty handler (the handler gets the stack `[n, n]`). -/
+private def throwLongCases (suite : String) : Array OracleCase :=
+  let raw (n : Nat) : BitString := natToBits (0xf2c0 >>> 3) 13 ++ natToBits n 11
+  #[0, 1, 2, 63, 64, 100, 1000, 2047].flatMap fun n =>
+    #[mk suite s!"n{n}" (codeWith #[] (raw n)) #[iv 5],
+      mk suite s!"n{n}/try"
+        (codeWith #[.pushCont (Slice.ofCell (Cell.mkOrdinary (raw n) #[])),
+          .pushCont (Slice.ofCell (Tests.Gen.Control.codeOf #[])), .try_] #[]) #[iv 5]]
+
+/-- `XCHG3 s(i),s(j),s(k)` in its long form (`0x540ijk`). -/
+private def xchg3AltCases (suite : String) : Array OracleCase :=
+  let stack := (Array.range 16).map fun i => iv (Int.ofNat (100 + i))
+  #[(1, 2, 3), (0, 0, 0), (15, 14, 13), (3, 3, 3), (0, 15, 7), (2, 1, 0)].flatMap fun (i, j, k) =>
+    #[mk suite s!"i{i}j{j}k{k}" (codeWith #[] (natToBits 0x540 12 ++ natToBits i 4 ++ natToBits j 4 ++ natToBits k 4)) stack,
+      mk suite s!"i{i}j{j}k{k}/short" (codeWith #[] (natToBits 0x540 12 ++ natToBits i 4 ++ natToBits j 4 ++ natToBits k 4))
+        (stack.extract 0 (Nat.max i (Nat.max j k)))]
+
+/-- `CALLXARGS p,-1` (`0xdb0p`): every result returned. -/
+private def callxArgsAllCases (suite : String) : Array OracleCase :=
+  let body (b : Array Instr) : Instr := .pushCont (Slice.ofCell (Tests.Gen.Control.codeOf b))
+  let call (p : Nat) : BitString := natToBits 0xdb0 12 ++ natToBits p 4
+  #[mk suite "p2-add" (codeWith #[body #[.add]] (call 2)) #[iv 1, iv 2, iv 3],
+    mk suite "p0-push3" (codeWith #[body #[.pushInt (.num 1), .pushInt (.num 2), .pushInt (.num 3)]] (call 0)) #[iv 9],
+    mk suite "p1-drop" (codeWith #[body #[.pop 0]] (call 1)) #[iv 7, iv 8],
+    mk suite "p3-short" (codeWith #[body #[]] (call 3)) #[iv 1, iv 2],
+    mk suite "p15" (codeWith #[body #[.blkdrop 14]] (call 15)) ((Array.range 16).map fun i => iv (Int.ofNat i)),
+    mk suite "not-cont" (codeWith #[] (call 1)) #[iv 1, iv 2]]
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
@@ -184,6 +261,15 @@ def casesFor (suite : String) : Array OracleCase :=
   | "DICTISETGET" => setGetCases suite 0xf41c false false
   | "DICTISETGETREF" => setGetCases suite 0xf41d false true
   | "DICTUSETGET" => setGetCases suite 0xf41e true false
+  | "DICTIGETEXEC" => getExecCases suite 0xf4a2 false
+  | "DICTUGETEXEC" => getExecCases suite 0xf4a3 true
+  | "DICTIMIN" => dictIMinCases suite
+  | "DICTSETREF" => dictSetRefCases suite
+  | "PLDDICT" => loadDictCases suite 0xf405
+  | "LDDICTQ" => loadDictCases suite 0xf406
+  | "THROW" => throwLongCases suite
+  | "XCHG3_ALT" => xchg3AltCases suite
+  | "CALLXARGS" => callxArgsAllCases suite
   | _ => #[]
 
 end Tests.Gen.OwnOpcode
