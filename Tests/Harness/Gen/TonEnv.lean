@@ -234,7 +234,12 @@ def cfgC7Pool : Array (String × Array Value) :=
         sl ((gasFlat 100 1 (gasDd 1)).extract 0 200), sl ((gasDd 1).extract 0 300),
         sl ((fwdPrices 1 2 3).extract 0 200), sl ((fwdPrices 1 2 3).extract 0 300), .null]),
      ("cfg-trailing", cfgC7 #[sl (storagePrices 1 2 3 4 ++ natToBits 5 3), sl (natToBits 0x80000001 40),
-        sl (gasDd 3 ++ #[true]), sl (gasDe 3 ++ #[true]), sl (fwdPrices 1 2 3 ++ #[true]), sl (fwdPrices 4 5 6 ++ #[true]), .null]) ]
+        sl (gasDd 3 ++ #[true]), sl (gasDe 3 ++ #[true]), sl (fwdPrices 1 2 3 ++ #[true]), sl (fwdPrices 4 5 6 ++ #[true]), .null]),
+     -- entries that are not slices (`as_slice()` null: no storage prices; type_chk for the gas and
+     -- forwarding prices, `util::get_{gas,msg}_prices`; the global id)
+     ("cfg-ints", cfgC7 #[iv 1, iv 2, iv 3, iv 4, iv 5, iv 6, iv 7]),
+     ("cfg-nulls", cfgC7 #[.null, .null, .null, .null, .null, .null, .null]),
+     ("cfg-cells", cfgC7 (Array.replicate 7 (.cell (Cell.mkOrdinary (fwdPrices 1 2 3) #[])))) ]
 
 /-- Random seeds `c7[0][6]` that are not integers, negative (range_chk: no TVM integer reaches 2^256),
 the largest, and a parameter tuple without
