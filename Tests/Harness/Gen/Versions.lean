@@ -18,6 +18,11 @@ threshold it takes one branch, on the other side the other.
   52-bit words becomes 0, shifted right by more than 12 bits -1 (rounding down) or 0, `AND` with 0
   is 0, `OR` with -1 is -1; the quiet forms are range_chk on a bad shift. From version 13 the result
   is NaN. The cases put NaN on each side of these bounds.
+- Before version 10 a message address may be `addr_var$11` and have an anycast
+  (`depth:(#<= 30) rewrite_pfx:(bits depth)`, `depth >= 1`), which `LDMSGADDR`, `PARSEMSGADDR` and
+  the `REWRITE*ADDR` instructions accept (tonops.cpp:1608-1814); `REWRITEVARADDR` builds a new cell
+  for an address whose anycast prefix is shorter than it (tonops.cpp:1837-1853). The cases give
+  standard and variable addresses with anycasts of valid and invalid depths.
 -/
 
 namespace Tests.Gen.Versions
@@ -76,6 +81,40 @@ private def shlDivCases (suite : String) (op : Instr) (add : Bool) : Array Oracl
      ("x-nan-shift52-div-nan", #[none] ++ w ++ #[none, some 52]),
      ("bad-shift", #[some 1] ++ w ++ #[some 3, some 300])]
 
+/-- `addr_std$10` or `addr_var$11` with the anycast `pfx` (its depth, `none` for `nothing$0`),
+workchain `wc` (8 or 32 bits) and address bits `addr` (256 bits for `addr_std`). -/
+private def msgAddr (var : Bool) (pfx : Option (Nat × Nat)) (wc : Int) (addr : BitString) : Value :=
+  let anycast : BitString :=
+    match pfx with
+    | none => #[false]
+    | some (depth, bits) => #[true] ++ natToBits depth 5 ++ natToBits bits depth
+  let wcBits : BitString :=
+    match intToBitsTwos wc (if var then 32 else 8) with
+    | .ok b => b
+    | .error _ => #[]
+  let body : BitString :=
+    if var then natToBits 0b11 2 ++ anycast ++ natToBits addr.size 9 ++ wcBits ++ addr
+    else natToBits 0b10 2 ++ anycast ++ wcBits ++ addr
+  .slice (Slice.ofCell (Cell.mkOrdinary body #[]))
+
+private def addrBits (n seed : Nat) : BitString := natToBits ((seed * 0x9e3779b97f4a7c15) % (2 ^ n)) n
+
+/-- Addresses of every kind the versions before 10 tell apart. -/
+private def anycastAddrs : List (String × Value) :=
+  [("std-anycast5", msgAddr false (some (5, 0b10110)) 0 (addrBits 256 1)),
+   ("std-anycast30", msgAddr false (some (30, 12345)) (-1) (addrBits 256 2)),
+   ("std-anycast31", msgAddr false (some (31, 7)) 0 (addrBits 256 3)),
+   ("std-anycast0", msgAddr false (some (0, 0)) 0 (addrBits 256 4)),
+   ("var-len64", msgAddr true none 7 (addrBits 64 5)),
+   ("var-len256", msgAddr true none (-2) (addrBits 256 6)),
+   ("var-anycast3-len100", msgAddr true (some (3, 0b101)) 3 (addrBits 100 7)),
+   ("var-anycast8-len8", msgAddr true (some (8, 0xa5)) 0 (addrBits 8 8)),
+   ("var-anycast10-len5", msgAddr true (some (10, 0x3ff)) 0 (addrBits 5 9)),
+   ("var-anycast4-len256", msgAddr true (some (4, 0b1111)) 1 (addrBits 256 10))]
+
+private def addrCases (suite : String) (op : Instr) : Array OracleCase :=
+  anycastAddrs.toArray.map fun (nm, v) => mk suite s!"anycast/{nm}" #[op] #[v]
+
 /-- The cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
@@ -109,6 +148,14 @@ def casesFor (suite : String) : Array OracleCase :=
   | "QLSHIFTDIV" => shlDivCases suite (.arithExt (.shlDivMod 1 (-1) false true none)) false
   | "QLSHIFTDIVMOD" => shlDivCases suite (.arithExt (.shlDivMod 3 (-1) false true none)) false
   | "QLSHIFTADDDIVMOD" => shlDivCases suite (.arithExt (.shlDivMod 3 (-1) true true none)) true
+  | "LDMSGADDR" => addrCases suite (.tonEnvOp (.ldMsgAddr false))
+  | "LDMSGADDRQ" => addrCases suite (.tonEnvOp (.ldMsgAddr true))
+  | "PARSEMSGADDR" => addrCases suite (.tonEnvOp (.parseMsgAddr false))
+  | "PARSEMSGADDRQ" => addrCases suite (.tonEnvOp (.parseMsgAddr true))
+  | "REWRITESTDADDR" => addrCases suite (.tonEnvOp (.rewriteStdAddr false))
+  | "REWRITESTDADDRQ" => addrCases suite (.tonEnvOp (.rewriteStdAddr true))
+  | "REWRITEVARADDR" => addrCases suite (.tonEnvOp (.rewriteVarAddr false))
+  | "REWRITEVARADDRQ" => addrCases suite (.tonEnvOp (.rewriteVarAddr true))
   | _ => #[]
 
 end Tests.Gen.Versions

@@ -26,8 +26,9 @@ def execInstrTonEnvRewriteStdAddr (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tonEnvOp (.rewriteStdAddr quiet) =>
       let csr0 ← VM.popSlice
+      let gv : Nat := (← get).globalVersion
       let parsed : Except Excno (Int × Nat) := do
-        let (tup, rest) ← csr0.parseMessageAddr
+        let (tup, rest) ← csr0.parseMessageAddr gv
         if rest.bitsRemaining != 0 || rest.refsRemaining != 0 then
           throw .cellUnd
         if tup.size != 4 then

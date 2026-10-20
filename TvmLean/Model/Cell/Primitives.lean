@@ -25,18 +25,31 @@ def Slice.takeBitsAsNatCellUnd (s : Slice) (n : Nat) : Except Excno (Nat × Slic
   else
     throw .cellUnd
 
-def Slice.skipMaybeAnycast (s : Slice) : Except Excno Slice := do
-  -- Mirrors C++ `skip_maybe_anycast` for modern TVM (global_version >= 10):
-  -- only `nothing$0` is accepted.
+/-- C++ `fetch_uint_leq(30, depth)` of an anycast and the `depth >= 1` check (tonops.cpp:1615-1618,
+1750-1753): 5 bits, a value from 1 to 30. -/
+def Slice.takeAnycastDepth (s : Slice) : Except Excno (Nat × Slice) := do
+  let (depth, s1) ← s.takeBitsAsNatCellUnd 5
+  if depth < 1 ∨ depth > 30 then
+    throw .cellUnd
+  return (depth, s1)
+
+/-- C++ `skip_maybe_anycast` (tonops.cpp:1608-1619) at global version `gv`: `nothing$0`; from
+version 10 an anycast (`just$1`) is rejected, before it is `depth:(#<= 30) rewrite_pfx:(bits depth)`
+with `depth >= 1`. -/
+def Slice.skipMaybeAnycast (s : Slice) (gv : Nat) : Except Excno Slice := do
   let (b, s1) ← s.takeBitsAsNatCellUnd 1
   if b = 0 then
     return s1
-  else
+  if gv ≥ 10 then
     throw .cellUnd
+  let (depth, s2) ← s1.takeAnycastDepth
+  if !s2.haveBits depth then
+    throw .cellUnd
+  return s2.advanceBits depth
 
-def Slice.skipMessageAddr (s : Slice) : Except Excno Slice := do
-  -- Mirrors C++ `skip_message_addr` for modern TVM (global_version >= 10):
-  -- `addr_var$11` and anycast `just$1` are rejected.
+/-- C++ `skip_message_addr` (tonops.cpp:1621-1646) at global version `gv`: from version 10
+`addr_var$11` and anycasts are rejected. -/
+def Slice.skipMessageAddr (s : Slice) (gv : Nat) : Except Excno Slice := do
   let (tag, s2) ← s.takeBitsAsNatCellUnd 2
   match tag with
   | 0 =>
@@ -51,15 +64,22 @@ def Slice.skipMessageAddr (s : Slice) : Except Excno Slice := do
         throw .cellUnd
   | 2 =>
       -- addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256
-      let s3 ← s2.skipMaybeAnycast
+      let s3 ← s2.skipMaybeAnycast gv
       let need : Nat := 8 + 256
       if s3.haveBits need then
         return s3.advanceBits need
       else
         throw .cellUnd
   | 3 =>
-      -- addr_var$11 is unavailable for modern TVM.
-      throw .cellUnd
+      -- addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) workchain_id:int32 address:(bits addr_len)
+      if gv ≥ 10 then
+        throw .cellUnd
+      let s3 ← s2.skipMaybeAnycast gv
+      let (len, s4) ← s3.takeBitsAsNatCellUnd 9
+      if s4.haveBits (32 + len) then
+        return s4.advanceBits (32 + len)
+      else
+        throw .cellUnd
   | _ =>
       throw .cellUnd
 
@@ -105,17 +125,22 @@ def Slice.skipMsgAddressTlb (s : Slice) : Except Excno Slice := do
   let (b, _) ← s.takeBitsAsNatCellUnd 1
   if b = 0 then s.skipMsgAddressExtTlb else s.skipMsgAddressIntTlb
 
-def Slice.parseMaybeAnycast (s : Slice) : Except Excno (Value × Slice) := do
-  -- Mirrors C++ `parse_maybe_anycast` for modern TVM (global_version >= 10):
-  -- only `nothing$0` is accepted.
+/-- C++ `parse_maybe_anycast` (tonops.cpp:1741-1759) at global version `gv`: `nothing$0` is `null`;
+from version 10 an anycast is rejected, before it is its `rewrite_pfx` as a slice. -/
+def Slice.parseMaybeAnycast (s : Slice) (gv : Nat) : Except Excno (Value × Slice) := do
   let (b, s1) ← s.takeBitsAsNatCellUnd 1
   if b = 0 then
     return (.null, s1)
-  else
+  if gv ≥ 10 then
     throw .cellUnd
+  let (depth, s2) ← s1.takeAnycastDepth
+  if !s2.haveBits depth then
+    throw .cellUnd
+  return (.slice (Slice.ofCell (Cell.mkOrdinary (s2.readBits depth) #[])), s2.advanceBits depth)
 
-def Slice.parseMessageAddr (s : Slice) : Except Excno (Array Value × Slice) := do
-  -- Mirrors C++ `parse_message_addr` for modern TVM (global_version >= 10).
+/-- C++ `parse_message_addr` (tonops.cpp:1761-1814) at global version `gv`: from version 10
+`addr_var$11` and anycasts are rejected. -/
+def Slice.parseMessageAddr (s : Slice) (gv : Nat) : Except Excno (Array Value × Slice) := do
   let (tag, s2) ← s.takeBitsAsNatCellUnd 2
   match tag with
   | 0 =>
@@ -132,7 +157,7 @@ def Slice.parseMessageAddr (s : Slice) : Except Excno (Array Value × Slice) := 
   | 2 =>
       -- addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
       -- -> (2, anycast_or_null, workchain, addr256)
-      let (anycast, s3) ← s2.parseMaybeAnycast
+      let (anycast, s3) ← s2.parseMaybeAnycast gv
       let (wcNat, s4) ← s3.takeBitsAsNatCellUnd 8
       if !s4.haveBits 256 then
         throw .cellUnd
@@ -141,8 +166,19 @@ def Slice.parseMessageAddr (s : Slice) : Except Excno (Array Value × Slice) := 
       let wc : Int := natToIntSignedTwos wcNat 8
       return (#[.int (.num 2), anycast, .int (.num wc), .slice (Slice.ofCell (Cell.mkOrdinary addrBits #[]))], s5)
   | 3 =>
-      -- addr_var$11 is unavailable for modern TVM.
-      throw .cellUnd
+      -- addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) workchain_id:int32 address:(bits addr_len)
+      -- = MsgAddressInt; -> (3, anycast_or_null, workchain, addr)
+      if gv ≥ 10 then
+        throw .cellUnd
+      let (anycast, s3) ← s2.parseMaybeAnycast gv
+      let (len, s4) ← s3.takeBitsAsNatCellUnd 9
+      let (wcNat, s5) ← s4.takeBitsAsNatCellUnd 32
+      if !s5.haveBits len then
+        throw .cellUnd
+      let addrBits := s5.readBits len
+      let wc : Int := natToIntSignedTwos wcNat 32
+      return (#[.int (.num 3), anycast, .int (.num wc), .slice (Slice.ofCell (Cell.mkOrdinary addrBits #[]))],
+        s5.advanceBits len)
   | _ =>
       throw .cellUnd
 

@@ -63,25 +63,25 @@ def extractMyAddrFromInMsg? (msgCell : Cell) : Option Slice :=
       if !s1.haveBits 3 then
         throw .cellUnd
       let afterFlags := s1.advanceBits 3
-      let afterSrc ← afterFlags.skipMessageAddr
+      let afterSrc ← afterFlags.skipMessageAddr 16
       let destStart := afterSrc
-      let destStop ← destStart.skipMessageAddr
+      let destStop ← destStart.skipMessageAddr 16
       let addrCell := Slice.prefixCell destStart destStop
       return Slice.ofCell addrCell
     else
       let (b1, s2) ← s1.takeBitsAsNatCellUnd 1
       if b1 = 0 then
         -- ext_in_msg_info$10 src:(MsgAddressExt) dest:(MsgAddressInt) ...
-        let afterSrc ← s2.skipMessageAddr
+        let afterSrc ← s2.skipMessageAddr 16
         let destStart := afterSrc
-        let destStop ← destStart.skipMessageAddr
+        let destStop ← destStart.skipMessageAddr 16
         let addrCell := Slice.prefixCell destStart destStop
         return Slice.ofCell addrCell
       else
         -- ext_out_msg_info$11 src:(MsgAddressInt) dest:(MsgAddressExt) ...
         -- For such messages, the contract address is the `src`.
         let srcStart := s2
-        let srcStop ← srcStart.skipMessageAddr
+        let srcStop ← srcStart.skipMessageAddr 16
         let addrCell := Slice.prefixCell srcStart srcStop
         return Slice.ofCell addrCell
   match parsed with
@@ -125,12 +125,12 @@ def extractInMsgParamsFromInMsg? (si : StackInit) (msgCell : Cell) : Option (Arr
 
       -- src:MsgAddressInt
       let srcStart := s4
-      let srcStop ← srcStart.skipMessageAddr
+      let srcStop ← srcStart.skipMessageAddr 16
       let srcCell := Slice.prefixCell srcStart srcStop
       let srcVal : Value := .slice (Slice.ofCell srcCell)
 
       -- dest:MsgAddressInt (skip)
-      let afterDest ← srcStop.skipMessageAddr
+      let afterDest ← srcStop.skipMessageAddr 16
 
       -- value:CurrencyCollection
       let (origGrams, afterValue) ← afterDest.takeCurrencyCollectionGramsCellUnd
@@ -195,11 +195,11 @@ def extractInMsgParamsFromInMsg? (si : StackInit) (msgCell : Cell) : Option (Arr
         let bouncedVal : Value := .int (.num 0)
 
         let srcStart := s2
-        let srcStop ← srcStart.skipMessageAddr
+        let srcStop ← srcStart.skipMessageAddr 16
         let srcCell := Slice.prefixCell srcStart srcStop
         let srcVal : Value := .slice (Slice.ofCell srcCell)
 
-        let afterDest ← srcStop.skipMessageAddr
+        let afterDest ← srcStop.skipMessageAddr 16
 
         let (_, afterImportFee) ← afterDest.takeGramsCellUnd
 
@@ -299,7 +299,7 @@ def defaultInitC7 (si : StackInit) (codeCell : Cell) (myCodeCell : Cell := codeC
           let (tag, s2) ← s0.takeBitsAsNatCellUnd 2
           if tag != 2 then
             throw .cellUnd
-          let s3 ← s2.skipMaybeAnycast
+          let s3 ← s2.skipMaybeAnycast 16
           let (_, s4) ← s3.takeBitsAsNatCellUnd 8 -- workchain_id:int8
           if !s4.haveBits 256 then
             throw .cellUnd

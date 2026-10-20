@@ -7,7 +7,7 @@ def execInstrTonEnvLdMsgAddr (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tonEnvOp (.ldMsgAddr quiet) =>
       let csr0 ← VM.popSlice
-      match csr0.skipMessageAddr with
+      match csr0.skipMessageAddr (← get).globalVersion with
       | .ok csr1 =>
           let addrCell := Slice.prefixCell csr0 csr1
           VM.push (.slice (Slice.ofCell addrCell))

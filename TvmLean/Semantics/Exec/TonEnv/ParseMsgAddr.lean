@@ -7,8 +7,9 @@ def execInstrTonEnvParseMsgAddr (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tonEnvOp (.parseMsgAddr quiet) =>
       let csr0 ← VM.popSlice
+      let gv : Nat := (← get).globalVersion
       let parsed : Except Excno (Array Value) := do
-        let (t, rest) ← csr0.parseMessageAddr
+        let (t, rest) ← csr0.parseMessageAddr gv
         if rest.bitsRemaining != 0 || rest.refsRemaining != 0 then
           throw .cellUnd
         return t
