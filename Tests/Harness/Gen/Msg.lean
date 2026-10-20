@@ -1,5 +1,6 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.VmCore
+import Tests.Harness.Gen.CellDepth
 
 /-!
 Oracle cases for the action instructions (C++ `tonops.cpp`: SENDRAWMSG, SENDMSG, RAWRESERVE{X},
@@ -293,12 +294,30 @@ private def libMsgCases (suite : String) : Array OracleCase := Id.run do
       out := out.push (mk n c libs mode)
   return out
 
+/-- The output action of SENDMSG refers to `c5` and to the message: C++ `DataCell::create`
+(`cells/DataCell.cpp:78`) rejects it when one of them is 1024 deep (cell_ov after the creation is
+charged); mode 1024 creates no action. `c5` is set by `POP c5`. -/
+private def depthMsgCases (suite : String) : Array OracleCase := Id.run do
+  let chain := Tests.Gen.CellDepth.chain
+  let mut out : Array OracleCase := #[]
+  for d in [1023, 1024] do
+    for mode in ([0, 1024] : List Int) do
+      out := out.push
+        { name := s!"oracle/depth/c5-chain{d}/mode{mode}", instr := { name := suite },
+          program := #[.popCtr 5, env .sendMsg], initStack := #[.cell (sendMsgPool[0]!).2, iv mode, .cell (chain d)],
+          initC7 := sendC7 }
+      -- the body reference is `d - 1` deep, the message `d`
+      out := out.push
+        { name := s!"oracle/depth/msg-depth{d}/mode{mode}", instr := { name := suite }, program := #[env .sendMsg],
+          initStack := #[.cell (intMsgWith 0 100 false 0 none true #[] #[chain (d - 2)]), iv mode], initC7 := sendC7 }
+  return out
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
   | "SENDRAWMSG" => cross suite (env .sendRawMsg) (msgModeStacks #[0, 1, 2, 64, 128, 130, 255, 256, -1])
   | "SENDMSG" => cross suite (env .sendMsg) (msgModeStacks #[0, 1, 64, 128, 1024, 1025, 255, 256, -1]) ++
-      sendMsgCoverageCases suite ++ libMsgCases suite
+      sendMsgCoverageCases suite ++ libMsgCases suite ++ depthMsgCases suite
   | "RAWRESERVE" => cross suite (env .rawReserve)
       (((#[0, 1, 1000000000, 2 ^ 120 - 1, 2 ^ 120, -1] : Array Int).flatMap
         (fun a => (#[0, 1, 2, 3, 4, 8, 15, 16, 31, 32, -1] : Array Int).map (fun m => #[iv a, iv m]))) ++
