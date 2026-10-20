@@ -244,14 +244,15 @@ def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt
         (w.slice (Slice.ofCell sc)).cell
   ((({} : W).ref acc).uint 0 256).uint (if lt > 0 then lt - 1 else 0) 64 |>.cell
 
-/-- An internal message to `(wc, dest)`, with an optional `StateInit` in a reference and a body of
-`body` bits inline. -/
+/-- An internal message to `(wc, dest)` from `src` (by default 0:2222..22), with an optional
+`StateInit` in a reference and a body of `body` bits inline. -/
 def intMsg (wc : Int) (dest : BitString) (value : Nat) (bounce : Bool) (init : Option Cell) (body : BitString)
     (extraFlags : Nat := 0) (bodyRefs : Array Cell := #[]) (extra : Option Cell := none) (padded : Nat := 0)
-    (anycast : Option BitString := none) : Cell :=
-  let src := natToBits 0x2222222222222222222222222222222222222222222222222222222222222222 256
+    (anycast : Option BitString := none)
+    (src : Int × BitString := (0, natToBits 0x2222222222222222222222222222222222222222222222222222222222222222 256)) :
+    Cell :=
   let w : W := (((({} : W).bool false).bool true).bool bounce).bool false
-  let w := (w.bitStr (addrStd 0 src).bits).bitStr (Account.mkAddr wc anycast dest).bits
+  let w := (w.bitStr (addrStd src.1 src.2).bits).bitStr (Account.mkAddr wc anycast dest).bits
   -- `padded`: one amount with a leading zero byte (1 the value, 2 extra_flags, 3 fwd_fee)
   let pad (k v : Nat) (w : W) : W := if padded == k then w.varUIntPadded v 16 else w.grams v
   let w := (((pad 1 value w).maybeRef extra) |> pad 2 extraFlags |> pad 3 0) |>.uint 2000 64 |>.uint 1700000100 32

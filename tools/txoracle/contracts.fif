@@ -1,5 +1,6 @@
 // Real contracts for the transaction oracle (Tests/Tx/Real.lean): the code the reference compiles
-// from FunC (crypto/smartcont/auto/*.fif), their initial data and messages signed with a fixed key.
+// from FunC (crypto/smartcont/auto/*.fif), their initial data and messages signed with a fixed key
+// (wallet v3, highload wallet v2, the elector, the configuration contract).
 // Prints one line per cell, "name base64-BOC"; tools/txoracle/contracts.txt is its output:
 //   fift -I <ton>/crypto/fift/lib:<ton>/crypto/smartcont -s tools/txoracle/contracts.fif > tools/txoracle/contracts.txt
 "Asm.fif" include
@@ -92,5 +93,28 @@ dictnew <b b> <s qid 1 + rot 64 udict!+ drop
 
 // --- elector (elector-code.fc), with the data of gen-zerostate.fif: no elections, credits, past
 // elections; 0 grams; active_id 0, active_hash 0
-"auto/elector-code.fif" include "elector.code" put
+"auto/elector-code.fif" include constant elcode
+elcode "elector.code" put
 <b 0 1 1+ 1+ 4 + 32 + u, 0 256 u, b> "elector.data" put
+
+// --- the configuration contract (config-code.fc). Its data (the configuration dictionary, seqno,
+// public_key, vote_dict) and its messages (to the address of parameter 0) are made in
+// Tests/Tx/Real.lean; printed here: its code, the public key and the signed bodies of external
+// messages, signature action seqno valid_until payload
+"auto/config-code.fif" include constant cfgcode
+cfgcode "config.code" put
+<b pub B, b> "key.pub" put
+{ dup hashu key @ ed25519_sign_uint <b swap B, swap <s s, b> } : signed-body   // ( body -- signed )
+{ <b 3 roll 32 u, rot 32 u, swap 32 u, } : cfghead   // ( action seqno valid_until -- builder )
+0x43665021 0 1800000000 cfghead 100 32 i, <b 0x1234 16 u, b> ref, b> signed-body "config.body.set-param" put
+0x50624b21 0 1800000000 cfghead pk-other priv>pub B, b> signed-body "config.body.set-key" put
+0x4e436f64 0 1800000000 cfghead cfgcode ref, b> signed-body "config.body.set-code" put
+0x4e43ef05 0 1800000000 cfghead elcode ref, b> signed-body "config.body.elector-code" put
+0 0 1800000000 cfghead b> signed-body "config.body.noop" put
+0x12345678 0 1800000000 cfghead b> signed-body "config.body.unknown" put
+0x43665021 5 1800000000 cfghead 100 32 i, <b 0x1234 16 u, b> ref, b> signed-body "config.body.seqno" put
+0x43665021 0 1690000000 cfghead 100 32 i, <b 0x1234 16 u, b> ref, b> signed-body "config.body.expired" put
+0x566f7465 0 1800000000 cfghead 0 16 u, 0 256 u, b> signed-body "config.body.vote" put
+pk-other key !
+0x43665021 0 1800000000 cfghead 100 32 i, <b 0x1234 16 u, b> ref, b> signed-body "config.body.bad-signature" put
+pk key !

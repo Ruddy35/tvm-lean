@@ -17,7 +17,13 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
 - the elector (`elector-code.fc`, the data of `gen-zerostate.fif`) at the address of configuration
   parameter 1: internal messages (a simple transfer, a stake, a request to recover a stake, an
   unknown operation, an empty body) and its tick and tock transactions, which read the validator
-  sets and election parameters of the configuration.
+  sets and election parameters of the configuration;
+- the configuration contract (`config-code.fc`) at the address of parameter 0, its data the
+  configuration of the case with the fixed key: external messages that set a parameter, the public
+  key, the code, the elector's code, do nothing or an unknown action, with a wrong seqno, expired, a
+  validator's vote and a wrong signature; internal messages from the masterchain (a new validator
+  set from the elector, valid or not, a voting proposal, an unknown operation, a simple transfer)
+  and from the basechain; tick and tock, also with a next validator set (parameter 36) due.
 -/
 
 namespace Tests.Tx
@@ -36,6 +42,16 @@ def loadContracts (file : String := "tools/txoracle/contracts.txt") : IO (List (
     | _ => pure ()
   return out.reverse
 
+/-- An external inbound message to `(wc, dest)` with the body `body` in a reference. -/
+def extMsgRef (wc : Int) (dest : BitString) (body : Cell) : Cell :=
+  ((((({} : W).uint 2 2).uint 0 2).bitStr (Account.mkAddr wc none dest).bits |>.grams 0).bool false).bool true
+    |>.ref body |>.cell
+
+/-- The validator set `vset` (`validators_ext#12 utime_since utime_until ...`) with other times. -/
+def vsetAt (vset : Cell) (since untilTime : Nat) : Cell :=
+  Cell.mkOrdinary (vset.bits.extract 0 8 ++ natToBits since 32 ++ natToBits untilTime 32 ++ vset.bits.extract 72 vset.bits.size)
+    vset.refs
+
 /-- The transactions of the real contracts at each version of `versions` (`contracts`: the cells of
 `loadContracts`; a missing one is an error). -/
 def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List Nat) : Except String (Array TxCase) := do
@@ -51,6 +67,10 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     "bad-signature", "no-order"].mapM fun n => return (n, ← get s!"wallet3.msg.{n}")
   let w3deploy ← ["deploy", "deploy-transfer"].mapM fun n => return (n, ← get s!"wallet3.msg.{n}")
   let hlmsgs ← ["two", "five", "none", "expired", "bad-signature"].mapM fun n => return (n, ← get s!"highload2.msg.{n}")
+  let cfgCode ← get "config.code"
+  let pub := (← get "key.pub").bits
+  let cfgBodies ← ["set-param", "set-key", "set-code", "elector-code", "noop", "unknown", "seqno", "expired", "vote",
+    "bad-signature"].mapM fun n => return (n, ← get s!"config.body.{n}")
   let mut out : Array TxCase := #[]
   for v in versions do
     let cfg := withVersion cfg0 v 46
@@ -80,6 +100,29 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
       out := out.push (mk s!"elector/{n}" elAcc (intMsg (-1) elAddr 10000000000 true none body))
     for isTock in [false, true] do
       out := out.push { mk s!"elector/{if isTock then "tock" else "tick"}" elAcc Cell.empty with tickTock := some isTock }
+    -- the configuration contract, its data the configuration dictionary of the case
+    let some c := Config.decode cfg | throw "configuration"
+    let cfgAddr := c.configAddr
+    let cfgData (dict : Cell) : Cell := (((({} : W).ref dict).uint 0 32).bitStr pub |>.bool false).cell
+    let cfgAcc (dict : Cell) := mkAccount (-1) cfgAddr (.active cfgCode (cfgData dict)) 1000000000000 1700000000 0 1000
+    for (n, body) in cfgBodies do
+      out := out.push (mk s!"config/{n}" (cfgAcc cfg) (extMsgRef (-1) cfgAddr body))
+    let vset := (c.param 34).getD Cell.empty
+    -- a next validator set (parameter 36) due since 1690000000
+    let cfgNext := withParam cfg 36 (vsetAt vset 1690000000 1800000000)
+    for (dname, dict) in [("", cfg), ("/next-due", cfgNext)] do
+      for isTock in [false, true] do
+        out := out.push { mk s!"config/{if isTock then "tock" else "tick"}{dname}" (cfgAcc dict) Cell.empty with
+          tickTock := some isTock }
+    let mc (a : BitString) : Int × BitString := (-1, a)
+    let q (tag : Nat) : BitString := natToBits tag 32 ++ natToBits 11 64
+    for (n, src, body, refs) in [("new-vset-from-elector", mc elAddr, q 0x4e565354, #[vsetAt vset 1700001000 1700100000]),
+        ("new-vset-from-elector-past", mc elAddr, q 0x4e565354, #[vsetAt vset 1690000000 1700100000]),
+        ("new-vset-from-other", mc other, q 0x4e565354, #[vsetAt vset 1700001000 1700100000]),
+        ("proposal", mc other, q 0x6e565052, #[]), ("unknown", mc other, q 0x11111111, #[]),
+        ("transfer", mc other, #[], #[]), ("from-basechain", (0, other), q 0x6e565052, #[])] do
+      out := out.push (mk s!"config/internal/{n}" (cfgAcc cfg) (intMsg (-1) cfgAddr 2000000000 true none body
+        (bodyRefs := refs) (src := src)))
   return out
 
 end Tests.Tx
