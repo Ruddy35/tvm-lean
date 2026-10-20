@@ -1,4 +1,5 @@
 import TvmLean.Semantics
+import TvmLean.Semantics.Contract
 import TvmLean.Transaction.Message
 import TvmLean.Transaction.Extra
 
@@ -478,19 +479,20 @@ def Tx.checkInMsgStateHash (t : Tx) : Option Tx := do
 libraries and without gas (a library cell becomes the root of its library); where that fails (a
 missing library, another exotic cell) the code is a cell with one reference to the code cell. Before
 version 9 an ordinary cell is read as it is (`NoVmOrd`) and an exotic one gets the reference too: the
-VM's implicit JMPREF then loads it, with gas. -/
-def convertCodeCell (code : Cell) (gv : Nat) (libs : Array Cell) : Slice :=
-  let wrapped := Slice.ofCell (Cell.mkOrdinary #[] #[code])
+VM's implicit JMPREF then loads it, with gas. The cell whose slice the VM runs. -/
+def convertCodeCell (code : Cell) (gv : Nat) (libs : Array Cell) : Cell :=
+  let wrapped := Cell.mkOrdinary #[] #[code]
   if gv ≥ 9 then
     match (libraryResolveLoads libs gv code).2 with
-    | .ok c => Slice.ofCell c
+    | .ok c => c
     | .error _ => wrapped
   else if code.special then wrapped
-  else Slice.ofCell code
+  else code
 
 /-- The VM of the compute phase: `vm::VmState(code, global_version, stack, gas, flags = 1, data, ...)`
-with the libraries of `compute_vm_libraries`, `max_data_depth`, c7 and, if the configuration sets
-it, `max_transaction_library_loads` as `max_library_loads` (transaction.cpp:1995-2002). -/
+(`computePhaseInit` of the converted code, the stack of `computePhaseStack` for a message) with the
+libraries of `compute_vm_libraries`, `max_data_depth`, c7 and, if the configuration sets it,
+`max_transaction_library_loads` as `max_library_loads` (transaction.cpp:1995-2002). -/
 def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed : BitString)
     (sl : SizeLimits) : VmState × Int :=
   -- `prepare_vm_stack`: tick-tock gets the balance, the address, whether it is tock and -2
@@ -499,18 +501,15 @@ def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed
       #[.int (.num (Int.ofNat t.balance)), .int (.num (Int.ofNat (bitsToNat t.account.addr))),
         .int (.num (if t.kind == .tock then -1 else 0)), .int (.num (-2))]
     else
-      #[.int (.num (Int.ofNat t.balance)), .int (.num (Int.ofNat t.msgBalanceRemaining)), .cell t.inMsg,
-        .slice t.inMsgBody, .int (.num (if t.inMsgExtern then -1 else 0))]
+      computePhaseStack (Int.ofNat t.balance) (Int.ofNat t.msgBalanceRemaining) t.inMsg t.inMsgBody t.inMsgExtern
   -- `compute_vm_libraries`: the message's and the account's libraries before version 15, then the
   -- emulator's
   let libs : Array Cell :=
     (if t.gv < 15 then #[t.inMsgLibrary, t.newLibrary].filterMap id else #[]) ++ t.globalLibs.toArray
-  let base0 := VmState.initial code (Int.ofNat gasLimit) (Int.ofNat gasMax) (Int.ofNat gasCredit)
-  let cc : Continuation := .ordinary (convertCodeCell code t.gv libs) (.quit 0) OrdCregs.empty OrdCdata.empty
+  let st0 := computePhaseInit (convertCodeCell code t.gv libs) (t.newData.getD Cell.empty) stack #[t.c7 blockSeed]
+    (Int.ofNat gasLimit) (Int.ofNat gasMax) (Int.ofNat gasCredit) t.gv
   let st : VmState :=
-    { base0 with stack, cc, regs := { base0.regs with c3 := cc, c4 := t.newData.getD Cell.empty, c7 := #[t.c7 blockSeed] },
-                 globalVersion := t.gv, libraries := libs, maxDataDepth := sl.maxVmDataDepth,
-                 maxLibraryLoads := sl.maxTransactionLibraryLoads }
+    { st0 with libraries := libs, maxDataDepth := sl.maxVmDataDepth, maxLibraryLoads := sl.maxTransactionLibraryLoads }
   let fuel := (st.gas.stepBound) + 16
   match VmState.run fuel st with
   | .halt ec stF => (stF, ec)
@@ -594,10 +593,11 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
         pure (limit, limit, if gc ≠ 0 then limit else 0)
   t := { t with computePhase := { t.computePhase with precompiledGasUsage := precompiled } }
   let (stF, ec) := t.runVm code gl gm gc blockSeed sl
-  let exitCode := ~~~ ec
-  let g := stF.gas
-  let gasUsed := (min g.gasConsumed g.gasLimit).toNat
-  let accepted := g.gasCredit == 0
+  -- the exit code, the committed c4 and c5 and the gas used (`ComputeOutcome.ofHalt`)
+  let out := ComputeOutcome.ofHalt ec stF (t.newData.getD Cell.empty)
+  let exitCode := out.exitCode
+  let gasUsed := out.gasUsed.toNat
+  let accepted := stF.gas.gasCredit == 0
   let success := accepted && stF.cstate.committed
   let cp := t.computePhase
   let mut cp := { cp with exitCode, outOfGas := exitCode == ~~~ Excno.outOfGas.toInt, vmSteps := stF.steps, gasUsed,
@@ -609,7 +609,7 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
     if cp.outOfGas then return none
     cp := { cp with gasUsed := usage, vmSteps := 0 }
   if success then
-    cp := { cp with newData := some stF.cstate.c4, actions := some stF.cstate.c5 }
+    cp := { cp with newData := some out.c4, actions := some out.c5 }
   if !success then
     match stF.stack.back? with
     | some (.int (.num v)) => if -2 ^ 31 ≤ v ∧ v < 2 ^ 31 then cp := { cp with exitArg := v }

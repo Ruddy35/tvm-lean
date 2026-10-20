@@ -10,9 +10,11 @@ the run. They are the objects contract theorems are stated about:
 * base case:   `Inv data₀`
 * step:        `Inv data → (computePhase fuel (computePhaseInit …data…) data).c4 satisfies Inv`
 
-The differential-test runner (`Validation/Diff/Runner.lean`) builds its VM state with
-`computePhaseInit` and extracts results with `ComputeOutcome.ofHalt`, so these exact
-definitions are checked against TON C++ on every fixture.
+The model of the transaction builds the VM of its compute phase with `computePhaseStack` and
+`computePhaseInit` and reads its result with `ComputeOutcome.ofHalt` (`Tx.runVm`,
+`Tx.computePhaseRun` in `TvmLean/Transaction/Run.lean`), so these exact definitions are checked
+against the TON transaction emulator on every transaction case; the differential-test runner
+(`Validation/Diff/Runner.lean`) uses them too, on every fixture.
 
 The run depends on nothing but the VM state: the cryptography (signatures, hashes, elliptic
 curves) is defined in Lean (`TvmLean/Model/Crypto`), so theorems about it make no assumption
@@ -55,6 +57,7 @@ structure ComputeOutcome where
   c4 : Cell
   /-- Action list handed to the action phase. -/
   c5 : Cell
+  /-- Gas used, at most the gas limit (`cp.gas_used`, transaction.cpp:2016). -/
   gasUsed : Int
 
 /-- The commit rule of TON C++: only a committed state (explicit `COMMIT` or successful
@@ -64,7 +67,7 @@ def ComputeOutcome.ofHalt (exitCode : Int) (stF : VmState) (data0 : Cell) : Comp
   { exitCode := ~~~ exitCode
     c4 := if ok then stF.cstate.c4 else data0
     c5 := if ok then stF.cstate.c5 else Cell.empty
-    gasUsed := stF.gas.gasConsumed }
+    gasUsed := min stF.gas.gasConsumed stF.gas.gasLimit }
 
 /-- Run the compute phase with at most `fuel` steps (`none` if the fuel is exhausted). -/
 def computePhase (fuel : Nat) (st0 : VmState) (data0 : Cell) : Option ComputeOutcome :=
