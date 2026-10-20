@@ -151,15 +151,15 @@ def execInstrChildNoRunvm (host : Host) (i : Instr) : VM Unit :=
                           throw .invOpcode
 
 /-- The child VM of `RUNVM` runs with the same `VmState::run` as the parent (C++ `run_child_vm`)
-until it halts, which its gas bounds (`GasLimits.stepBound`); its instructions are
-`execInstrChildNoRunvm`. Returns the exit code and the final state. -/
-def childRun (host : Host) (st : VmState) : Int × VmState :=
-  match st.runWith (execInstrChildNoRunvm host) st.gas.stepBound with
+until it halts, which its gas bounds (`GasLimits.stepBound`); `exec` runs its instructions. Returns
+the exit code and the final state. -/
+def childRun (exec : Instr → VM Unit) (st : VmState) : Int × VmState :=
+  match st.runWith exec st.gas.stepBound with
   | .halt exitCode st' => (exitCode, st')
   | .continue st' => (Excno.fatal.toInt, st')
 
 set_option maxHeartbeats 1000000 in
-def runChildVm (host : Host) (parent : VmState) (mode : Nat) : VM VmState := do
+def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) : VM VmState := do
   if mode ≥ 512 then
     throw .rangeChk
 
@@ -278,7 +278,7 @@ def runChildVm (host : Host) (parent : VmState) (mode : Nat) : VM VmState := do
       maxDataDepth := parentAfterPops.maxDataDepth
       globalVersion := parentAfterPops.globalVersion }
 
-  let (childExit, childFinal) := childRun host child
+  let (childExit, childFinal) := childRun childExec child
   let mut resCode : Int := ~~~ childExit
 
   let childConsumed : Int := childFinal.gas.gasConsumed
@@ -335,22 +335,37 @@ def runChildVm (host : Host) (parent : VmState) (mode : Nat) : VM VmState := do
 
   return parentAfter
 
--- Leaf module hook used by `TvmLean.Semantics.Exec.Flow`.
-set_option maxHeartbeats 1000000 in
-def execInstrFlowRunvm (host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+/-- `RUNVM` and `RUNVMX`, running the child with the instructions `childExec`. -/
+def execInstrFlowRunvmWith (childExec : Instr → VM Unit) (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .contExt (.runvm mode) =>
       -- Match C++ helper canonicalization (`exec_runvm(..., args & 4095)`).
       let mode := mode &&& 0xfff
       let st ← get
-      let st' ← runChildVm host st mode
+      let st' ← runChildVm childExec st mode
       set st'
   | .contExt .runvmx =>
       let mode ← popNatUpToSigned 4095
       let st ← get
-      let st' ← runChildVm host st mode
+      let st' ← runChildVm childExec st mode
       set st'
   | _ =>
       next
+
+/-- The instructions of a child VM `depth` levels above the deepest one `RUNVM` can still create:
+its own `RUNVM` runs the child with `execInstrNested (depth - 1)` (C++ nests child VMs without a
+limit, `run_child_vm`). A VM at depth `d` has at most `runvmGasPrice * d - 1` gas: `RUNVM` charges
+`runvmGasPrice` before the child runs and gives it at most the gas left (contops.cpp:230, 260-261),
+so a VM at depth 0 is never run. -/
+def execInstrNested : Nat → Host → Instr → VM Unit
+  | 0, host => execInstrChildNoRunvm host
+  | depth + 1, host => fun i => execInstrFlowRunvmWith (execInstrNested depth host) i (execInstrChildNoRunvm host i)
+
+-- Leaf module hook used by `TvmLean.Semantics.Exec.Flow`.
+/-- `RUNVM` and `RUNVMX` of the VM: the child gets at most the gas left, so it runs at depth
+`gas left / runvmGasPrice + 1` (`execInstrNested`). -/
+def execInstrFlowRunvm (host : Host) (i : Instr) (next : VM Unit) : VM Unit := do
+  let depth := (← get).gas.gasRemaining.toNat / runvmGasPrice.toNat + 1
+  execInstrFlowRunvmWith (execInstrNested depth host) i next
 
 end TvmLean
