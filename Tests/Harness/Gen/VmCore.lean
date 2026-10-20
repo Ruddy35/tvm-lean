@@ -172,8 +172,21 @@ private def loadCases (suite : String) : Array OracleCase :=
       ("lib-recursive", libOfLib, #[libCell loadTarget, loadTarget]),
       ("pruned", pruned, #[]), ("merkle-proof", merkleProof loadTarget, #[]),
       ("merkle-update", merkleUpdate loadTarget (Cell.mkOrdinary (natToBits 1 1) #[]), #[])]
+  -- collections whose entry for the hash is not a library (`lookup_library_in`, vm.cpp:705): a value
+  -- without a reference, a reference to another cell (its hash is not the key)
+  let key : BitString := bytesBits (reprHash loadTarget)
+  let collWith (v : Slice) : Cell :=
+    match dictSetSliceWithCells none key v .set with
+    | .ok (some r, _, _, _) => r
+    | _ => Cell.empty
+  let raw (name : String) (coll : Cell) : OracleCase :=
+    { name := s!"oracle/load/{name}", instr := { name := suite }, program := #[.ctos],
+      initStack := #[.cell (libCell loadTarget)], initLibraries := #[coll] }
   match suite with
-  | "CTOS" => cells.map fun (n, c, libs) => mk n #[.cell c] libs #[.ctos]
+  | "CTOS" => cells.map (fun (n, c, libs) => mk n #[.cell c] libs #[.ctos]) ++
+      #[raw "lib-entry-no-ref" (collWith (Slice.ofCell (Cell.mkOrdinary (natToBits 7 8) #[]))),
+        raw "lib-entry-other-root" (collWith (Slice.ofCell (Cell.mkOrdinary #[] #[Cell.mkOrdinary (natToBits 9 8) #[]]))),
+        raw "lib-entry-root-and-bits" (collWith (Slice.ofCell (Cell.mkOrdinary (natToBits 1 1) #[loadTarget])))]
   | "LDREFRTOS" =>
       cells.map fun (n, c, libs) => mk n #[.slice (Slice.ofCell (Cell.mkOrdinary (natToBits 1 1) #[c]))] libs #[.ldrefRtos]
   | "DICTUGET" =>
