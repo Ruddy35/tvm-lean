@@ -244,6 +244,15 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
               else
                 st0.raiseException Excno.cellUnd.toInt
         else
+          -- C++ `OpcodeTable::lookup_instr`: the first 24 bits of the code, zero-padded
+          let head : BitString := code.readBits (Nat.min 24 code.bitsRemaining)
+          let opcode24 : Nat := bitsToNat (head ++ Array.replicate (24 - head.size) false)
+          if st.cp = 0 ∧ st.globalVersion < cp0RequiredVersion opcode24 then
+            -- C++ `OpcodeInstrWithVersion::dispatch` (opctable.cpp:457-461): an opcode of a later
+            -- global version charges `gas_per_instr`, then inv_opcode
+            let st0 := st.consumeGas gasPerInstr
+            if decide (st0.gas.gasRemaining < 0) then st0.outOfGasHalt else st0.raiseException Excno.invOpcode.toInt
+          else
           let decoded : Except Excno (Instr × Nat × Slice) :=
             if st.cp = 0 then
               decodeCp0WithBits code
