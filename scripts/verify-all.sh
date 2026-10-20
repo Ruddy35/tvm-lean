@@ -8,8 +8,10 @@
 #                 build) and its sources: on Linux the native crypto links the same libsodium,
 #                 OpenSSL, secp256k1 and blst as C++ (see lakefile.lean). Without them the curve and
 #                 pairing operations are stubs and their oracle cases fail.          [needed on Linux]
+#   VERSIONS      global versions of the full oracle and the fuzz      [default: 0 .. 16]
+#   PAR           jobs run at once                                     [default: 12]
 # Runs: build; all unit tests; the opcode check (every suite runs its own opcode, --opcode-check);
-# the full oracle and the fuzz category on global versions 13 and 16;
+# the full oracle and the fuzz category on every global version of VERSIONS;
 # diff fixtures. (The fuzz category, ~400k randomized cases per version, takes about 10 minutes.)
 set -u
 : "${TON_FIFT_BIN:?}" "${TON_FIFT_LIB:?}"
@@ -20,19 +22,21 @@ echo "native crypto: ${TVMLEAN_TON_BUILD:-stub (TVMLEAN_TON_BUILD not set)}" >> 
 lake build TvmLeanProofs tvm-lean-tests tvm-lean-diff-test > "$OUT/build.log" 2>&1
 echo "build exit=$? sec=$(( $(date +%s)-S ))" >> "$SUM"
 T=.lake/build/bin/tvm-lean-tests; DT=.lake/build/bin/tvm-lean-diff-test
-( $T --unit-only --no-progress > "$OUT/unit.log" 2>&1; echo "unit: $(tail -1 "$OUT/unit.log")" >> "$SUM" ) &
-( $T --opcode-check > "$OUT/opcode-check.log" 2>&1; echo "$(tail -1 "$OUT/opcode-check.log")" >> "$SUM" ) &
-for gv in 13 16; do
-  ( TVMLEAN_GLOBAL_VERSION=$gv $T --oracle-only --no-progress > "$OUT/oracle-v$gv.log" 2>&1
-    echo "oracle v$gv: $(tail -n 1 "$OUT/oracle-v$gv.log")" >> "$SUM" ) &
-  ( TVMLEAN_GLOBAL_VERSION=$gv $T --fuzz-only --no-progress > "$OUT/fuzz-v$gv.log" 2>&1
-    echo "fuzz v$gv: $(tail -n 1 "$OUT/fuzz-v$gv.log")" >> "$SUM" ) &
-done
+VERSIONS=${VERSIONS:-$(seq -s ' ' 0 16)}; PAR=${PAR:-12}
+# start a job in the background once fewer than PAR are running
+bg() { while [ "$(jobs -rp | wc -l)" -ge "$PAR" ]; do wait -n; done; "$@" & }
+unit() { $T --unit-only --no-progress > "$OUT/unit.log" 2>&1; echo "unit: $(tail -1 "$OUT/unit.log")" >> "$SUM"; }
+opcheck() { $T --opcode-check > "$OUT/opcode-check.log" 2>&1; echo "$(tail -1 "$OUT/opcode-check.log")" >> "$SUM"; }
+oracle() { TVMLEAN_GLOBAL_VERSION=$1 $T --oracle-only --no-progress > "$OUT/oracle-v$1.log" 2>&1
+  echo "oracle v$1: $(tail -n 1 "$OUT/oracle-v$1.log")" >> "$SUM"; }
+fuzz() { TVMLEAN_GLOBAL_VERSION=$1 $T --fuzz-only --no-progress > "$OUT/fuzz-v$1.log" 2>&1
+  echo "fuzz v$1: $(tail -n 1 "$OUT/fuzz-v$1.log")" >> "$SUM"; }
+diffset() { $DT --dir "$1" --strict-exit --out "$OUT/diff-$2.json" > "$OUT/diff-$2.log" 2>&1
+  echo "diff $2: $(tail -1 "$OUT/diff-$2.log")" >> "$SUM"; }
+bg unit; bg opcheck
+for gv in $VERSIONS; do bg oracle "$gv"; bg fuzz "$gv"; done
 if [ -n "${FIXTURES:-}" ]; then
-  for d in "$FIXTURES"/*/; do n=$(basename "$d")
-    ( $DT --dir "$d" --strict-exit --out "$OUT/diff-$n.json" > "$OUT/diff-$n.log" 2>&1
-      echo "diff $n: $(tail -1 "$OUT/diff-$n.log")" >> "$SUM" ) &
-  done
+  for d in "$FIXTURES"/*/; do bg diffset "$d" "$(basename "$d")"; done
 fi
 wait
 cat "$SUM"
