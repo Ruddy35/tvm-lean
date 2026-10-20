@@ -177,6 +177,10 @@ private def stateInit : BitString × Array Cell := (#[false, true, true, false, 
 private def sendMsgPool : Array (String × Cell) :=
   #[ ("init-inline", intMsgWith 0 100 false 0 (some (false, stateInit.1, stateInit.2)) false #[] #[]),
      ("init-ref", intMsgWith 0 100 false 0 (some (true, stateInit.1, stateInit.2)) true (natToBits 5 8) #[]),
+     -- the root-size check of one part with the other in a reference (msg_root_bits / msg_root_refs,
+     -- tonops.cpp:2296-2332)
+     ("init-inline-body-ref", intMsgWith 0 100 false 0 (some (false, stateInit.1, stateInit.2)) true (natToBits 5 8) #[]),
+     ("init-ref-body-inline", intMsgWith 0 100 false 0 (some (true, stateInit.1, stateInit.2)) false (natToBits 5 8) #[leaf 7]),
      ("body-inline-refs", intMsgWith 0 100 true 0 none false #[] #[leaf 7, leaf 8, leaf 9]),
      ("body-ref", intMsgWith 0 100 false 0 none true (natToBits 0xabcd 16) #[leaf 11]),
      ("extra-currencies", intMsgWith 0 100 true 0 none false (natToBits 3 2) #[]),
@@ -238,7 +242,9 @@ private def movingMsgs : Array (String × Cell) :=
   ((List.range 15).map (fun k => 560 + 5 * k)).toArray.flatMap fun n =>
     #[(s!"body{n}", intMsgWith 0 100 false 0 none false (natToBits 0x5a5 n) #[leaf 6]),
       (s!"init-body{n}", intMsgWith 0 100 false 0 (some (false, stateInit.1, stateInit.2)) false
-        (natToBits 0x5a5 (n - 9)) #[leaf 6])]
+        (natToBits 0x5a5 (n - 9)) #[leaf 6]),
+      (s!"initref-body{n}", intMsgWith 0 100 false 0 (some (true, stateInit.1, stateInit.2)) false
+        (natToBits 0x5a5 (n - 2)) #[leaf 6])]
 
 private def sendMsgCoverageCases (suite : String) : Array OracleCase := Id.run do
   let mut out : Array OracleCase := #[]
