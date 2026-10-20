@@ -23,6 +23,11 @@ threshold it takes one branch, on the other side the other.
   the `REWRITE*ADDR` instructions accept (tonops.cpp:1608-1814); `REWRITEVARADDR` builds a new cell
   for an address whose anycast prefix is shorter than it (tonops.cpp:1837-1853). The cases give
   standard and variable addresses with anycasts of valid and invalid depths.
+- `consume_gas` throws at once from version 4 only (vm.h:203-209); before, the `gas.check()` that
+  ends a step finds it, and the jump to the exception handler is made after that check
+  (vm.cpp:483-497). An exception into a handler with a closure stack of 45 entries charges stack
+  gas on the jump; with the gas running out there, the handler's first instruction runs before
+  version 4 (`exc-closure-handler/limit*`, around the charges of the exception and of the stack).
 -/
 
 namespace Tests.Gen.Versions
@@ -115,6 +120,15 @@ private def anycastAddrs : List (String × Value) :=
 private def addrCases (suite : String) (op : Instr) : Array OracleCase :=
   anycastAddrs.toArray.map fun (nm, v) => mk suite s!"anycast/{nm}" #[op] #[v]
 
+/-- `THROW 5` into a handler `{ PUSHINT 7 }` holding 45 stack entries, with the gas limit `lim`:
+1021 gas up to the exception's charge, 15 for the stack of the jump (47 entries), 18 for `PUSHINT`. -/
+private def excClosureCase (lim : Int) : OracleCase :=
+  let handler : Instr := .pushCont (Slice.ofCell (Tests.Gen.Control.codeOf #[pi 7]))
+  let prog : Array Instr :=
+    (List.replicate 45 (pi 1)).toArray ++
+      #[handler, .setContArgs 15 (-1), .setContArgs 15 (-1), .setContArgs 15 (-1), .popCtr 2, .throw 5]
+  { mk "THROW" s!"exc-closure-handler/limit{lim}" prog with gasLimits := { gasLimit := lim, gasMax := lim } }
+
 /-- The cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
@@ -148,6 +162,7 @@ def casesFor (suite : String) : Array OracleCase :=
   | "QLSHIFTDIV" => shlDivCases suite (.arithExt (.shlDivMod 1 (-1) false true none)) false
   | "QLSHIFTDIVMOD" => shlDivCases suite (.arithExt (.shlDivMod 3 (-1) false true none)) false
   | "QLSHIFTADDDIVMOD" => shlDivCases suite (.arithExt (.shlDivMod 3 (-1) true true none)) true
+  | "THROW" => #[1020, 1021, 1028, 1035, 1036, 1053, 1054].map excClosureCase
   | "LDMSGADDR" => addrCases suite (.tonEnvOp (.ldMsgAddr false))
   | "LDMSGADDRQ" => addrCases suite (.tonEnvOp (.ldMsgAddr true))
   | "PARSEMSGADDR" => addrCases suite (.tonEnvOp (.parseMsgAddr false))
