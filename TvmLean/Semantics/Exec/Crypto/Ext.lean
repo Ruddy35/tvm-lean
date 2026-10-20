@@ -81,22 +81,16 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
 
           -- TVM 14 accepts Ethereum legacy recovery ids v = 27/28 (mapped to 0/1)
           let v : Nat := if ((← get).globalVersion ≥ 14) && (v == 27 || v == 28) then v - 27 else v
-          let sig : Array UInt8 := rBytes ++ sBytes ++ #[UInt8.ofNat v]
           VM.consumeGas ecrecoverGasPrice
 
-          let publicKey : ByteArray := host.secp256k1Ecrecover (ByteArray.mk hashBytes) (ByteArray.mk sig)
-          if publicKey.size == 0 then
-            VM.pushSmallInt 0
-          else
-            if publicKey.size != 65 then
-              VM.unimplementedInstr { name := Instr.pretty i } "crypto ext backend path is not fully implemented"
-            let h : UInt8 := publicKey.get! 0
-            let x1 := publicKey.extract 1 33
-            let x2 := publicKey.extract 33 65
-            VM.pushSmallInt (Int.ofNat h.toNat)
-            pushUInt256FromByteArrayBE x1
-            pushUInt256FromByteArrayBE x2
-            VM.pushSmallInt (-1)
+          -- C++ `td::secp256k1::ecrecover`: the key serialized uncompressed, `h = 4`
+          match Secp256k1.ecrecover (bytesToNatBE hashBytes) (bytesToNatBE rBytes) (bytesToNatBE sBytes) v with
+          | none => VM.pushSmallInt 0
+          | some (x, y) =>
+              VM.pushSmallInt 4
+              VM.push (.int (.num (Int.ofNat x)))
+              VM.push (.int (.num (Int.ofNat y)))
+              VM.pushSmallInt (-1)
 
       | .secp256k1XonlyPubkeyTweakAdd =>
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
@@ -113,20 +107,14 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
 
           VM.consumeGas secp256k1XonlyPubkeyTweakAddGasPrice
 
-          let publicKey : ByteArray :=
-            host.secp256k1XonlyPubkeyTweakAdd (ByteArray.mk keyBytes) (ByteArray.mk tweakBytes)
-          if publicKey.size == 0 then
-            VM.pushSmallInt 0
-          else
-            if publicKey.size != 65 then
-              VM.unimplementedInstr { name := Instr.pretty i } "crypto ext backend path is not fully implemented"
-            let h : UInt8 := publicKey.get! 0
-            let x1 := publicKey.extract 1 33
-            let x2 := publicKey.extract 33 65
-            VM.pushSmallInt (Int.ofNat h.toNat)
-            pushUInt256FromByteArrayBE x1
-            pushUInt256FromByteArrayBE x2
-            VM.pushSmallInt (-1)
+          -- C++ `td::secp256k1::xonly_pubkey_tweak_add`: the key serialized uncompressed, `h = 4`
+          match Secp256k1.xonlyPubkeyTweakAdd (bytesToNatBE keyBytes) (bytesToNatBE tweakBytes) with
+          | none => VM.pushSmallInt 0
+          | some (x, y) =>
+              VM.pushSmallInt 4
+              VM.push (.int (.num (Int.ofNat x)))
+              VM.push (.int (.num (Int.ofNat y)))
+              VM.pushSmallInt (-1)
 
       | .p256ChkSignU =>
           VM.checkUnderflow 3  -- C++ `stack.check_underflow(3)` before the pops
@@ -148,8 +136,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             | .error e => throw e
 
           VM.consumeGas p256ChksgnGasPrice
-          let ok := host.p256Verify (ByteArray.mk dataBytes) (ByteArray.mk keyBytes) (ByteArray.mk sigBytes)
-          VM.pushSmallInt (if ok then (-1) else 0)
+          VM.pushSmallInt (if P256.verify dataBytes keyBytes sigBytes then (-1) else 0)
 
       | .p256ChkSignS =>
           VM.checkUnderflow 3  -- C++ `stack.check_underflow(3)` before the pops
@@ -176,8 +163,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             | .error e => throw e
 
           VM.consumeGas p256ChksgnGasPrice
-          let ok := host.p256Verify (ByteArray.mk dataBytes) (ByteArray.mk keyBytes) (ByteArray.mk sigBytes)
-          VM.pushSmallInt (if ok then (-1) else 0)
+          VM.pushSmallInt (if P256.verify dataBytes keyBytes sigBytes then (-1) else 0)
 
       | .rist255FromHash =>
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops

@@ -2,15 +2,6 @@ import TvmLean.Model
 
 namespace TvmLean
 
-@[extern "tvmlean_secp256k1_ecrecover"]
-opaque secp256k1EcrecoverNative (hash sig : ByteArray) : ByteArray
-
-@[extern "tvmlean_secp256k1_xonly_pubkey_tweak_add"]
-opaque secp256k1XonlyPubkeyTweakAddNative (key tweak : ByteArray) : ByteArray
-
-@[extern "tvmlean_p256_verify"]
-opaque p256VerifyNative (data pk sig : ByteArray) : Bool
-
 @[extern "tvmlean_rist255_from_hash"]
 opaque rist255FromHashNative (x1 x2 : ByteArray) : ByteArray
 

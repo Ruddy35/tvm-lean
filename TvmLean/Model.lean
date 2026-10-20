@@ -27,3 +27,6 @@ import TvmLean.Model.Host.Host
 import TvmLean.Model.Crypto.Ed25519
 import TvmLean.Model.Crypto.Keccak
 import TvmLean.Model.Crypto.Blake2b
+import TvmLean.Model.Crypto.Weierstrass
+import TvmLean.Model.Crypto.Secp256k1
+import TvmLean.Model.Crypto.P256

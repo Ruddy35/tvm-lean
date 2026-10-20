@@ -273,7 +273,16 @@ private def ecrecoverCases (suite : String) : Array OracleCase :=
       ("hash-neg", #[iv (-1), V, R, S]), ("r-nan", #[H, V, .int .nan, S]), ("hash-nan", #[.int .nan, V, R, S]),
       ("r-neg-s-neg", #[H, V, iv (-1), iv (-1)]), ("s-neg-hash-neg", #[iv (-1), V, R, iv (-1)]),
       ("v-256-r-neg", #[H, iv 256, iv (-1), S]), ("r-2^256-1", #[H, V, iv (2 ^ 256 - 1), S])]
-  named suite #[ext .ecrecover] (vec ++ errs) ++
+  -- bit 1 of `v`: the abscissa `r + n`, for `r` below `p - n` (2 and 4: on the curve, 3: off it;
+  -- `p - n`: refused); `R = ±G` with `s = h`: the key `r⁻¹ (s R − h G)` at infinity for `+G`
+  let c := Secp256k1.curve
+  let small : Array (String × Array Value) :=
+    #[("r2-v2", #[H, iv 2, iv 2, S]), ("r2-v3", #[H, iv 3, iv 2, S]), ("r4-v2", #[H, iv 2, iv 4, S]),
+      ("r3-v2", #[H, iv 2, iv 3, S]), ("r-p-n-v2", #[H, iv 2, iv (Int.ofNat (c.p - c.n)), S]),
+      ("r-p-n-1-v3", #[H, iv 3, iv (Int.ofNat (c.p - c.n - 1)), S]),
+      ("to-infinity", #[iv 5, iv 0, iv (Int.ofNat c.gx), iv 5]),
+      ("minus-g", #[iv 5, iv 1, iv (Int.ofNat c.gx), iv 5])]
+  named suite #[ext .ecrecover] (vec ++ errs ++ small) ++
     gasLimitCases suite (ext .ecrecover) #[H, V, R, S] [1584, 1585, 1586, 1587]
 
 /-- `SECP256K1_XONLY_PUBKEY_TWEAK_ADD`: `key tweak` → `h x1 x2 -1` or `0`. -/
@@ -287,6 +296,22 @@ private def xonlyCases (suite : String) : Array OracleCase :=
       ("key-nan", #[.int .nan, T]), ("tweak-nan", #[K, .int .nan]), ("key-2^256-1", #[iv (2 ^ 256 - 1), T])]
   named suite #[ext .secp256k1XonlyPubkeyTweakAdd] (vec ++ errs) ++
     gasLimitCases suite (ext .secp256k1XonlyPubkeyTweakAdd) #[K, T] [1334, 1335, 1336, 1337]
+
+/-- P-256 with the key `G` (`03 ‖ G.x`) or `−G` (`02 ‖ G.x`) and `e` the SHA-256 of 32 bytes of data:
+`r = −e`, `s = 1` (`e G + r G` at infinity), `r = e`, `s = 1` with `−G` (at infinity) and with `G`
+(the sum of equal points), and a valid signature of the private key 1 with the nonce 2. -/
+private def p256GeneratorKey (fromSlice : Bool) : Array (String × Array Value) := Id.run do
+  let c := P256.curve
+  let data : Array UInt8 := Array.ofFn (n := 32) fun i => UInt8.ofNat (i.1 * 7 + 1)
+  let e := bytesToNatBE (sha256Digest data) % c.n
+  let d : Value := if fromSlice then sl (bitsOfBytes data) else iv (Int.ofNat (bytesToNatBE data))
+  let key (form : UInt8) : Value := sl (bitsOfBytes (#[form] ++ natToBytesBEFixed c.gx 32))
+  let sig (r s : Nat) : Value := sl (bitsOfBytes (natToBytesBEFixed r 32 ++ natToBytesBEFixed s 32))
+  let r2 := match c.toAffine (c.mul 2 c.gen) with | some (x, _) => x % c.n | none => 0
+  let s2 := Weierstrass.invMod 2 c.n * (e + r2) % c.n
+  return #[("g-to-infinity", #[d, sig ((c.n - e) % c.n) 1, key 3]),
+    ("minus-g-to-infinity", #[d, sig e 1, key 2]), ("g-doubling", #[d, sig e 1, key 3]),
+    ("g-valid", #[d, sig r2 s2, key 3]), ("minus-g-invalid", #[d, sig r2 s2, key 2])]
 
 /-- `P256_CHKSIGNU` (`hash sig key`) and `P256_CHKSIGNS` (`data sig key`); key and signature are
 slices of 33 and 64 bytes. -/
@@ -307,7 +332,8 @@ private def p256Cases (suite : String) (fromSlice : Bool) : Array OracleCase :=
       ("long-sig-key", #[D, hexSlice (sig ++ "ff"), hexSlice (key ++ "ff")])] ++
     (if fromSlice then #[("data-127", #[sl (bytes 127 9), S, K]), ("data-empty", #[sl #[], S, K])]
      else #[("hash-nan", #[.int .nan, S, K]), ("hash-2^256-1", #[iv (2 ^ 256 - 1), S, K])])
-  named suite #[i] (vec ++ errs) ++ gasLimitCases suite i #[D, S, K] [3584, 3585, 3586, 3587]
+  named suite #[i] (vec ++ errs ++ p256GeneratorKey fromSlice) ++
+    gasLimitCases suite i #[D, S, K] [3584, 3585, 3586, 3587]
 
 private def ristValid : Array (String × Int) :=
   (CryptoVectors.ristretto.filter (·.2.2)).map fun (n, e, _) => (n, hexInt e)
@@ -810,9 +836,89 @@ private def genSha256UFuzz (rng0 : StdGen) : OracleCase × StdGen :=
   ({ name := s!"fuzz/bits{bits.size}", instr := { name := "SHA256U" },
      program := #[.cryptoOp .sha256U], initStack := #[sl bits] }, rng1)
 
-/-- Fuzz specs of the suite named `suite`: random data for the hash instructions computed in Lean. -/
+/-- An ECDSA signature `(r, s, R)` of `e` with the private key `d` and the nonce `k`. -/
+private def ecdsaSign (c : Weierstrass.Curve) (e d k : Nat) : Nat × Nat × Nat × Nat :=
+  match c.toAffine (c.mul k c.gen) with
+  | none => (0, 0, 0, 0)
+  | some (rx, ry) =>
+      let r := rx % c.n
+      (r, Weierstrass.invMod k c.n * ((e + r * d) % c.n) % c.n, rx, ry)
+
+/-- ECRECOVER of a signature by a random key and nonce, as made (recovery id from `R`) or changed:
+another recovery id (any up to 3, or 27/28), `s ↦ n − s`, another hash, a random `r`. -/
+private def genEcrecoverFuzz (rng0 : StdGen) : OracleCase × StdGen :=
+  let c := Secp256k1.curve
+  let (d, rng1) := randNat rng0 1 (c.n - 1)
+  let (k, rng2) := randNat rng1 1 (c.n - 1)
+  let (h, rng3) := randNat rng2 0 (2 ^ 256 - 1)
+  let (r, s, rx, ry) := ecdsaSign c (h % c.n) d k
+  let v0 := (if ry % 2 = 1 then 1 else 0) + (if rx ≥ c.n then 2 else 0)
+  let (mode, rng4) := randNat rng3 0 7
+  let (x, rng5) := randNat rng4 0 (2 ^ 256 - 1)
+  let (v, r, s, h, tag) :=
+    match mode with
+    | 0 => (v0 ^^^ 1, r, s, h, "flip-v")
+    | 1 => (x % 4, r, s, h, "any-v")
+    | 2 => (v0 + 27, r, s, h, "legacy-v")
+    | 3 => (v0 ^^^ 1, r, c.n - s, h, "high-s")
+    | 4 => (v0, r, s, x, "other-hash")
+    | 5 => (v0, x, s, h, "random-r")
+    | _ => (v0, r, s, h, "valid")
+  ({ name := s!"fuzz/{tag}", instr := { name := "ECRECOVER" }, program := #[.cryptoOp (.ext .ecrecover)],
+     initStack := #[iv (Int.ofNat h), iv (Int.ofNat v), iv (Int.ofNat r), iv (Int.ofNat s)] }, rng5)
+
+/-- SECP256K1_XONLY_PUBKEY_TWEAK_ADD on the abscissa of a random key or a random number, with a random
+tweak (sometimes above the order). -/
+private def genXonlyFuzz (rng0 : StdGen) : OracleCase × StdGen :=
+  let c := Secp256k1.curve
+  let (d, rng1) := randNat rng0 1 (c.n - 1)
+  let (x, rng2) := randNat rng1 0 (2 ^ 256 - 1)
+  let (t, rng3) := randNat rng2 0 (2 ^ 256 - 1)
+  let (mode, rng4) := randNat rng3 0 3
+  let key := if mode = 0 then x else match c.toAffine (c.mul d c.gen) with | some (px, _) => px | none => 0
+  let tweak := if mode = 1 then c.n + t % (2 ^ 256 - c.n) else t % c.n
+  ({ name := s!"fuzz/mode{mode}", instr := { name := "SECP256K1_XONLY_PUBKEY_TWEAK_ADD" },
+     program := #[.cryptoOp (.ext .secp256k1XonlyPubkeyTweakAdd)],
+     initStack := #[iv (Int.ofNat key), iv (Int.ofNat tweak)] }, rng4)
+
+/-- P256_CHKSIGNU/S of a signature by a random key and nonce on random data, as made or changed:
+`s ↦ n − s`, the other parity of the key, another key, a random abscissa, one bit of the data. -/
+private def genP256Fuzz (fromSlice : Bool) (rng0 : StdGen) : OracleCase × StdGen := Id.run do
+  let c := P256.curve
+  let (d, rng1) := randNat rng0 1 (c.n - 1)
+  let (k, rng2) := randNat rng1 1 (c.n - 1)
+  let (len, rng3) := randNat rng2 0 127
+  let (data, rng4) := randBytes (if fromSlice then len else 32) rng3
+  let e := bytesToNatBE (sha256Digest data) % c.n
+  let (r, s, _, _) := ecdsaSign c e d k
+  let (qx, qy) := match c.toAffine (c.mul d c.gen) with | some q => q | none => (0, 0)
+  let (mode, rng5) := randNat rng4 0 7
+  let (x, rng6) := randNat rng5 0 (2 ^ 256 - 1)
+  let form : Nat := if qy % 2 = 1 then 3 else 2
+  let (form, qx, s, data, tag) :=
+    match mode with
+    | 0 => (form, qx, c.n - s, data, "high-s")
+    | 1 => (5 - form, qx, s, data, "other-parity")
+    | 2 => (form, x, s, data, "random-key")
+    | 3 => (form, qx, s, (if data.isEmpty then #[0] else data.set! 0 (data[0]! ^^^ 1)), "other-data")
+    | 4 => (form, qx, x, data, "random-s")
+    | _ => (form, qx, s, data, "valid")
+  let dataV : Value := if fromSlice then sl (bitsOfBytes data) else iv (Int.ofNat (bytesToNatBE data))
+  let key := sl (bitsOfBytes (#[UInt8.ofNat form] ++ natToBytesBEFixed qx 32))
+  let sig := sl (bitsOfBytes (natToBytesBEFixed r 32 ++ natToBytesBEFixed s 32))
+  let suite := if fromSlice then "P256_CHKSIGNS" else "P256_CHKSIGNU"
+  return ({ name := s!"fuzz/{tag}", instr := { name := suite },
+            program := #[ext (if fromSlice then .p256ChkSignS else .p256ChkSignU)],
+            initStack := #[dataV, sig, key] }, rng6)
+
+/-- Fuzz specs of the suite named `suite`: random data for the hash instructions and random
+signatures for secp256k1 and P-256, computed in Lean. -/
 def fuzzFor (suite : String) : Array FuzzSpec :=
   match suite with
+  | "ECRECOVER" => #[{ seed := 2026102006, count := 300, gen := genEcrecoverFuzz }]
+  | "SECP256K1_XONLY_PUBKEY_TWEAK_ADD" => #[{ seed := 2026102007, count := 300, gen := genXonlyFuzz }]
+  | "P256_CHKSIGNU" => #[{ seed := 2026102008, count := 300, gen := genP256Fuzz false }]
+  | "P256_CHKSIGNS" => #[{ seed := 2026102009, count := 300, gen := genP256Fuzz true }]
   | "HASHEXT" => #[{ seed := 2026102001, count := 400, gen := genHashExtFuzz suite false false }]
   | "HASHEXTR" => #[{ seed := 2026102002, count := 400, gen := genHashExtFuzz suite false true }]
   | "HASHEXTA" => #[{ seed := 2026102003, count := 400, gen := genHashExtFuzz suite true false }]

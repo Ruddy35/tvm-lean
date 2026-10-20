@@ -3,8 +3,8 @@ open System Lake DSL
 
 /-- The C++ reference build, if given (`TVMLEAN_TON_BUILD`: the cmake build directory of `ton`,
 `TVMLEAN_TON_SRC`: its sources, for the blst headers). On Linux the native crypto is then compiled
-against and linked with the same libsodium, OpenSSL, secp256k1 and blst as C++ TVM; without it the
-system libsodium is used and the curve operations (`c/tvmlean_crypto_ext.c`) are stubs. -/
+against and linked with the same libsodium and blst as C++ TVM (ristretto255, BLS12-381); without it
+the system libsodium is used and these operations (`c/tvmlean_crypto_ext.c`) are stubs. -/
 def tonCryptoDirs : IO (Option (FilePath × FilePath)) := do
   match (← IO.getEnv "TVMLEAN_TON_BUILD"), (← IO.getEnv "TVMLEAN_TON_SRC") with
   | some b, some s => return some (b, s)
@@ -17,8 +17,6 @@ def cryptoLinkRsp : FilePath := __dir__ / ".lake" / "tvmlean-crypto-link.rsp"
 /-- Include directories of the crypto libraries of the C++ reference build. -/
 def tonCryptoIncludes (b s : FilePath) : Array String :=
   #["-I", (b / "third-party" / "sodium" / "include").toString,
-    "-I", (b / "third-party" / "openssl" / "include").toString,
-    "-I", (b / "third-party" / "secp256k1" / "include").toString,
     "-I", (s / "third-party" / "blst" / "bindings").toString]
 
 package "tvm-lean" where
@@ -29,9 +27,6 @@ package "tvm-lean" where
         "-L/opt/homebrew/lib",
         "-L/usr/local/lib",
         "-lsodium",
-        "/Users/daniil/Coding/ton/build/third-party/secp256k1/lib/libsecp256k1.a",
-        "/Users/daniil/Coding/ton/build/third-party/openssl/lib/libssl.a",
-        "/Users/daniil/Coding/ton/build/third-party/openssl/lib/libcrypto.a",
         "/Users/daniil/Coding/ton/build/third-party/blst/libblst.a"
       ]
     else
@@ -110,8 +105,6 @@ target tvmlean_crypto_ext.o pkg : FilePath := do
         "-I", (pkg.dir / "c").toString,
         "-I", "/opt/homebrew/include",
         "-I", "/usr/local/include",
-        "-I", "/Users/daniil/Coding/ton/build/third-party/secp256k1/include",
-        "-I", "/Users/daniil/Coding/ton/build/third-party/openssl/include",
         "-I", "/Users/daniil/Coding/ton/third-party/blst/bindings"
       ]
     else
@@ -125,8 +118,6 @@ extern_lib libtvmlean_crypto pkg := do
       match ← tonCryptoDirs with
       | some (b, _) =>
           [(b / "third-party" / "sodium" / "lib" / "libsodium.a").toString,
-           (b / "third-party" / "openssl" / "lib" / "libcrypto.a").toString,
-           (b / "third-party" / "secp256k1" / "lib" / "libsecp256k1.a").toString,
            (b / "third-party" / "blst" / "libblst.a").toString, "-ldl", "-lpthread"]
       | none => ["/usr/lib/x86_64-linux-gnu/libsodium.a"]
     IO.FS.createDirAll (cryptoLinkRsp.parent.getD ".")

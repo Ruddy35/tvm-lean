@@ -3,9 +3,6 @@ import TvmLean.Model.Host.Host
 namespace TvmLean
 
 def stubHost : Host where
-  secp256k1Ecrecover := fun _ _ => ByteArray.mk #[]
-  secp256k1XonlyPubkeyTweakAdd := fun _ _ => ByteArray.mk #[]
-  p256Verify := fun _ _ _ => false
   rist255FromHash := fun _ _ => ByteArray.mk #[]
   rist255IsValidPoint := fun _ => false
   rist255AddBytes := fun _ _ => ByteArray.mk #[]

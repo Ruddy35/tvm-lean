@@ -4,9 +4,6 @@ import TvmLean.Native.Extern.Crypto
 namespace TvmLean
 
 def nativeHost : Host where
-  secp256k1Ecrecover := secp256k1EcrecoverNative
-  secp256k1XonlyPubkeyTweakAdd := secp256k1XonlyPubkeyTweakAddNative
-  p256Verify := p256VerifyNative
   rist255FromHash := rist255FromHashNative
   rist255IsValidPoint := rist255IsValidPointNative
   rist255AddBytes := rist255AddBytesNative

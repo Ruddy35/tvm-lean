@@ -7,25 +7,6 @@ static lean_obj_res tvmlean_empty_byte_array(void) {
   return lean_alloc_sarray(1, 0, 0);
 }
 
-LEAN_EXPORT lean_obj_res tvmlean_secp256k1_ecrecover(b_lean_obj_arg hash32, b_lean_obj_arg sig65) {
-  (void)hash32;
-  (void)sig65;
-  return tvmlean_empty_byte_array();
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_secp256k1_xonly_pubkey_tweak_add(b_lean_obj_arg key32, b_lean_obj_arg tweak32) {
-  (void)key32;
-  (void)tweak32;
-  return tvmlean_empty_byte_array();
-}
-
-LEAN_EXPORT uint8_t tvmlean_p256_verify(b_lean_obj_arg data, b_lean_obj_arg pk33, b_lean_obj_arg sig64) {
-  (void)data;
-  (void)pk33;
-  (void)sig64;
-  return 0;
-}
-
 LEAN_EXPORT lean_obj_res tvmlean_rist255_from_hash(b_lean_obj_arg x1, b_lean_obj_arg x2) {
   (void)x1;
   (void)x2;

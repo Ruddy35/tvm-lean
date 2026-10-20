@@ -11,7 +11,7 @@ def suite : InstrSuite where
   id := { name := "SECP256K1_XONLY_PUBKEY_TWEAK_ADD" }
   unit := Tests.Gen.Crypto.unitFor "SECP256K1_XONLY_PUBKEY_TWEAK_ADD"
   oracle := Tests.Gen.Crypto.casesFor "SECP256K1_XONLY_PUBKEY_TWEAK_ADD"
-  fuzz := #[]
+  fuzz := Tests.Gen.Crypto.fuzzFor "SECP256K1_XONLY_PUBKEY_TWEAK_ADD"
 
 initialize registerSuite suite
 

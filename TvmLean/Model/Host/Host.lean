@@ -4,9 +4,6 @@ namespace TvmLean
 
 /-- Host hooks used by semantics for crypto/hash/external environment operations. -/
 structure Host where
-  secp256k1Ecrecover : ByteArray → ByteArray → ByteArray
-  secp256k1XonlyPubkeyTweakAdd : ByteArray → ByteArray → ByteArray
-  p256Verify : ByteArray → ByteArray → ByteArray → Bool
   rist255FromHash : ByteArray → ByteArray → ByteArray
   rist255IsValidPoint : ByteArray → Bool
   rist255AddBytes : ByteArray → ByteArray → ByteArray
