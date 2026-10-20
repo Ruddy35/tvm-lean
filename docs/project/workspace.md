@@ -19,14 +19,14 @@
 
 ## Криптография модели на Linux
 
-Нативная криптография модели (`c/tvmlean_crypto_ext.c`: ristretto255, BLS12-381) собирается и
-линкуется с теми же libsodium и blst, что и C++ TVM, если заданы `TVMLEAN_TON_BUILD` (каталог
-cmake-сборки `ton`, не сборки с покрытием) и `TVMLEAN_TON_SRC` (исходники, для заголовков blst). Без
-них эти операции — заглушки (их случаи оракула не проходят). На Lean, без внешних функций: Ed25519
-(`CHKSIGNU/S`, `TvmLean/Model/Crypto/Ed25519.lean`), хеши `HASHEXT`/`SHA256U` (SHA-256/512 в
+Нативная криптография модели (`c/tvmlean_crypto_ext.c`: BLS12-381) собирается и линкуется с тем же
+blst, что и C++ TVM, если заданы `TVMLEAN_TON_BUILD` (каталог cmake-сборки `ton`, не сборки с
+покрытием) и `TVMLEAN_TON_SRC` (исходники, для заголовков blst). Без них эти операции — заглушки (их
+случаи оракула не проходят). На Lean, без внешних функций: Ed25519 (`CHKSIGNU/S`,
+`TvmLean/Model/Crypto/Ed25519.lean`), хеши `HASHEXT`/`SHA256U` (SHA-256/512 в
 `TvmLean/Model/Basics/Bytes.lean`, `Blake2b.lean`, `Keccak.lean`), secp256k1 (`ECRECOVER`,
-`SECP256K1_XONLY_PUBKEY_TWEAK_ADD`, `Secp256k1.lean`) и P-256 (`P256_CHKSIGNU/S`, `P256.lean`) в
-`TvmLean/Model/Crypto/`.
+`SECP256K1_XONLY_PUBKEY_TWEAK_ADD`, `Secp256k1.lean`), P-256 (`P256_CHKSIGNU/S`, `P256.lean`) и
+ristretto255 (`RIST255_*`, `Ristretto255.lean`) в `TvmLean/Model/Crypto/`.
 
 ## Полная сверка
 

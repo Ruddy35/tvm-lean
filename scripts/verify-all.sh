@@ -5,9 +5,9 @@
 #   FIXTURES      directory with diff-test fixture sets (subdirectories) [optional]
 #   OUT           directory for logs                                    [default: ./verify-out]
 #   TVMLEAN_TON_BUILD, TVMLEAN_TON_SRC  the C++ reference build (cmake build dir, not a coverage
-#                 build) and its sources: on Linux the native crypto links the same libsodium and
-#                 blst as C++ (see lakefile.lean). Without them ristretto255 and BLS12-381 are stubs
-#                 and their oracle cases fail.                                      [needed on Linux]
+#                 build) and its sources: on Linux the native crypto links the same blst as C++
+#                 (see lakefile.lean). Without them BLS12-381 is a stub and its oracle cases fail.
+#                                                                                   [needed on Linux]
 #   VERSIONS      global versions of the full oracle and the fuzz      [default: 0 .. 16]
 #   PAR           jobs run at once                                     [default: 12]
 # Runs: build; all unit tests; the opcode check (every suite runs its own opcode, --opcode-check);

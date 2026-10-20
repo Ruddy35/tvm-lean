@@ -4,12 +4,6 @@ import TvmLean.Native.Extern.Crypto
 namespace TvmLean
 
 def nativeHost : Host where
-  rist255FromHash := rist255FromHashNative
-  rist255IsValidPoint := rist255IsValidPointNative
-  rist255AddBytes := rist255AddBytesNative
-  rist255SubBytes := rist255SubBytesNative
-  rist255MulBytes := rist255MulBytesNative
-  rist255MulBaseBytes := rist255MulBaseBytesNative
   blsVerify := blsVerifyNative
   blsAggregate := blsAggregateNative
   blsFastAggregateVerify := blsFastAggregateVerifyNative

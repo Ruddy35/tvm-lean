@@ -7,40 +7,6 @@ static lean_obj_res tvmlean_empty_byte_array(void) {
   return lean_alloc_sarray(1, 0, 0);
 }
 
-LEAN_EXPORT lean_obj_res tvmlean_rist255_from_hash(b_lean_obj_arg x1, b_lean_obj_arg x2) {
-  (void)x1;
-  (void)x2;
-  return tvmlean_empty_byte_array();
-}
-
-LEAN_EXPORT uint8_t tvmlean_rist255_is_valid_point(b_lean_obj_arg x) {
-  (void)x;
-  return 0;
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_add(b_lean_obj_arg x, b_lean_obj_arg y) {
-  (void)x;
-  (void)y;
-  return tvmlean_empty_byte_array();
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_sub(b_lean_obj_arg x, b_lean_obj_arg y) {
-  (void)x;
-  (void)y;
-  return tvmlean_empty_byte_array();
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_mul(b_lean_obj_arg n_le, b_lean_obj_arg x) {
-  (void)n_le;
-  (void)x;
-  return tvmlean_empty_byte_array();
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_mul_base(b_lean_obj_arg n_le) {
-  (void)n_le;
-  return tvmlean_empty_byte_array();
-}
-
 LEAN_EXPORT uint8_t tvmlean_bls_verify(b_lean_obj_arg pk48, b_lean_obj_arg msg, b_lean_obj_arg sig96) {
   (void)pk48;
   (void)msg;

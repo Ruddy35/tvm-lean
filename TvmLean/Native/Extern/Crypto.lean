@@ -2,24 +2,6 @@ import TvmLean.Model
 
 namespace TvmLean
 
-@[extern "tvmlean_rist255_from_hash"]
-opaque rist255FromHashNative (x1 x2 : ByteArray) : ByteArray
-
-@[extern "tvmlean_rist255_is_valid_point"]
-opaque rist255IsValidPointNative (x : ByteArray) : Bool
-
-@[extern "tvmlean_rist255_add"]
-opaque rist255AddBytesNative (x y : ByteArray) : ByteArray
-
-@[extern "tvmlean_rist255_sub"]
-opaque rist255SubBytesNative (x y : ByteArray) : ByteArray
-
-@[extern "tvmlean_rist255_mul"]
-opaque rist255MulBytesNative (nLe x : ByteArray) : ByteArray
-
-@[extern "tvmlean_rist255_mul_base"]
-opaque rist255MulBaseBytesNative (nLe : ByteArray) : ByteArray
-
 @[extern "tvmlean_bls_verify"]
 opaque blsVerifyNative (pub msg sig : ByteArray) : Bool
 

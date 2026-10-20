@@ -3,12 +3,6 @@ import TvmLean.Model.Host.Host
 namespace TvmLean
 
 def stubHost : Host where
-  rist255FromHash := fun _ _ => ByteArray.mk #[]
-  rist255IsValidPoint := fun _ => false
-  rist255AddBytes := fun _ _ => ByteArray.mk #[]
-  rist255SubBytes := fun _ _ => ByteArray.mk #[]
-  rist255MulBytes := fun _ _ => ByteArray.mk #[]
-  rist255MulBaseBytes := fun _ => ByteArray.mk #[]
   blsVerify := fun _ _ _ => false
   blsAggregate := fun _ => ByteArray.mk #[]
   blsFastAggregateVerify := fun _ _ _ => false

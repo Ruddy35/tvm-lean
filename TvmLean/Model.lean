@@ -30,3 +30,4 @@ import TvmLean.Model.Crypto.Blake2b
 import TvmLean.Model.Crypto.Weierstrass
 import TvmLean.Model.Crypto.Secp256k1
 import TvmLean.Model.Crypto.P256
+import TvmLean.Model.Crypto.Ristretto255

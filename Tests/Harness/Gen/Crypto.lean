@@ -911,10 +911,74 @@ private def genP256Fuzz (fromSlice : Bool) (rng0 : StdGen) : OracleCase × StdGe
             program := #[ext (if fromSlice then .p256ChkSignS else .p256ChkSignU)],
             initStack := #[dataV, sig, key] }, rng6)
 
-/-- Fuzz specs of the suite named `suite`: random data for the hash instructions and random
-signatures for secp256k1 and P-256, computed in Lean. -/
+/-- A ristretto255 operand (the encoding read big-endian, as C++ exports the integer): an element
+from random hash bytes, the same with one bit flipped, a random number, the identity 0, or a number
+from `p` on (not canonical). -/
+private def randRistOperand (rng0 : StdGen) : Int × StdGen :=
+  let (mode, rng1) := randNat rng0 0 7
+  let (hb, rng2) := randBytes 64 rng1
+  let (x, rng3) := randNat rng2 0 (2 ^ 256 - 1)
+  let enc := Ristretto255.fromHash hb
+  let v : Nat :=
+    match mode with
+    | 0 | 1 | 2 => bytesToNatBE enc
+    | 3 => bytesToNatBE enc ^^^ (1 <<< (x % 256))
+    | 4 => x
+    | 5 => 0
+    | _ => bytesToNatBE (natToBytesBEFixed (Ed25519.p + x % 64) 32).reverse
+  (Int.ofNat v, rng3)
+
+/-- A scalar for RIST255_MUL{BASE}: random 256-bit, small, a multiple of `l` (plus a little),
+negative, or 0. -/
+private def randRistScalar (rng0 : StdGen) : Int × StdGen :=
+  let (mode, rng1) := randNat rng0 0 5
+  let (x, rng2) := randNat rng1 0 (2 ^ 256 - 1)
+  let n : Int :=
+    match mode with
+    | 0 => Int.ofNat x
+    | 1 => Int.ofNat (x % 16)
+    | 2 => rist255L * Int.ofNat (x % 4) + Int.ofNat (x / 4 % 3)
+    | 3 => -Int.ofNat x
+    | _ => 0
+  (n, rng2)
+
+private def ristFuzzCase (suite : String) (op : CryptoExtInstr) (stack : Array Value) : OracleCase :=
+  { name := "fuzz", instr := { name := suite }, program := #[ext op], initStack := stack }
+
+/-- Random operands for the ristretto255 instruction `op` of the suite `suite`. -/
+private def genRistFuzz (suite : String) (op : CryptoExtInstr) (rng0 : StdGen) : OracleCase × StdGen :=
+  let (x, rng1) := randRistOperand rng0
+  let (y, rng2) := randRistOperand rng1
+  let (n, rng3) := randRistScalar rng2
+  let (h1, rng4) := randNat rng3 0 (2 ^ 256 - 1)
+  let (same, rng5) := randNat rng4 0 4
+  let y := if same = 0 then x else y
+  let stack : Array Value :=
+    match op with
+    | .rist255FromHash => #[iv (Int.ofNat h1), iv x]
+    | .rist255Validate | .rist255Qvalidate => #[iv x]
+    | .rist255Mul | .rist255Qmul => #[iv x, iv n]
+    | .rist255MulBase | .rist255QmulBase => #[iv n]
+    | _ => #[iv x, iv y]
+  (ristFuzzCase suite op stack, rng5)
+
+/-- Fuzz specs of the suite named `suite`: random data for the hash instructions, random
+signatures for secp256k1 and P-256, random operands for ristretto255, computed in Lean. -/
 def fuzzFor (suite : String) : Array FuzzSpec :=
+  let rist (op : CryptoExtInstr) (seed : UInt64) : Array FuzzSpec :=
+    #[{ seed := seed, count := 300, gen := genRistFuzz suite op }]
   match suite with
+  | "RIST255_FROMHASH" => rist .rist255FromHash 2026102010
+  | "RIST255_VALIDATE" => rist .rist255Validate 2026102011
+  | "RIST255_QVALIDATE" => rist .rist255Qvalidate 2026102012
+  | "RIST255_ADD" => rist .rist255Add 2026102013
+  | "RIST255_SUB" => rist .rist255Sub 2026102014
+  | "RIST255_QADD" => rist .rist255Qadd 2026102015
+  | "RIST255_QSUB" => rist .rist255Qsub 2026102016
+  | "RIST255_MUL" => rist .rist255Mul 2026102017
+  | "RIST255_QMUL" => rist .rist255Qmul 2026102018
+  | "RIST255_MULBASE" => rist .rist255MulBase 2026102019
+  | "RIST255_QMULBASE" => rist .rist255QmulBase 2026102020
   | "ECRECOVER" => #[{ seed := 2026102006, count := 300, gen := genEcrecoverFuzz }]
   | "SECP256K1_XONLY_PUBKEY_TWEAK_ADD" => #[{ seed := 2026102007, count := 300, gen := genXonlyFuzz }]
   | "P256_CHKSIGNU" => #[{ seed := 2026102008, count := 300, gen := genP256Fuzz false }]

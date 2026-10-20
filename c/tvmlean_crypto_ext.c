@@ -1,5 +1,4 @@
 #include <lean/lean.h>
-#include <sodium.h>
 
 #include <blst.h>
 
@@ -9,18 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-static bool tvmlean_sodium_init(void) {
-  static int initialized = 0;
-  if (initialized) {
-    return true;
-  }
-  if (sodium_init() < 0) {
-    return false;
-  }
-  initialized = 1;
-  return true;
-}
 
 static lean_obj_res tvmlean_mk_byte_array(const unsigned char *buf, size_t len) {
   lean_object *out = lean_alloc_sarray(1, len, len);
@@ -32,115 +19,6 @@ static lean_obj_res tvmlean_mk_byte_array(const unsigned char *buf, size_t len) 
 
 static lean_obj_res tvmlean_empty_byte_array(void) {
   return tvmlean_mk_byte_array(NULL, 0);
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_from_hash(b_lean_obj_arg x1, b_lean_obj_arg x2) {
-  if (!tvmlean_sodium_init()) {
-    return tvmlean_empty_byte_array();
-  }
-  if (lean_sarray_size(x1) != 32 || lean_sarray_size(x2) != 32) {
-    return tvmlean_empty_byte_array();
-  }
-
-  const unsigned char *x1b = (const unsigned char *)lean_sarray_cptr((lean_object *)x1);
-  const unsigned char *x2b = (const unsigned char *)lean_sarray_cptr((lean_object *)x2);
-
-  unsigned char in[64];
-  memcpy(in, x1b, 32);
-  memcpy(in + 32, x2b, 32);
-
-  unsigned char out[32];
-  crypto_core_ristretto255_from_hash(out, in);
-  return tvmlean_mk_byte_array(out, sizeof(out));
-}
-
-LEAN_EXPORT uint8_t tvmlean_rist255_is_valid_point(b_lean_obj_arg x) {
-  if (!tvmlean_sodium_init()) {
-    return 0;
-  }
-  if (lean_sarray_size(x) != 32) {
-    return 0;
-  }
-  const unsigned char *xb = (const unsigned char *)lean_sarray_cptr((lean_object *)x);
-  return crypto_core_ristretto255_is_valid_point(xb) ? 1 : 0;
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_add(b_lean_obj_arg x, b_lean_obj_arg y) {
-  if (!tvmlean_sodium_init()) {
-    return tvmlean_empty_byte_array();
-  }
-  if (lean_sarray_size(x) != 32 || lean_sarray_size(y) != 32) {
-    return tvmlean_empty_byte_array();
-  }
-
-  const unsigned char *xb = (const unsigned char *)lean_sarray_cptr((lean_object *)x);
-  const unsigned char *yb = (const unsigned char *)lean_sarray_cptr((lean_object *)y);
-  unsigned char out[32];
-  if (crypto_core_ristretto255_add(out, xb, yb) != 0) {
-    return tvmlean_empty_byte_array();
-  }
-  return tvmlean_mk_byte_array(out, sizeof(out));
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_sub(b_lean_obj_arg x, b_lean_obj_arg y) {
-  if (!tvmlean_sodium_init()) {
-    return tvmlean_empty_byte_array();
-  }
-  if (lean_sarray_size(x) != 32 || lean_sarray_size(y) != 32) {
-    return tvmlean_empty_byte_array();
-  }
-
-  const unsigned char *xb = (const unsigned char *)lean_sarray_cptr((lean_object *)x);
-  const unsigned char *yb = (const unsigned char *)lean_sarray_cptr((lean_object *)y);
-  unsigned char out[32];
-  if (crypto_core_ristretto255_sub(out, xb, yb) != 0) {
-    return tvmlean_empty_byte_array();
-  }
-  return tvmlean_mk_byte_array(out, sizeof(out));
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_mul(b_lean_obj_arg n_le, b_lean_obj_arg x) {
-  if (!tvmlean_sodium_init()) {
-    return tvmlean_empty_byte_array();
-  }
-  if (lean_sarray_size(n_le) != 32 || lean_sarray_size(x) != 32) {
-    return tvmlean_empty_byte_array();
-  }
-  const unsigned char *nb = (const unsigned char *)lean_sarray_cptr((lean_object *)n_le);
-  const unsigned char *xb = (const unsigned char *)lean_sarray_cptr((lean_object *)x);
-  unsigned char out[32];
-  if (crypto_scalarmult_ristretto255(out, nb, xb) != 0) {
-    return tvmlean_empty_byte_array();
-  }
-  return tvmlean_mk_byte_array(out, sizeof(out));
-}
-
-static bool all_bytes_eq(const unsigned char *buf, size_t len, unsigned char value) {
-  for (size_t i = 0; i < len; i++) {
-    if (buf[i] != value) {
-      return false;
-    }
-  }
-  return true;
-}
-
-LEAN_EXPORT lean_obj_res tvmlean_rist255_mul_base(b_lean_obj_arg n_le) {
-  if (!tvmlean_sodium_init()) {
-    return tvmlean_empty_byte_array();
-  }
-  if (lean_sarray_size(n_le) != 32) {
-    return tvmlean_empty_byte_array();
-  }
-  const unsigned char *nb = (const unsigned char *)lean_sarray_cptr((lean_object *)n_le);
-
-  unsigned char out[32];
-  memset(out, 0xff, sizeof(out));
-  if (crypto_scalarmult_ristretto255_base(out, nb) != 0) {
-    if (all_bytes_eq(out, sizeof(out), 0xff)) {
-      return tvmlean_empty_byte_array();
-    }
-  }
-  return tvmlean_mk_byte_array(out, sizeof(out));
 }
 
 static const uint8_t tvmlean_bls_dst[] = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";

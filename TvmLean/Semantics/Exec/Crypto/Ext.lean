@@ -25,8 +25,8 @@ def sliceOfByteArray (ba : ByteArray) : Slice :=
       bits := bits ++ natToBits (ba.get! i).toNat 8
     Slice.ofCell (Cell.mkOrdinary bits #[])
 
-def pushUInt256FromByteArrayBE (ba : ByteArray) : VM Unit := do
-  VM.push (.int (.num (Int.ofNat (byteArrayToNatBE ba))))
+def pushUInt256BE (bs : Array UInt8) : VM Unit :=
+  VM.push (.int (.num (Int.ofNat (bytesToNatBE bs))))
 
 def popNatInRange (min max : Nat) : VM Nat := do
   let v ← VM.popInt
@@ -178,10 +178,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             match exportUInt256BE x2 with
             | .ok bs => pure bs
             | .error e => throw e
-          let r := host.rist255FromHash (ByteArray.mk x1Bytes) (ByteArray.mk x2Bytes)
-          if r.size != 32 then
-            VM.unimplementedInstr { name := Instr.pretty i } "crypto ext backend path is not fully implemented"
-          pushUInt256FromByteArrayBE r
+          pushUInt256BE (Ristretto255.fromHash (x1Bytes ++ x2Bytes))
 
       | .rist255Validate =>
           let x ← VM.popInt
@@ -190,7 +187,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             match exportUInt256BE x with
             | .ok bs => pure bs
             | .error e => throw e
-          if !host.rist255IsValidPoint (ByteArray.mk xb) then
+          if !Ristretto255.isValid xb then
             throw .rangeChk
 
       | .rist255Qvalidate =>
@@ -199,7 +196,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           let ok :=
             match exportUInt256BE? x with
             | none => false
-            | some xb => host.rist255IsValidPoint (ByteArray.mk xb)
+            | some xb => Ristretto255.isValid xb
           VM.pushSmallInt (if ok then (-1) else 0)
 
       | .rist255Add =>
@@ -215,10 +212,9 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             match exportUInt256BE y with
             | .ok bs => pure bs
             | .error e => throw e
-          let r := host.rist255AddBytes (ByteArray.mk xb) (ByteArray.mk yb)
-          if r.size != 32 then
-            throw .rangeChk
-          pushUInt256FromByteArrayBE r
+          match Ristretto255.add xb yb with
+          | none => throw .rangeChk
+          | some r => pushUInt256BE r
 
       | .rist255Sub =>
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
@@ -233,10 +229,9 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             match exportUInt256BE y with
             | .ok bs => pure bs
             | .error e => throw e
-          let r := host.rist255SubBytes (ByteArray.mk xb) (ByteArray.mk yb)
-          if r.size != 32 then
-            throw .rangeChk
-          pushUInt256FromByteArrayBE r
+          match Ristretto255.sub xb yb with
+          | none => throw .rangeChk
+          | some r => pushUInt256BE r
 
       | .rist255Qadd =>
           VM.checkUnderflow 2  -- C++ `stack.check_underflow(2)` before the pops
@@ -245,12 +240,11 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.consumeGas rist255AddGasPrice
           match exportUInt256BE? x, exportUInt256BE? y with
           | some xb, some yb =>
-              let r := host.rist255AddBytes (ByteArray.mk xb) (ByteArray.mk yb)
-              if r.size == 32 then
-                pushUInt256FromByteArrayBE r
-                VM.pushSmallInt (-1)
-              else
-                VM.pushSmallInt 0
+              match Ristretto255.add xb yb with
+              | none => VM.pushSmallInt 0
+              | some r =>
+                  pushUInt256BE r
+                  VM.pushSmallInt (-1)
           | _, _ =>
               VM.pushSmallInt 0
 
@@ -261,12 +255,11 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           VM.consumeGas rist255AddGasPrice
           match exportUInt256BE? x, exportUInt256BE? y with
           | some xb, some yb =>
-              let r := host.rist255SubBytes (ByteArray.mk xb) (ByteArray.mk yb)
-              if r.size == 32 then
-                pushUInt256FromByteArrayBE r
-                VM.pushSmallInt (-1)
-              else
-                VM.pushSmallInt 0
+              match Ristretto255.sub xb yb with
+              | none => VM.pushSmallInt 0
+              | some r =>
+                  pushUInt256BE r
+                  VM.pushSmallInt (-1)
           | _, _ =>
               VM.pushSmallInt 0
 
@@ -287,7 +280,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           else if nZero || (v14 && xZero) then
             let invalidPoint : Bool :=
               !xZero && (match exportUInt256BE? x with
-                | some xb => !host.rist255IsValidPoint (ByteArray.mk xb)
+                | some xb => !Ristretto255.isValid xb
                 | none => true)
             if v14 && invalidPoint then
               throw .rangeChk
@@ -297,11 +290,9 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             match exportUInt256BE? x, exportUInt256BE? n with
             | some xb, some nbBe =>
                 let nbLe := nbBe.reverse
-                let r := host.rist255MulBytes (ByteArray.mk nbLe) (ByteArray.mk xb)
-                if r.size == 32 then
-                    pushUInt256FromByteArrayBE r
-                else
-                  throw .rangeChk
+                match Ristretto255.mul nbLe xb with
+                | none => throw .rangeChk
+                | some r => pushUInt256BE r
             | _, _ =>
                 throw .rangeChk
 
@@ -322,7 +313,7 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
           else if nZero || (v14 && xZero) then
             let invalidPoint : Bool :=
               !xZero && (match exportUInt256BE? x with
-                | some xb => !host.rist255IsValidPoint (ByteArray.mk xb)
+                | some xb => !Ristretto255.isValid xb
                 | none => true)
             if v14 && invalidPoint then
               VM.pushSmallInt 0
@@ -333,12 +324,11 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             match exportUInt256BE? x, exportUInt256BE? n with
             | some xb, some nbBe =>
                 let nbLe := nbBe.reverse
-                let r := host.rist255MulBytes (ByteArray.mk nbLe) (ByteArray.mk xb)
-                if r.size == 32 then
-                    pushUInt256FromByteArrayBE r
+                match Ristretto255.mul nbLe xb with
+                | none => VM.pushSmallInt 0
+                | some r =>
+                    pushUInt256BE r
                     VM.pushSmallInt (-1)
-                else
-                  VM.pushSmallInt 0
             | _, _ =>
                 VM.pushSmallInt 0
 
@@ -354,11 +344,13 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
               match exportUInt256BE n with
               | .ok bs => pure bs
               | .error e => throw e
-            let nbLe := nbBe.reverse
-            let r := host.rist255MulBaseBytes (ByteArray.mk nbLe)
-            if r.size != 32 then
+            -- `crypto_scalarmult_ristretto255_base` fails for the identity after writing its
+            -- encoding (zeros): an error from version 14, the zeros before (C++ checks `rb`
+            -- against its initial 0xff bytes)
+            let (r, ok) := Ristretto255.mulBase nbBe.reverse
+            if !ok && (← get).globalVersion ≥ 14 then
               throw .rangeChk
-            pushUInt256FromByteArrayBE r
+            pushUInt256BE r
 
       | .rist255QmulBase =>
           let n0 ← VM.popInt
@@ -373,13 +365,12 @@ def execInstrCryptoExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit := d
             | none =>
                 VM.pushSmallInt 0
             | some nbBe =>
-                let nbLe := nbBe.reverse
-                let r := host.rist255MulBaseBytes (ByteArray.mk nbLe)
-                if r.size == 32 then
-                  pushUInt256FromByteArrayBE r
-                  VM.pushSmallInt (-1)
-                else
+                let (r, ok) := Ristretto255.mulBase nbBe.reverse
+                if !ok && (← get).globalVersion ≥ 14 then
                   VM.pushSmallInt 0
+                else
+                  pushUInt256BE r
+                  VM.pushSmallInt (-1)
 
       | .rist255PushL =>
           VM.push (.int (.num rist255L))

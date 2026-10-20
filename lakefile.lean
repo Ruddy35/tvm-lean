@@ -3,8 +3,8 @@ open System Lake DSL
 
 /-- The C++ reference build, if given (`TVMLEAN_TON_BUILD`: the cmake build directory of `ton`,
 `TVMLEAN_TON_SRC`: its sources, for the blst headers). On Linux the native crypto is then compiled
-against and linked with the same libsodium and blst as C++ TVM (ristretto255, BLS12-381); without it
-the system libsodium is used and these operations (`c/tvmlean_crypto_ext.c`) are stubs. -/
+against and linked with the same blst as C++ TVM (BLS12-381); without it these operations
+(`c/tvmlean_crypto_ext.c`) are stubs. -/
 def tonCryptoDirs : IO (Option (FilePath × FilePath)) := do
   match (← IO.getEnv "TVMLEAN_TON_BUILD"), (← IO.getEnv "TVMLEAN_TON_SRC") with
   | some b, some s => return some (b, s)
@@ -16,8 +16,7 @@ def cryptoLinkRsp : FilePath := __dir__ / ".lake" / "tvmlean-crypto-link.rsp"
 
 /-- Include directories of the crypto libraries of the C++ reference build. -/
 def tonCryptoIncludes (b s : FilePath) : Array String :=
-  #["-I", (b / "third-party" / "sodium" / "include").toString,
-    "-I", (s / "third-party" / "blst" / "bindings").toString]
+  #["-I", (s / "third-party" / "blst" / "bindings").toString]
 
 package "tvm-lean" where
   version := v!"0.1.0"
@@ -26,7 +25,6 @@ package "tvm-lean" where
       #[
         "-L/opt/homebrew/lib",
         "-L/usr/local/lib",
-        "-lsodium",
         "/Users/daniil/Coding/ton/build/third-party/blst/libblst.a"
       ]
     else
@@ -117,9 +115,8 @@ extern_lib libtvmlean_crypto pkg := do
     let libs : List String :=
       match ← tonCryptoDirs with
       | some (b, _) =>
-          [(b / "third-party" / "sodium" / "lib" / "libsodium.a").toString,
-           (b / "third-party" / "blst" / "libblst.a").toString, "-ldl", "-lpthread"]
-      | none => ["/usr/lib/x86_64-linux-gnu/libsodium.a"]
+          [(b / "third-party" / "blst" / "libblst.a").toString, "-ldl", "-lpthread"]
+      | none => []
     IO.FS.createDirAll (cryptoLinkRsp.parent.getD ".")
     IO.FS.writeFile cryptoLinkRsp (String.intercalate "\n" libs ++ "\n")
   let oExt ← tvmlean_crypto_ext.o.fetch

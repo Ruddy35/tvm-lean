@@ -4,12 +4,6 @@ namespace TvmLean
 
 /-- Host hooks used by semantics for crypto/hash/external environment operations. -/
 structure Host where
-  rist255FromHash : ByteArray → ByteArray → ByteArray
-  rist255IsValidPoint : ByteArray → Bool
-  rist255AddBytes : ByteArray → ByteArray → ByteArray
-  rist255SubBytes : ByteArray → ByteArray → ByteArray
-  rist255MulBytes : ByteArray → ByteArray → ByteArray
-  rist255MulBaseBytes : ByteArray → ByteArray
   blsVerify : ByteArray → ByteArray → ByteArray → Bool
   blsAggregate : Array ByteArray → ByteArray
   blsFastAggregateVerify : Array ByteArray → ByteArray → ByteArray → Bool
