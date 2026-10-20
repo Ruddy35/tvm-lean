@@ -1,6 +1,6 @@
 import Lean.Data.Json
 import TvmLean.Boc
-import TvmLean.Transaction.Run
+import TvmLean.Transaction.Emulate
 
 /-!
 # The C++ oracle of whole transactions

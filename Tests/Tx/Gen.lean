@@ -51,6 +51,66 @@ def programs : List (String × List Instr) :=
 
 def addrStd (wc : Int) (a : BitString) : W := (((({} : W).uint 2 2).bool false).int wc 8).bitStr a
 
+def other : BitString := natToBits 0x3333333333333333333333333333333333333333333333333333333333333333 256
+
+/-- An outbound internal message as a contract proposes it (`MessageRelaxed`): source `addr_none`
+or `src`, destination `(wc, dest)`, the value, the bounce flag, a body of `body` bits inline or in a
+reference. -/
+def relaxedInt (wc : Int) (dest : BitString) (value : Nat) (bounce : Bool := false) (body : BitString := #[])
+    (bodyRef : Bool := false) (src : Option BitString := none) (fwdFee : Nat := 0) : Cell :=
+  let w : W := (((({} : W).bool false).bool true).bool bounce).bool false
+  let w := match src with | some a => w.bitStr (addrStd 0 a).bits | none => w.uint 0 2
+  let w := (((w.bitStr (addrStd wc dest).bits).grams value).bool false).grams 0 |>.grams fwdFee
+  let w := ((w.uint 0 64).uint 0 32).bool false
+  if bodyRef then ((w.bool true).ref (Cell.mkOrdinary body)).cell else ((w.bool false).bitStr body).cell
+
+/-- An outbound external message to `addr_extern` of 8 bits. -/
+def relaxedExt (body : BitString := #[]) : Cell :=
+  let w : W := ((((({} : W).uint 3 2).uint 0 2).uint 1 2).uint 8 9).uint 0x77 8
+  (((((w.uint 0 64).uint 0 32).bool false).bool false).bitStr body).cell
+
+def sendRaw (msg : Cell) (mode : Nat) : List Instr :=
+  [.pushRef msg, .pushInt (.num (Int.ofNat mode)), .tonEnvOp .sendRawMsg]
+
+def libCell : Cell := (({} : W).uint 0xc0de 16).cell
+
+/-- An action list set directly in c5. -/
+def setC5 (c : Cell) : List Instr := [.pushRef c, .popCtr 5]
+
+/-- Contracts that make actions. -/
+def actionPrograms : List (String × List Instr) :=
+  let big := natToBits 0 900
+  [("send", sendRaw (relaxedInt 0 other 10000000) 0),
+   ("send-pay-fees", sendRaw (relaxedInt 0 other 10000000) 1),
+   ("send-too-much", sendRaw (relaxedInt 0 other 5000000000) 0),
+   ("send-too-much-skip", sendRaw (relaxedInt 0 other 5000000000) 2),
+   ("send-too-much-bounce", sendRaw (relaxedInt 0 other 5000000000) 16),
+   ("send-carry-in", sendRaw (relaxedInt 0 other 0) 64),
+   ("send-all", sendRaw (relaxedInt 0 other 0) 128),
+   ("send-all-delete", sendRaw (relaxedInt 0 other 0) 160),
+   ("send-two", sendRaw (relaxedInt 0 other 10000000) 0 ++ sendRaw (relaxedInt 0 other 20000000 true) 1),
+   ("send-ext", sendRaw (relaxedExt (natToBits 5 8)) 0),
+   ("send-body-ref", sendRaw (relaxedInt 0 other 10000000 false (natToBits 7 300) true) 0),
+   ("send-big-body", sendRaw (relaxedInt 0 other 10000000 false big) 0),
+   ("send-bad-wc", sendRaw (relaxedInt 5 other 10000000) 0),
+   ("send-bad-wc-skip", sendRaw (relaxedInt 5 other 10000000) 2),
+   ("send-mc", sendRaw (relaxedInt (-1) other 10000000) 1),
+   ("send-bad-src", sendRaw (relaxedInt 0 other 10000000 false #[] false (some other)) 0),
+   ("send-fwd-fee", sendRaw (relaxedInt 0 other 10000000 false #[] false none 12345) 0),
+   ("send-bad-mode", sendRaw (relaxedInt 0 other 10000000) 4),
+   ("reserve", [.pushInt (.num 100000), .pushInt (.num 0), .tonEnvOp .rawReserve] ++ sendRaw (relaxedInt 0 other 0) 128),
+   ("reserve-all-but", [.pushInt (.num 100000), .pushInt (.num 1), .tonEnvOp .rawReserve]),
+   ("reserve-orig", [.pushInt (.num 100), .pushInt (.num 4), .tonEnvOp .rawReserve] ++ sendRaw (relaxedInt 0 other 0) 128),
+   ("reserve-too-much", [.pushInt (.num 5000000000), .pushInt (.num 0), .tonEnvOp .rawReserve]),
+   ("reserve-bounded", [.pushInt (.num 5000000000), .pushInt (.num 2), .tonEnvOp .rawReserve]),
+   ("set-code", [.pushRef (asm [.tonEnvOp .accept]), .tonEnvOp .setCode]),
+   ("set-lib", [.pushRef libCell, .pushInt (.num 1), .tonEnvOp .setLibCode]),
+   ("set-public-lib", [.pushRef libCell, .pushInt (.num 2), .tonEnvOp .setLibCode]),
+   ("c5-bad-tag", setC5 (Cell.mkOrdinary (natToBits 0xdeadbeef 32) #[Cell.empty])),
+   ("c5-no-next", setC5 (Cell.mkOrdinary (natToBits 1 8))),
+   ("c5-skip-bad-msg", setC5 (Cell.mkOrdinary (natToBits 0x0ec3c86d 32 ++ natToBits 2 8) #[Cell.empty, Cell.empty])),
+   ("c5-bounce-bad-msg", setC5 (Cell.mkOrdinary (natToBits 0x0ec3c86d 32 ++ natToBits 16 8) #[Cell.empty, Cell.empty]))]
+
 /-- `StateInit` with code and data. -/
 def stateInit (code data : Cell) : Cell :=
   (((({} : W).bool false).bool false).maybeRef (some code) |>.maybeRef (some data) |>.bool false).cell
@@ -122,6 +182,20 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
         out := out.push (mk s!"{pname}/{bname}/int" acc (intMsg 0 a 100000000 false none #[]))
         out := out.push (mk s!"{pname}/{bname}/int-small" acc (intMsg 0 a 1000 false none #[]))
         out := out.push (mk s!"{pname}/{bname}/ext" acc (extMsg 0 a none (natToBits 5 8)))
+    for (pname, prog) in actionPrograms do
+      let code := asm prog
+      for (bname, bal) in [("rich", 1000000000), ("poor", 3000000)] do
+        let acc := mkAccount 0 a (.active code data) bal 1700000000 0 1000
+        out := out.push (mk s!"{pname}/{bname}/int" acc (intMsg 0 a 100000000 false none #[]))
+        out := out.push (mk s!"{pname}/{bname}/int-bounce" acc (intMsg 0 a 100000000 true none (natToBits 0x1234 16)))
+        out := out.push (mk s!"{pname}/{bname}/ext" acc (extMsg 0 a none #[]))
+    -- bounceable messages to contracts that fail
+    for (pname, prog) in programs do
+      let acc := mkAccount 0 a (.active (asm prog) data) 1000000000 1700000000 0 1000
+      out := out.push (mk s!"bounce-{pname}" acc (intMsg 0 a 100000000 true none (natToBits 0xabcdef 300)))
+      out := out.push (mk s!"bounce-{pname}/small" acc (intMsg 0 a 3000000 true none (natToBits 1 8)))
+    out := out.push (mk "bounce/no-state" (mkAccount 0 a .uninit 50000000 1700000000 0 1000) (intMsg 0 a 100000000 true none #[]))
+    out := out.push (mk "bounce/none" (mkAccount 0 a .none 0 0 0 0) (intMsg 0 a 100000000 true none #[]))
     -- deploying: uninit and absent accounts at the address of the StateInit
     for (pname, prog) in programs.take 6 do
       let si := stateInit (asm prog) data
@@ -138,6 +212,100 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (mk "none/int" (mkAccount 0 a .none 0 0 0 0) (intMsg 0 a 100000000 false none #[]))
     out := out.push (mk "uninit/int" (mkAccount 0 a .uninit 50000000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
     out := out.push (mk "frozen/int" (mkAccount 0 a (.frozen (natToBits 77 256)) 5000 1690000000 0 1000) (intMsg 0 a 100000000 false none #[]))
+  return out
+
+
+/-! ## Fuzz -/
+
+def pick (rng : StdGen) (xs : Array α) [Inhabited α] : α × StdGen :=
+  let (i, rng) := randNat rng 0 (xs.size - 1)
+  (xs[i]!, rng)
+
+/-- A random amount: zero, small, or log-uniform up to about 10^11. -/
+def randAmount (rng : StdGen) : Nat × StdGen :=
+  let (k, rng) := randNat rng 0 9
+  if k = 0 then (0, rng)
+  else
+    let (e, rng) := randNat rng 2 11
+    let (m, rng) := randNat rng 1 9
+    (m * 10 ^ e, rng)
+
+/-- A random action (as instructions). -/
+def randAction (rng0 : StdGen) : List Instr × StdGen := Id.run do
+  let (k, rng) := randNat rng0 0 9
+  let (value, rng) := randAmount rng
+  let (mode, rng) := pick rng #[0, 1, 2, 3, 16, 17, 64, 65, 66, 128, 130, 160, 162, 4, 192]
+  let (bounce, rng) := randBool rng
+  let (bodyLen, rng) := randNat rng 0 400
+  let (bodyRef, rng) := randBool rng
+  let (wc, rng) := pick rng #[(0 : Int), 0, 0, -1, 7]
+  if k ≤ 4 then
+    let body := natToBits 0x5a5a5a5a 32 ++ natToBits 0 (bodyLen - Nat.min bodyLen 32)
+    let body := if bodyRef then body else body.extract 0 (Nat.min body.size 300)
+    return (sendRaw (relaxedInt wc other value bounce body bodyRef) mode, rng)
+  else if k = 5 then
+    return (sendRaw (relaxedExt (natToBits 9 8)) (mode &&& 3), rng)
+  else if k = 6 then
+    let (rmode, rng) := randNat rng 0 18
+    return ([.pushInt (.num (Int.ofNat value)), .pushInt (.num (Int.ofNat rmode)), .tonEnvOp .rawReserve], rng)
+  else if k = 7 then
+    return ([.pushRef (asm [.tonEnvOp .accept]), .tonEnvOp .setCode], rng)
+  else if k = 8 then
+    let (lmode, rng) := randNat rng 0 3
+    return ([.pushRef libCell, .pushInt (.num (Int.ofNat lmode)), .tonEnvOp .setLibCode], rng)
+  else
+    let (c, rng) := randNat rng 0 99
+    return ([.throw (Int.ofNat c)], rng)
+
+/-- A random contract: maybe ACCEPT, up to four actions. -/
+def randProgram (rng0 : StdGen) : List Instr × StdGen := Id.run do
+  let (acc, rng) := randBool rng0
+  let (n, rng) := randNat rng 0 4
+  let mut rng := rng
+  let mut code : List Instr := if acc then [.tonEnvOp .accept] else []
+  for _ in [0:n] do
+    let (a, rng') := randAction rng
+    code := code ++ a
+    rng := rng'
+  return (code, rng)
+
+/-- A random transaction case on the configuration `cfg0`. -/
+def randCase (cfg0 : Cell) (i : Nat) (rng0 : StdGen) : TxCase × StdGen := Id.run do
+  let (v, rng) := randNat rng0 0 16
+  let cfg := withVersion cfg0 v 46
+  let (prog, rng) := randProgram rng
+  let code := asm prog
+  let data := (({} : W).uint 0xabcd 16).cell
+  let (kind, rng) := randNat rng 0 9
+  let (bal, rng) := randAmount rng
+  let (paidAgo, rng) := pick rng #[0, 100, 100000, 10000000]
+  let (due, rng) := pick rng #[0, 0, 0, 7000, 2000000000]
+  let (value, rng) := randAmount rng
+  let (bounce, rng) := randBool rng
+  let (ext, rng) := randNat rng 0 4
+  let (bodyBits, rng) := randNat rng 0 200
+  let a := natToBits 0x1111111111111111111111111111111111111111111111111111111111111111 256
+  let si := stateInit code data
+  let siAddr := bytesToBits si.hashBytes
+  let (addr, st, init) :=
+    if kind ≤ 5 then (a, AccState.active code data, none)
+    else if kind = 6 then (siAddr, AccState.uninit, some si)
+    else if kind = 7 then (siAddr, AccState.none, some si)
+    else if kind = 8 then (siAddr, AccState.frozen siAddr, some si)
+    else (a, AccState.frozen (natToBits 99 256), none)
+  let acc := mkAccount 0 addr st (if kind = 7 then 0 else bal) (1700000200 - paidAgo) (if kind = 7 then 0 else due)
+    (if kind = 7 then 0 else 1000)
+  let body := natToBits 0x12345678 32 ++ natToBits 0 bodyBits
+  let msg := if ext = 0 then extMsg 0 addr init body else intMsg 0 addr value bounce init body
+  return ({ name := s!"fuzz/{i}/v{v}", config := cfg, account := acc, msg, now := 1700000200, lt := 3000000, seed }, rng)
+
+def fuzzCases (cfg0 : Cell) (count seed : Nat) : Array TxCase := Id.run do
+  let mut rng := mkStdGen seed
+  let mut out := #[]
+  for i in [0:count] do
+    let (c, rng') := randCase cfg0 i rng
+    out := out.push c
+    rng := rng'
   return out
 
 end Tests.Tx

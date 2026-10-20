@@ -5,7 +5,8 @@ import TvmLean.Native
 `tvm-lean-tx-test`: whole ordinary transactions of the model against the C++ transaction emulator
 (`tools/txoracle/txoracle.py`, `libemulator.so` of `TVMLEAN_TON_BUILD` or `TVMLEAN_EMULATOR_LIB`).
 For each case the transaction and the new account must have the same hashes, or both sides fail the
-same way. Options: `--versions a,b,...` (default 0..16), `--filter <substring>`.
+same way. Options: `--versions a,b,...` (default 0..16), `--filter <substring>`; `--fuzz <n>`
+`--seed <s>`: `n` random cases (versions, accounts, contracts with actions, messages) instead.
 -/
 
 open TvmLean TvmLean.Tx Tests.Tx
@@ -18,17 +19,20 @@ def hexOf (c : Cell) : String :=
   | .error _ => "?"
 
 def main (args : List String) : IO UInt32 := do
-  let rec opt : List String → List Nat × String → List Nat × String
-    | "--versions" :: v :: rest, (_, f) => opt rest ((v.splitOn ",").filterMap String.toNat?, f)
-    | "--filter" :: f :: rest, (vs, _) => opt rest (vs, f)
+  let rec opt : List String → List Nat × String × Nat × Nat → List Nat × String × Nat × Nat
+    | "--versions" :: v :: rest, (_, f, n, sd) => opt rest ((v.splitOn ",").filterMap String.toNat?, f, n, sd)
+    | "--filter" :: f :: rest, (vs, _, n, sd) => opt rest (vs, f, n, sd)
+    | "--fuzz" :: n :: rest, (vs, f, _, sd) => opt rest (vs, f, n.toNat!, sd)
+    | "--seed" :: sd :: rest, (vs, f, n, _) => opt rest (vs, f, n, sd.toNat!)
     | _ :: rest, acc => opt rest acc
     | [], acc => acc
-  let (versions, filter) := opt args ((List.range 17), "")
+  let (versions, filter, fuzzCount, fuzzSeed) := opt args ((List.range 17), "", 0, 20261020)
   let cfgFile := "tools/txoracle/testnet-config.b64"
   let cfg ← match stdBocDeserialize (base64Decode (← IO.FS.readFile cfgFile).trim) with
     | .ok c => pure c
     | .error _ => throw (IO.userError s!"cannot read {cfgFile}")
-  let all := (cases cfg versions).filter (fun c => filter.isEmpty || (c.name.splitOn filter).length > 1)
+  let base := if fuzzCount > 0 then fuzzCases cfg fuzzCount fuzzSeed else cases cfg versions
+  let all := base.filter (fun c => filter.isEmpty || (c.name.splitOn filter).length > 1)
   let answers ← runOracle all
   let mut failures := 0
   let mut unsupported : Array String := #[]

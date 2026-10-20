@@ -64,6 +64,24 @@ structure ActionPhase where
   totMsgBits : Nat := 0
   stateExceedsLimits : Bool := false
   bounce : Bool := false
+  actionListInvalid : Bool := false
+  accDeleteReq : Bool := false
+  remainingBalance : Nat := 0
+  reservedBalance : Nat := 0
+  endLt : Nat := 0
+  actionFine : Nat := 0
+  failActionFine : Nat := 0
+  needBounceOnFail : Bool := false
+  newCode : Option Cell := none
+  outMsgs : Array Cell := #[]
+
+/-- `BouncePhase`: `ok` (message cells and bits, fees collected, forwarding fees) or `nofunds`. -/
+structure BouncePhase where
+  ok : Bool
+  msgCells : Nat
+  msgBits : Nat
+  fwdFees : Nat
+  fwdFeesCollected : Nat := 0
 
 /-- The state of the transaction (C++ `Transaction` fields). Only grams are modelled in balances;
 an extra currency makes the run `unsupported`. -/
@@ -107,6 +125,7 @@ structure Tx where
   creditPhase : Option Nat := none
   computePhase : ComputePhase := {}
   actionPhase : Option ActionPhase := none
+  bouncePhase : Option BouncePhase := none
   outMsgs : Array Cell := #[]
 
 /-- What C++ produces: the transaction and the new `Account` cell (as the emulator returns them),
@@ -537,29 +556,6 @@ def Tx.computePhaseRun (t : Tx) (host : Host) (gas : GasPrices) (sl : SizeLimits
   return { t with computePhase := cp }
 
 
-/-! ## Action phase (`Transaction::prepare_action_phase`) -/
-
-/-- The action phase of an empty action list (`Except.error` for a non-empty one, not modelled
-yet), with the state limits check of the new code and data. -/
-def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String Tx := do
-  let list ← match t.computePhase.actions with
-    | some l => pure l
-    | none => throw "no action list"
-  let ap : ActionPhase := { actionListHash := bytesToBits list.hashBytes }
-  -- the list: an exotic cell is invalid (32); an empty cell ends it
-  if list.special then
-    return { t with actionPhase := some { ap with resultCode := 32, resultArg := 0 } }
-  if list.bits.size != 0 || list.refs.size != 0 then throw "actions"
-  let ap := { ap with valid := true }
-  let t := { t with newData := t.computePhase.newData }
-  -- `enforce_state_limits`
-  let limits ← if t.account.isSpecial then pure (some true) else pure (t.checkStateLimits sl sl.maxAccPublicLibraries)
-  match limits with
-  | none => throw "state limits error"
-  | some false => throw "state exceeds limits"
-  | some true => pure ()
-  return { t with actionPhase := some { ap with resultCode := 0, resultArg := 0, success := true } }
-
 /-! ## The new state (`Transaction::compute_state`) and the transaction (`serialize`, `commit`) -/
 
 def W.status (w : W) (s : AccStatus) : W :=
@@ -683,7 +679,15 @@ def Tx.serialize (t : Tx) (newState : Cell) : Option Cell := do
       let ap ← t.actionPhase
       pure ((d.bool true).ref (W.actionPhase {} ap).cell)
     else pure (d.bool false)
-  let d := ((d.bool (!actOk)).bool false).bool t.wasDeleted
+  let d := d.bool (!actOk)
+  -- bounce:(Maybe TrBouncePhase)
+  let d := match t.bouncePhase with
+    | none => d.bool false
+    | some bp =>
+        let d := d.bool true
+        if bp.ok then (((d.bool true).uint7 bp.msgCells).uint7 bp.msgBits).grams bp.fwdFeesCollected |>.grams bp.fwdFees
+        else ((d.uint 1 2).uint7 bp.msgCells).uint7 bp.msgBits |>.grams bp.fwdFees
+  let d := d.bool t.wasDeleted
   let w : W := (((({} : W).uint 7 4).bitStr t.account.addr).uint t.startLt 64)
   let w := (w.bitStr t.account.lastTransHash).uint t.account.lastTransLt 64
   let w := (w.uint t.now 32).uint t.outMsgs.size 15
@@ -691,82 +695,5 @@ def Tx.serialize (t : Tx) (newState : Cell) : Option Cell := do
   let w := ((w.ref msgs.cell).currencies { grams := t.totalFees }).ref update.cell
   return (w.ref d.cell).cell
 
-
-/-! ## The emulator (`transaction_emulator_emulate_transaction`) -/
-
-/-- The run of an ordinary transaction as the transaction emulator does it: the account at the
-address of the `ShardAccount` (or of the message's destination for `account_none`), the
-configuration `configRoot`, the time `now`, the logical time `lt`, the block's random seed
-`randSeed` (256 bits, not zero). Returns the transaction and the new account. -/
-def emulate (host : Host) (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString) : Outcome := Id.run do
-  let some cfg := Config.decode configRoot | return .failed "config"
-  -- the address: of the account, or of the message's destination
-  let some (acc, _, _) := Reader.runExact (do return (← Reader.ref, ← Reader.bits 256, ← Reader.uint 64)) shardAccount
-    | return .failed "shard account"
-  let accS := Slice.ofCell acc
-  let addrBits? : Option BitString :=
-    if accS.haveBits 1 && (accS.readBits 1)[0]! then
-      (Reader.msgAddressInt (accS.advanceBits 1)).map (·.1)
-    else
-      let m := Slice.ofCell inMsg
-      if !m.haveBits 1 then none
-      else if !(m.readBits 1)[0]! then (Reader.intMsgInfo m).map (·.1.dest)
-      else (Reader.extInMsgInfo m).map (·.1.2.1)
-  let some addrBits := addrBits? | return .failed "address"
-  let some (wc, addr) := stdAddressOf addrBits | return .failed "address"
-  let special := wc == -1 && cfg.isSpecialSmc addr
-  let some account := Account.unpack shardAccount wc addr special | return .failed "account"
-  let account := { account with blockLt := lt - lt % 1000000 }
-  -- `fetch_config_params`
-  let some pricing := cfg.storagePrices | return .failed "storage prices"
-  let some sl := cfg.sizeLimits | return .failed "size limits"
-  let mc := wc == -1
-  let some gas := cfg.gasPrices mc | return .failed "gas prices"
-  let some fwd := cfg.msgPrices mc | return .failed "msg prices"
-  let some _ := cfg.msgPrices (!mc) | return .failed "msg prices"
-  if account.balance.extra.isSome then return .unsupported "extra currencies"
-  -- the Transaction constructor
-  let startLt := Nat.max lt account.lastTransEndLt
-  let t : Tx :=
-    { cfg, gv := cfg.globalVersion, account, now, startLt, endLt := startLt + 1,
-      accStatus := if account.status == .nonexist then .uninit else account.status,
-      myAddr := account.myAddr, myAddrExact := account.myAddrExact, balance := account.balance.grams,
-      originalBalance := account.balance.grams, msgBalanceRemaining := 0, duePayment := account.duePayment,
-      lastPaid := account.lastPaid, inMsg, inMsgInfo := { src := #[], dest := addrBits },
-      inMsgBody := Slice.ofCell Cell.empty, newCode := account.code, newData := account.data,
-      newLibrary := account.library, newTick := account.tick, newTock := account.tock,
-      newFixedPrefixLength := account.fixedPrefixLength, frozenHash := account.stateHash }
-  let external := (Slice.ofCell inMsg).haveBits 1 && ((Slice.ofCell inMsg).readBits 1)[0]!
-  let t ← match t.unpackInputMsg sl fwd with
-    | none => return .failed (if external then "external message rejected" else "cannot unpack the message")
-    | some (.error e) => return .unsupported e
-    | some (.ok t) => pure t
-  let needCredit := !external
-  -- storage and credit phases, credit first unless the message bounces
-  let t? : Option Tx :=
-    if t.bounceEnabled then do
-      let t ← t.storagePhaseRun pricing gas false
-      return if needCredit then t.creditPhaseRun else t
-    else
-      let t := if needCredit then t.creditPhaseRun else t
-      t.storagePhaseRun pricing gas needCredit
-  let some t := t? | return .failed "storage phase"
-  let t ← match t.computePhaseRun host gas sl randSeed with
-    | .error e => return .unsupported e
-    | .ok t => pure t
-  if !t.computePhase.accepted && !external && t.computePhase.skipReason == 0 then
-    return .failed "not accepted"
-  let t ← if t.computePhase.success then
-      match t.actionPhaseRun sl with
-      | .error e => return .unsupported e
-      | .ok t => pure t
-    else pure t
-  if t.bounceEnabled && (!t.computePhase.success || (t.actionPhase.map (fun ap => ap.stateExceedsLimits || ap.bounce)).getD false) then
-    return .unsupported "bounce phase"
-  if !t.computePhase.accepted && t.inMsgExtern then
-    return .externalNotAccepted t.computePhase.exitCode
-  let (t, newState) := t.computeState sl
-  let some tx := t.serialize newState | return .failed "serialize"
-  return .ok tx newState
 
 end TvmLean.Tx
