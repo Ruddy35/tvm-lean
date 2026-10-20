@@ -75,6 +75,7 @@ lean_lib TvmLeanTests where
     `Tests.Harness.FuzzHarness,
     `Tests.Harness.Runner,
     `Tests.Harness.Cli,
+    `Tests.Harness.OpcodeCheck,
     `Tests.Harness.Coverage,
     `Tests.Harness.Gen.Arith,
     `Tests.Harness.Gen.Cell,

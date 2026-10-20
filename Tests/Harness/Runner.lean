@@ -11,6 +11,7 @@ structure RunnerOpts where
   unitOnly : Bool := false
   oracleOnly : Bool := false
   fuzzOnly : Bool := false
+  opcodeCheck : Bool := false
   jobs? : Option Nat := none
   progress : Bool := true
   deriving Repr
@@ -103,6 +104,12 @@ def shortStackCases (suite : InstrSuite) : Array OracleCase :=
         (Array.range 6).map fun k =>
           { base with name := s!"sweep/short-stack/{vl}{k}", initStack := Array.replicate k v }
 
+/-- Every oracle case run for `suite`: its own, the short stacks, and the generators run for every
+suite (`Tests.Gen.CellDepth`, `Tests.Gen.OwnOpcode`). -/
+def suiteOracleCases (suite : InstrSuite) : Array OracleCase :=
+  suite.oracle ++ shortStackCases suite ++ Tests.Gen.CellDepth.casesFor suite.id.name ++
+    Tests.Gen.OwnOpcode.casesFor suite.id.name
+
 private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResult := do
   let mut out : SuiteRunResult := { suiteId := suite.id }
 
@@ -118,8 +125,7 @@ private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResul
       | none => pure ()
 
   if !opts.unitOnly && !opts.fuzzOnly then
-    for c in suite.oracle ++ shortStackCases suite ++ Tests.Gen.CellDepth.casesFor suite.id.name ++
-        Tests.Gen.OwnOpcode.casesFor suite.id.name do
+    for c in suiteOracleCases suite do
       out := { out with oracleCases := out.oracleCases + 1 }
       let runOut ← runOracleCase c
       if !runOut.ok then

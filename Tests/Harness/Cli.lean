@@ -28,6 +28,8 @@ partial def parseCliArgs (args : List String) (opts : RunnerOpts := {}) : IO Run
       parseCliArgs rest { opts with oracleOnly := true }
   | "--fuzz-only" :: rest =>
       parseCliArgs rest { opts with fuzzOnly := true }
+  | "--opcode-check" :: rest =>
+      parseCliArgs rest { opts with opcodeCheck := true }
   | "--" :: rest =>
       parseCliArgs rest opts
   | arg :: _ =>
