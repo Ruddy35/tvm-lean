@@ -438,13 +438,18 @@ private def blsGroupCases (suite : String) (g2 : Bool) : Array OracleCase :=
             ("p-int", #[iv 1, iv 1])])
   | "MULTIEXP" =>
       named suite #[ext opMulti]
-        #[("n0", #[iv 0]), ("n1", #[pt "gen", iv 5, iv 1]), ("n2", #[pt "gen", iv 3, pt "gen2", iv 4, iv 2]),
+        (#[("n0", #[iv 0]), ("n1", #[pt "gen", iv 5, iv 1]), ("n2", #[pt "gen", iv 3, pt "gen2", iv 4, iv 2]),
           ("n3", #[pt "gen", iv 3, pt "gen7", iv (-1), pt "zero", iv 9, iv 3]),
           ("n4", #[pt "gen", iv blsR, pt "gen2", iv 0, pt "gen7", iv 1, pt "gen", iv (2 ^ 256 - 1), iv 4]),
           ("n1-bad", #[pt bad[0]!, iv 5, iv 1]), ("n2-bad", #[pt "gen", iv 1, pt bad[1]!, iv 2, iv 2]),
           ("n1-bad-x0", #[pt bad[1]!, iv 0, iv 1]), ("n2-nan", #[pt "gen", .int .nan, pt "gen2", iv 1, iv 2]),
           ("n-too-big", #[pt "gen", iv 1, iv 2]), ("n-neg", #[iv (-1)]), ("empty", #[]),
-          ("n2-int-point", #[iv 1, iv 1, pt "gen", iv 1, iv 2])]
+          ("n2-int-point", #[iv 1, iv 1, pt "gen", iv 1, iv 2])] ++
+        -- the gas divisor l of bls_calculate_multiexp_gas (tonops.cpp:1165) starts at 4 and grows
+        -- from n = 32 (2^(l+1) <= n): around 32 and 64 points
+        ((#[31, 32, 33, 63, 64, 65] : Array Nat).map fun k =>
+          (s!"n{k}", ((Array.range k).flatMap fun i =>
+            #[pt ((#["gen", "gen2", "gen7"] : Array String)[i % 3]!), iv (Int.ofNat i + 1)]) ++ #[iv (Int.ofNat k)])))
   | "ZERO" => named suite #[ext opZero] #[("empty", #[]), ("on-stack", #[iv 1, iv 2])]
   | "INGROUP" =>
       named suite #[ext opIn] (pts.map (fun a => (a, #[pt a])) ++ bad.map (fun b => (s!"bad-{b}", #[pt b])) ++ common)
