@@ -2,6 +2,7 @@ import Tests.Harness.Registry
 import Tests.Harness.OracleHarness
 import Tests.Harness.FuzzHarness
 import Tests.Harness.Gen.CellDepth
+import Tests.Harness.Gen.OwnOpcode
 
 namespace Tests
 
@@ -117,7 +118,8 @@ private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResul
       | none => pure ()
 
   if !opts.unitOnly && !opts.fuzzOnly then
-    for c in suite.oracle ++ shortStackCases suite ++ Tests.Gen.CellDepth.casesFor suite.id.name do
+    for c in suite.oracle ++ shortStackCases suite ++ Tests.Gen.CellDepth.casesFor suite.id.name ++
+        Tests.Gen.OwnOpcode.casesFor suite.id.name do
       out := { out with oracleCases := out.oracleCases + 1 }
       let runOut ← runOracleCase c
       if !runOut.ok then
