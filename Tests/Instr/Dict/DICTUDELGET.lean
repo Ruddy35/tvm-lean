@@ -1,6 +1,7 @@
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -583,7 +584,7 @@ def suite : InstrSuite where
     mkCase "oracle/gas/exact-hit-single" (mkIntCaseStack (.cell uintRoot4Single0) 0 4) dictUdelGetGasExact -- [B11]
     , -- [B11]
     mkCase "oracle/gas/exact-minus-one-hit-single" (mkIntCaseStack (.cell uintRoot4Single0) 0 4) dictUdelGetGasExactMinusOne -- [B11]
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "DICTUDELGET"
   fuzz := #[
     { seed := fuzzSeedForInstr dictUdelGetId
       count := 500

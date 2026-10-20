@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -557,7 +558,7 @@ def suite : InstrSuite where
         (oracleGasLimitsExact dictExecExactGas)
         1_000_000
         (#[.pushInt (.num dictExecExactGas), .tonEnvOp .setGasLimit, instrExec])
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "PFXDICTGETQ"
   fuzz := #[
     { seed := fuzzSeedForInstr suiteId
       count := 500

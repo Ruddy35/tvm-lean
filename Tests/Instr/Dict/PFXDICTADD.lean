@@ -1,6 +1,7 @@
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -633,7 +634,7 @@ def suite : InstrSuite where
     mkCase "oracle/range-maximum-n" (mkSliceStack (.slice sampleSliceD) (mkSliceKey 3 5) (.cell dictSlice4) 1023),
     mkCase "oracle/range-zero-n" (mkSliceStack (.slice sampleSliceD) (mkSliceFromBits #[]) .null 0),
     mkCase "oracle/type-key-short-for-0" (mkSliceStack (.slice sampleSliceD) (mkSliceFromBits #[]) (.cell dictSlice4Single) 4)
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "PFXDICTADD"
   fuzz := #[
     { seed := fuzzSeed
       count := 500

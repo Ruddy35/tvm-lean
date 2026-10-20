@@ -1,6 +1,7 @@
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -482,7 +483,7 @@ def suite : InstrSuite where
     mkCase "oracle/decode/neighbor-signed" #[] (rawCell16 0xf464), -- [B1][B7][B8]
     -- [B3] key NaN path.
     mkCase "oracle/key-nan" #[.int .nan, .cell dictUDelGetRefRoot4Single5, intV 4] -- [B3]
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "DICTUDELGETREF"
   fuzz := #[
     {
       seed := fuzzSeedForInstr dictUDelGetRefId

@@ -1,6 +1,7 @@
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -542,7 +543,7 @@ def suite : InstrSuite where
     -- [B13]
     mkCase "oracle/gas/hit-exact-minus-one" (mkStack (.cell pfxRootTwoShared) key4_10 4) pfxDictDelCode
       (oracleGasLimitsExactMinusOne (pfxDictDelHitGasMinusOne pfxRootTwoShared key4_10))
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "PFXDICTDEL"
   fuzz := #[
     {
       seed := fuzzSeedForInstr pfxDictDelId

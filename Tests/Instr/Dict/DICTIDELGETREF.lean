@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -445,7 +446,7 @@ def suite : InstrSuite where
     , mkCase "gas/exact/miss" (mkIntCaseStack .null 7 4) dictIdelGetRefGasExact
     -- [B8] Gas exact-minus-one failure with miss path.
     , mkCase "gas/exact-minus-one/miss" (mkIntCaseStack .null 7 4) dictIdelGetRefGasExactMinusOne
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "DICTIDELGETREF"
   fuzz := #[
     { seed := 2026021401
       count := 500

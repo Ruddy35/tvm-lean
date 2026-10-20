@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -583,7 +584,7 @@ def suite : InstrSuite where
     -- [B11]
     mkCaseProgram "oracle/gas/hit-unsigned-exact-minus-one" #[(.cell dictSliceUnsignedN8Many), intV 255, intV 8]
       (#[.pushInt (.num hitUnsignedGasMinusOne), .tonEnvOp .setGasLimit, instrIntUnsigned]) gasHitUnsignedMinusOne
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "DICTIDEL"
   fuzz := #[
     { seed := fuzzSeedForInstr dictDelId
       count := 500

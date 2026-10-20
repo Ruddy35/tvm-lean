@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -405,7 +406,7 @@ def suite : InstrSuite where
       (program := #[.pushInt (.num gasExact), .tonEnvOp .setGasLimit, instr]),
     mkCase "oracle/gas/exact-minus-one" #[(.slice shortKeyBits), dictJmpHit, intV 4] gasExactMinusOneLimits
       (program := #[.pushInt (.num gasExactMinusOne), .tonEnvOp .setGasLimit, instr])
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "PFXDICTGETJMP"
   fuzz := #[
     { seed := fuzzSeedForInstr suiteId
       count := 500

@@ -1,6 +1,7 @@
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -451,7 +452,7 @@ def suite : InstrSuite where
         gasExactMinusOneLimits
         1_000_000
         (#[.pushInt (.num gasExactMinusOne), .tonEnvOp .setGasLimit, instr]) -- [B12]
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "PFXDICTGET"
   fuzz := #[
     {
       seed := fuzzSeedForInstr suiteId

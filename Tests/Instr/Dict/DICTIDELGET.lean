@@ -1,6 +1,7 @@
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -507,7 +508,7 @@ def suite : InstrSuite where
     -- [B9] exact-minus-one budget should fail before success.
     mkCase "oracle/gas/exact-minus-one/miss" (mkIntCaseStack .null 7 4)
       (oracleGasLimitsExactMinusOne dictIdelGetGasMinusOne)
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "DICTIDELGET"
   fuzz := #[
     {
       seed := fuzzSeedForInstr dictIdelGetId

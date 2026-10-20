@@ -1,6 +1,7 @@
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import TvmLean.Spec.Index
 
 open TvmLean
@@ -685,7 +686,7 @@ def suite : InstrSuite where
       (program := #[instrAdd])
       (gasLimits := oracleGasLimitsExactMinusOne
         (if computeExactGasBudget instrAdd > 0 then computeExactGasBudget instrAdd - 1 else 0))
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "PFXDICTSET"
   fuzz := #[
     { seed := fuzzSeedForInstr pfxDictSetId
       count := 500

@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.Dict
 import Tests.Harness.Gen.Arith
 import Tests.Harness.Gen.Cell
 import TvmLean.Spec.Index
@@ -569,7 +570,7 @@ def suite : InstrSuite where
     -- [B2] Extra boundary for type conversion parity
     mkCase "oracle/range-maximum-n" (mkSliceStack (.slice sampleSliceD) (mkSliceKey 3 5) (.cell dictSlice4) 1023),
     mkCase "oracle/range-zero-n" (mkSliceStack (.slice sampleSliceD) (mkSliceFromBits #[]) (.cell dictSlice0) 0)
-  ]
+  ] ++ Tests.Gen.Dict.casesFor "PFXDICTREPLACE"
   fuzz := #[
     { seed := fuzzSeed
       count := 500
