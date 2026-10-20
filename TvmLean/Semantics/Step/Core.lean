@@ -18,7 +18,8 @@ def VmState.outOfGasHalt (st : VmState) : StepResult :=
 
 /-- C++ `run_inner` handling an exception `e` raised in a step: `throw_exception(e)` makes the stack
 `[0, e]`, charges the exception gas (out of gas at once) and jumps to `c2`. If that jump fails
-(`c2` expects more arguments), the VM ends with stk_und ("exception while handling exception"). -/
+(`c2` expects more arguments), the VM ends with stk_und ("exception while handling exception").
+The jump to `c2` starts a new chain of jumps. -/
 def VmState.raiseException (st : VmState) (e : Int) : StepResult :=
   let stExc := (st.throwException e).consumeGas exceptionGasPrice
   if decide (stExc.gas.gasRemaining < 0) then
@@ -26,7 +27,19 @@ def VmState.raiseException (st : VmState) (e : Int) : StepResult :=
   else if stExc.excHandlerNeedsMoreArgs then
     .halt (~~~ Excno.stkUnd.toInt) stExc
   else
-    .continue stExc
+    .continue { stExc with chainJumps := 0 }
+
+/-- One jump of C++ `VmState::jump_to` (vm.h:386-401): from version 9 every jump of a chain after
+the first `freeNestedContJump` costs 1 gas (`consume_gas`, out of gas at once). -/
+def VmState.countJump (st : VmState) : VmState :=
+  let n := st.chainJumps + 1
+  let st := { st with chainJumps := n }
+  if n > freeNestedContJump ∧ st.globalVersion ≥ 9 then st.consumeGas 1 else st
+
+/-- The step jumped from a continuation that is not ordinary to `st.cc`, in the same `jump_to`. -/
+def VmState.jumped (st : VmState) : StepResult :=
+  let st := st.countJump
+  if decide (st.gas.gasRemaining < 0) then st.outOfGasHalt else .continue st
 
 /-- C++ `adjust_jump_cont` (vm.cpp:259-260), run by every jump (`jump`, and `jump_to` for each
 continuation of a chain): a continuation expecting more arguments than the stack holds is not
@@ -107,7 +120,9 @@ and the child VMs of `RUNVM` step with this function; they differ only in `exec`
 def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
   match st.cc with
   | .quit n =>
-      .halt (~~~ n) st
+      -- C++ `QuitCont::jump`: the VM ends with exit code `~n`
+      let st := st.countJump
+      if decide (st.gas.gasRemaining < 0) then st.outOfGasHalt else .halt (~~~ n) st
   | .excQuit =>
       let action : VM Int := do
         -- Match `pop_smallint_range(0xffff)` behavior closely enough for MVP.
@@ -124,7 +139,8 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
         match res with
         | .ok n => n
         | .error e => e.toInt
-      .halt (~~~ n) st'
+      let st' := st'.countJump
+      if decide (st'.gas.gasRemaining < 0) then st'.outOfGasHalt else .halt (~~~ n) st'
   | .whileCond cond body after =>
       -- C++ `WhileCont::jump[_w]` at the end of the condition: on true run `body`, installing the
       -- loop as `c0` unless `body` has `c0`; on false jump to `after`
@@ -132,41 +148,41 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
       | (.error e, st') => st'.raiseException e.toInt
       | (.ok true, st') =>
           if body.hasC0 then
-            .continue { st' with cc := body }
+            VmState.jumped { st' with cc := body }
           else
-            .continue { st' with regs := { st'.regs with c0 := .whileBody cond body after }, cc := body }
-      | (.ok false, st') => .continue { st' with cc := after }
+            VmState.jumped { st' with regs := { st'.regs with c0 := .whileBody cond body after }, cc := body }
+      | (.ok false, st') => VmState.jumped { st' with cc := after }
   | .whileBody cond body after =>
       -- Match C++ `WhileCont::jump[_w]`: install while-cond continuation in c0 only if `cond` has no c0.
       if cond.hasC0 then
-        .continue { st with cc := cond }
+        VmState.jumped { st with cc := cond }
       else
-        .continue { st with regs := { st.regs with c0 := .whileCond cond body after }, cc := cond }
+        VmState.jumped { st with regs := { st.regs with c0 := .whileCond cond body after }, cc := cond }
   | .untilBody body after =>
       -- C++ `UntilCont::jump[_w]` at the end of the body: on true jump to `after`; on false run `body`
       -- again, installing the loop as `c0` unless `body` has `c0`
       match VM.popBool.run st with
       | (.error e, st') => st'.raiseException e.toInt
-      | (.ok true, st') => .continue { st' with cc := after }
+      | (.ok true, st') => VmState.jumped { st' with cc := after }
       | (.ok false, st') =>
           if body.hasC0 then
-            .continue { st' with cc := body }
+            VmState.jumped { st' with cc := body }
           else
-            .continue { st' with regs := { st'.regs with c0 := .untilBody body after }, cc := body }
+            VmState.jumped { st' with regs := { st'.regs with c0 := .untilBody body after }, cc := body }
   | .repeatBody body after count =>
       -- C++ `RepeatCont::jump[_w]`
       if count = 0 then
-        .continue { st with cc := after }
+        VmState.jumped { st with cc := after }
       else if body.hasC0 then
-        .continue { st with cc := body }
+        VmState.jumped { st with cc := body }
       else
-        .continue { st with regs := { st.regs with c0 := .repeatBody body after (count - 1) }, cc := body }
+        VmState.jumped { st with regs := { st.regs with c0 := .repeatBody body after (count - 1) }, cc := body }
   | .againBody body =>
       -- C++ `AgainCont::jump[_w]`
       if body.hasC0 then
-        .continue { st with cc := body }
+        VmState.jumped { st with cc := body }
       else
-        .continue { st with regs := { st.regs with c0 := .againBody body }, cc := body }
+        VmState.jumped { st with regs := { st.regs with c0 := .againBody body }, cc := body }
   | .envelope ext cregs cdata =>
       if cdata.needsMoreArgs st.stack.size then st.raiseException Excno.stkUnd.toInt else
       -- Mirrors C++ `ArgContExt::jump`: apply saved control regs, closure stack and nargs, then jump to `ext`.
@@ -175,7 +191,7 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
       if decide (st.gas.gasRemaining < 0) then
         st.outOfGasHalt
       else
-        .continue { st with cc := ext }
+        VmState.jumped { st with cc := ext }
   | .ordinary code saved cregs cdata =>
       if cdata.needsMoreArgs st.stack.size then st.raiseException Excno.stkUnd.toInt else
       -- Apply pending continuation control regs (MVP: c0,c1,c2,c3,c4,c5,c7), once.
@@ -186,9 +202,12 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
       if decide (st2.gas.gasRemaining < 0) then
         st2.outOfGasHalt
       else
+        -- entering an ordinary continuation is the last jump of its chain (C++ `OrdCont::jump`)
+        let st2 := st2.countJump
+        if decide (st2.gas.gasRemaining < 0) then st2.outOfGasHalt else
         -- Closure stack / nargs are applied once on entry.
         let cdata' : OrdCdata := { cdata with stack := #[], nargs := -1 }
-        let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata' }
+        let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata', chainJumps := 0 }
         if code.bitsRemaining == 0 then
           if code.refsRemaining == 0 then
             -- Implicit RET.

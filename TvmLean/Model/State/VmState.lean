@@ -26,6 +26,10 @@ structure VmState where
   freeGasConsumed : Int := 0
   /-- C++ `VmState::get_extra_balance_counter`. -/
   getExtraBalanceCounter : Nat := 0
+  /-- C++ `VmState::jump_to`'s `cnt`: the jumps made by the current chain of continuations. A chain
+  starts with a jump (an instruction, an implicit `RET` or `JMPREF`, an exception) and ends when an
+  ordinary continuation is entered or the VM halts; the model makes one step per continuation. -/
+  chainJumps : Nat := 0
   deriving Repr
 
 def VmState.initial (code : Cell) (gasLimit : Int := 1_000_000) (gasMax : Int := GasLimits.infty)

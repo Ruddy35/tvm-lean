@@ -17,6 +17,10 @@ def hashExtEntryGasPrice : Int := 1
 def runvmGasPrice : Int := 40
 def chksgnFreeCount : Nat := 10
 def chksgnGasPrice : Int := 4000
+
+/-- C++ `VmState::free_nested_cont_jump` (vm.h:126): the jumps of one `jump_to` chain that cost no
+gas; from version 9 every later one costs 1 (vm.h:391). -/
+def freeNestedContJump : Nat := 8
 /-- C++ `VmState::get_extra_balance_cheap_count`: GETEXTRABALANCE calls with capped cell-load gas. -/
 def getExtraBalanceCheapCount : Nat := 5
 /-- C++ `VmState::get_extra_balance_cheap_max_gas_price`: the cap of one cheap call. -/
