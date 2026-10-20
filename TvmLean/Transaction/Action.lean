@@ -556,18 +556,33 @@ def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := 
 
 /-! ## The bounce phase -/
 
-/-- `Transaction::prepare_bounce_phase` (the old bounce format: the first `bounce_msg_body` bits of
-the body; the new format of `extra_flags` is not modelled). `none` where it returns false (an
+/-- `Transaction::prepare_bounce_phase`: the body of the bounced message in the new format (from
+version 12, `extra_flags` bit 0: the original body, with its references if bit 1, the original value
+and times, the phase and exit code, gas and steps) or the old one (the first `bounce_msg_body` bits
+of the body under `capBounceMsgBody`). `none` where it returns false (an
 invalid destination: the transaction fails). -/
 def Tx.bouncePhaseRun (t : Tx) : Except String (Option Tx) := do
-  if t.gv ≥ 12 && t.inMsgInfo.extraFlags &&& 1 != 0 then throw "new bounce format"
+  let info := t.inMsgInfo
   -- the original body (in a reference or inline)
   let bodyBits : BitString := t.inMsgBody.readBits t.inMsgBody.bitsRemaining
   let bounceBody := if t.cfg.hasCapability 4 then 256 else 0
+  let newFormat := t.gv ≥ 12 && info.extraFlags &&& 1 != 0
   let body : W :=
-    if bounceBody > 0 then (({} : W).int (-1) 32).bitStr (bodyBits.extract 0 (Nat.min bodyBits.size bounceBody))
+    if newFormat then
+      -- new_bounce_body#fffffffe original_body:^Cell original_info:^NewBounceOriginalInfo
+      -- bounced_by_phase:uint8 exit_code:int32 compute_phase:(Maybe NewBounceComputePhaseInfo)
+      let orig : Cell := if info.extraFlags &&& 2 != 0 then t.inMsgBody.toCellRemaining else Cell.mkOrdinary bodyBits
+      let origInfo : Cell := ((({} : W).currencies info.value).uint info.createdLt 64).uint info.createdAt 32 |>.cell
+      let w : W := ((({} : W).uint 0xfffffffe 32).ref orig).ref origInfo
+      let cp := t.computePhase
+      let (phase, code) : Nat × Int :=
+        if cp.skipReason != 0 then (0, -(Int.ofNat cp.skipReason))
+        else if !cp.success then (1, cp.exitCode)
+        else (2, (t.actionPhase.map (·.resultCode)).getD 0)
+      let w := (w.uint phase 8).int code 32
+      if cp.skipReason != 0 then w.bool false else ((w.bool true).uint cp.gasUsed 32).uint cp.vmSteps 32
+    else if bounceBody > 0 then (({} : W).int (-1) 32).bitStr (bodyBits.extract 0 (Nat.min bodyBits.size bounceBody))
     else {}
-  let info := t.inMsgInfo
   let some (dest, toMc) := t.checkRewriteDestAddr info.src true | return none
   let some prices := t.cfg.msgPrices (toMc || t.account.isMasterchain) | throw "msg prices"
   let (cells, bits, _) := refsStorage [Slice.ofCell body.cell] 1000000000
@@ -588,7 +603,8 @@ def Tx.bouncePhaseRun (t : Tx) : Except String (Option Tx) := do
   let w := (w.currencies { grams := value }).grams (if t.gv ≥ 12 then t.inMsgInfo.extraFlags &&& 3 else 0) |>.grams fwdRemain
   let w := ((w.uint lt 64).uint t.now 32).bool false
   let w := if w.bits.size + 1 + body.bits.size ≤ 1023 && w.refs.size + body.refs.size ≤ 4 then
-      (w.bool false).bitStr body.bits
+      -- `append_builder`: the bits and the references of the body
+      { (w.bool false).bitStr body.bits with refs := w.refs ++ body.refs }
     else (w.bool true).ref body.cell
   let msg := w.cell
   return some { t with outMsgs := t.outMsgs.push msg,

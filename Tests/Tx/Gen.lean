@@ -145,15 +145,16 @@ def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt
 
 /-- An internal message to `(wc, dest)`, with an optional `StateInit` in a reference and a body of
 `body` bits inline. -/
-def intMsg (wc : Int) (dest : BitString) (value : Nat) (bounce : Bool) (init : Option Cell) (body : BitString) : Cell :=
+def intMsg (wc : Int) (dest : BitString) (value : Nat) (bounce : Bool) (init : Option Cell) (body : BitString)
+    (extraFlags : Nat := 0) (bodyRefs : Array Cell := #[]) : Cell :=
   let src := natToBits 0x2222222222222222222222222222222222222222222222222222222222222222 256
   let w : W := (((({} : W).bool false).bool true).bool bounce).bool false
   let w := (w.bitStr (addrStd 0 src).bits).bitStr (addrStd wc dest).bits
-  let w := (((w.grams value).bool false).grams 0).grams 0 |>.uint 2000 64 |>.uint 1700000100 32
+  let w := (((w.grams value).bool false).grams extraFlags).grams 0 |>.uint 2000 64 |>.uint 1700000100 32
   let w := match init with
     | some c => ((w.bool true).bool true).ref c
     | none => w.bool false
-  ((w.bool false).bitStr body).cell
+  { ((w.bool false).bitStr body) with refs := (w.bool false).refs ++ bodyRefs }.cell
 
 /-- An external inbound message (`addr_none` source, no import fee). -/
 def extMsg (wc : Int) (dest : BitString) (init : Option Cell) (body : BitString) : Cell :=
@@ -194,6 +195,15 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
       let acc := mkAccount 0 a (.active (asm prog) data) 1000000000 1700000000 0 1000
       out := out.push (mk s!"bounce-{pname}" acc (intMsg 0 a 100000000 true none (natToBits 0xabcdef 300)))
       out := out.push (mk s!"bounce-{pname}/small" acc (intMsg 0 a 3000000 true none (natToBits 1 8)))
+    -- the new bounce format (extra_flags 1: the body's bits, 3: the body with its references; from
+    -- version 12; before, extra_flags is the IHR fee)
+    for (pname, prog) in (programs.take 5) ++ (actionPrograms.filter (·.1.startsWith "send-too-much")) do
+      let acc := mkAccount 0 a (.active (asm prog) data) 1000000000 1700000000 0 1000
+      for ef in [1, 3, 2] do
+        out := out.push (mk s!"bounce-new{ef}-{pname}" acc
+          (intMsg 0 a 100000000 true none (natToBits 0xabcdef 100) ef #[(({} : W).uint 0x77 8).cell]))
+    out := out.push (mk "bounce-new1/no-state" (mkAccount 0 a .uninit 50000000 1700000000 0 1000)
+      (intMsg 0 a 100000000 true none (natToBits 5 8) 1))
     out := out.push (mk "bounce/no-state" (mkAccount 0 a .uninit 50000000 1700000000 0 1000) (intMsg 0 a 100000000 true none #[]))
     out := out.push (mk "bounce/none" (mkAccount 0 a .none 0 0 0 0) (intMsg 0 a 100000000 true none #[]))
     -- deploying: uninit and absent accounts at the address of the StateInit
