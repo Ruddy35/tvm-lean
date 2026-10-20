@@ -43,6 +43,10 @@ lean_lib TvmLeanSemantics where
 lean_lib TvmLean where
   roots := #[`TvmLean]
 
+-- Whole transactions (crypto/block/transaction.cpp)
+lean_lib TvmLeanTransaction where
+  roots := #[`TvmLean.Transaction]
+
 -- Machine-checked facts about the model itself: refactored definitions agree with the original
 -- ones, decidable equality, the compute-phase wrapper.
 lean_lib TvmLeanProofs where
@@ -83,7 +87,9 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Gen.CellDepth,
     `Tests.Harness.Gen.Loops,
     `Tests.Harness.Gen.OwnOpcode,
-    `Tests.Harness.Gen.Versions
+    `Tests.Harness.Gen.Versions,
+    `Tests.Tx.Oracle,
+    `Tests.Tx.Gen
   ]
 
 target tvmlean_crypto_ext.o pkg : FilePath := do
@@ -128,6 +134,9 @@ lean_exe "tvm-lean" where
 
 lean_exe "tvm-lean-tests" where
   root := `Apps.Tests
+
+lean_exe "tvm-lean-tx-test" where
+  root := `Apps.TxTest
 
 lean_exe "tvm-lean-tests-subset" where
   root := `Apps.TestsSubset
