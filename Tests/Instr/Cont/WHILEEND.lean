@@ -13,7 +13,7 @@ namespace Tests.Instr.Cont.WHILEEND
 WHILEEND / WHILEENDBRK branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.whileEnd brk`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.whileCond` / `.whileBody` runtime behavior)
+  - `TvmLean/Semantics/Step/Core.lean` (`.whileCond` / `.whileBody` runtime behavior)
   - `TvmLean/Semantics/Exec/Flow/Runvm.lean` (child VM runtime parity)
 - C++ analyzed files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_while_end`)

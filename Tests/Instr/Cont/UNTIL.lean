@@ -15,7 +15,7 @@ UNTIL branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/Until.lean`
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.until` / `.untilEnd`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.untilBody`)
+  - `TvmLean/Semantics/Step/Core.lean` (`.untilBody`)
 - C++ analyzed files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_until`, `exec_until_end`)
   - `/Users/daniil/Coding/ton/crypto/vm/continuation.cpp` (`VmState::until`, `UntilCont::jump[_w]`)

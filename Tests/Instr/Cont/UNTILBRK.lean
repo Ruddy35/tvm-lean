@@ -13,7 +13,7 @@ namespace Tests.Instr.Cont.UNTILBRK
 UNTILBRK branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.until true`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.untilBody` runtime branches)
+  - `TvmLean/Semantics/Step/Core.lean` (`.untilBody` runtime branches)
   - `TvmLean/Semantics/Exec/Flow/Runvm.lean` (`.untilBody` child-vm mirror)
 - C++ analyzed files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_until`)

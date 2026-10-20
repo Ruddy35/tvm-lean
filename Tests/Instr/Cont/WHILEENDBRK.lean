@@ -13,7 +13,7 @@ namespace Tests.Instr.Cont.WHILEENDBRK
 WHILEENDBRK branch map (Lean + C++ reference):
 - Lean:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.whileEnd true`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.whileCond` / `.whileBody`)
+  - `TvmLean/Semantics/Step/Core.lean` (`.whileCond` / `.whileBody`)
   - `TvmLean/Semantics/Exec/Flow/Runvm.lean` (child runtime parity)
 - C++:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_while_end(..., brk=true)`)

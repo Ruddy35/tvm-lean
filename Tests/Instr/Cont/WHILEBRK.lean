@@ -13,7 +13,7 @@ namespace Tests.Instr.Cont.WHILEBRK
 WHILEBRK branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.contExt (.while true)`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.whileCond` / `.whileBody`)
+  - `TvmLean/Semantics/Step/Core.lean` (`.whileCond` / `.whileBody`)
   - `TvmLean/Semantics/Exec/Flow/Runvm.lean` (child VM parity for while continuations)
 - C++ analyzed files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_while(..., brk=true)`)

@@ -14,7 +14,7 @@ WHILE branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/While.lean`
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.while/.whileEnd` + BRK variants)
-  - `TvmLean/Semantics/Step/Step.lean` / `.../Exec/Flow/Runvm.lean` (`.whileCond/.whileBody`)
+  - `TvmLean/Semantics/Step/Core.lean` / `.../Exec/Flow/Runvm.lean` (`.whileCond/.whileBody`)
 - C++ analyzed files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_while`, `exec_while_end`)
   - `/Users/daniil/Coding/ton/crypto/vm/continuation.cpp` (`VmState::loop_while`, `WhileCont::jump[_w]`)

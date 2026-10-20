@@ -43,7 +43,7 @@ BRANCH ANALYSIS (derived from reading Lean + C++ source):
    - `PUSH` instructions assembled with short and long forms must decode back to `.push <idx>`.
    - Adjacent opcode boundaries must preserve intended instruction identity (`PUSH` family must not alias to `OVER`, `BLKSWAP`, etc.).
 
-8. [B8] Gas edge-paths in `TvmLean/Model/Gas/Constants.lean` + `TvmLean/Semantics/Step/Step.lean`:
+8. [B8] Gas edge-paths in `TvmLean/Model/Gas/Constants.lean` + `TvmLean/Semantics/Step/Core.lean`:
    - No branch-specific variable gas formula exists for PUSH itself: `instrGas = gasPerInstr + totBits`.
    - short form uses `totBits=8`, long form uses `totBits=16`.
    - Both exact-gas-success and exact-gas-minus-one-failure branches must be covered.

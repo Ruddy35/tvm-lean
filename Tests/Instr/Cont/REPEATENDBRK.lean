@@ -13,8 +13,7 @@ namespace Tests.Instr.Cont.REPEATENDBRK
 REPEATENDBRK branch map and runtime continuation behavior (Lean vs C++):
 - Lean audited files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.repeatEnd true`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.repeatBody` runtime branches)
-  - `TvmLean/Semantics/Exec/Flow/Runvm.lean` (`childStep` `.repeatBody` path)
+  - `TvmLean/Semantics/Step/Core.lean` (`.repeatBody` runtime branches)
 - C++ audited files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_repeat_end` with `brk=true`)
   - `/Users/daniil/Coding/ton/crypto/vm/continuation.cpp` (`VmState::repeat`, `RepeatCont::jump/_w`)

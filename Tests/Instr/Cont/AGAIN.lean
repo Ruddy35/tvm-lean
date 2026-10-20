@@ -14,7 +14,7 @@ namespace Tests.Instr.Cont.AGAIN
 AGAIN / AGAINBRK branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.again brk`)
-  - `TvmLean/Semantics/Step/Step.lean` and `.../Runvm.lean` (`.againBody`)
+  - `TvmLean/Semantics/Step/Core.lean` and `.../Runvm.lean` (`.againBody`)
   - `TvmLean/Semantics/Exec/Common.lean` (`extractCc`)
 - C++ analyzed files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_again`)

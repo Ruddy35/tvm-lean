@@ -14,7 +14,7 @@ AGAINEND / AGAINENDBRK branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.againEnd brk`)
   - `TvmLean/Semantics/Exec/Common.lean` (`extractCc`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.againBody` runtime behavior)
+  - `TvmLean/Semantics/Step/Core.lean` (`.againBody` runtime behavior)
 - C++ analyzed files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_again_end`)
   - `/Users/daniil/Coding/ton/crypto/vm/vm.cpp` (`c1_save_set`, `extract_cc`)

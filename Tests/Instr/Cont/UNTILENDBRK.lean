@@ -13,8 +13,7 @@ namespace Tests.Instr.Cont.UNTILENDBRK
 UNTILENDBRK branch map (Lean + C++ reference):
 - Lean audited files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.untilEnd true`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.untilBody` runtime branches)
-  - `TvmLean/Semantics/Exec/Flow/Runvm.lean` (`childStep` `.untilBody` mirror)
+  - `TvmLean/Semantics/Step/Core.lean` (`.untilBody` runtime branches)
 - C++ audited files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_until_end` with `brk=true`)
   - `/Users/daniil/Coding/ton/crypto/vm/continuation.cpp` (`VmState::until`, `UntilCont::jump/_w`)

@@ -13,7 +13,7 @@ namespace Tests.Instr.Cont.AGAINBRK
 AGAINBRK branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.again true` setup path)
-  - `TvmLean/Semantics/Step/Step.lean` (`.againBody` runtime continuation)
+  - `TvmLean/Semantics/Step/Core.lean` (`.againBody` runtime continuation)
   - `TvmLean/Semantics/Exec/Flow/Runvm.lean` (`.againBody` child-vm path)
   - `TvmLean/Semantics/Exec/Common.lean` (`extractCc`)
 - C++ analyzed files:

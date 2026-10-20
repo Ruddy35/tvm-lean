@@ -15,7 +15,7 @@ REPEAT branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean`
     (`execInstrFlowLoopExt`, `popSmallintRepeatCount`)
-  - `TvmLean/Semantics/Step/Step.lean`
+  - `TvmLean/Semantics/Step/Core.lean`
     (`.repeatBody` runtime branches)
   - `TvmLean/Model/Instr/Codepage/Cp0.lean` / `TvmLean/Model/Instr/Asm/Cp0.lean`
     (`REPEAT` opcode `0xe4` decode/encode)

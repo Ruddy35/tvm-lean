@@ -13,7 +13,7 @@ namespace Tests.Instr.Cont.UNTILEND
 UNTILEND / UNTILENDBRK branch-mapping notes (Lean + C++ reference):
 - Lean analyzed files:
   - `TvmLean/Semantics/Exec/Flow/LoopExt.lean` (`.untilEnd brk`)
-  - `TvmLean/Semantics/Step/Step.lean` (`.untilBody` runtime behavior)
+  - `TvmLean/Semantics/Step/Core.lean` (`.untilBody` runtime behavior)
   - `TvmLean/Semantics/Exec/Flow/Runvm.lean` (`.untilBody` child-vm mirror)
 - C++ analyzed files:
   - `/Users/daniil/Coding/ton/crypto/vm/contops.cpp` (`exec_until_end`)
@@ -39,7 +39,7 @@ Branch map:
 Mismatch found and fixed:
 - Lean `.untilBody` true-termination path did not enforce the C++
   `adjust_jump_cont` underflow check for `after.cdata.nargs > stack.depth`.
-- Fixed in `Step.step` + `Runvm.childStep` mirror by throwing `.stkUnd`
+- Fixed in `VmState.stepWith` (`Step/Core.lean`) by throwing `.stkUnd`
   before switching to `after` when this predicate holds.
 -/
 
