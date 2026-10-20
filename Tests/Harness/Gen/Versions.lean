@@ -28,6 +28,18 @@ threshold it takes one branch, on the other side the other.
   (vm.cpp:483-497). An exception into a handler with a closure stack of 45 entries charges stack
   gas on the jump; with the gas running out there, the handler's first instruction runs before
   version 4 (`exc-closure-handler/limit*`, around the charges of the exception and of the stack).
+- `GLOBALID` reads the global id from the unpacked configuration from version 6; before, from entry
+  19 of a configuration dictionary in parameter 19 of `c7` (tonops.cpp:277-304).
+- `SENDMSG` (tonops.cpp:2121-2357) takes the prices from the configuration dictionary of parameter 9
+  (entries 24 and 25) and allows 2^13 cells before version 6; counts the message's extra-currency
+  dictionary, and the extra currencies of the balance (mode 128) or incoming value (mode 64), before
+  version 10; computes the IHR fee unless the message disables it before version 11; reads
+  `extra_flags` as the user's `ihr_fee` before version 12; counts the user's fees if larger before
+  version 14. The cases vary each of these in messages and `c7`.
+- `RUNVM` clamps the child's gas limits by what the parent has left after paying its free gas
+  (isolated gas, mode 128) from version 10, before by what it had before (vm.cpp:752-757); a child
+  that did not commit returns null as its data or actions from version 11, before a cell entry
+  without a cell, which `ISNULL` does not take for null (vm.cpp:811-826).
 -/
 
 namespace Tests.Gen.Versions
@@ -57,6 +69,8 @@ private def twoCounts : List (String × Array Int) :=
   [("255-1", #[255, 1]), ("256-1", #[256, 1]), ("1-256", #[1, 256]), ("200-100", #[200, 100])]
 
 private def nan : Instr := .pushInt .nan
+
+private def pi' (n : Int) : Value := .int (.num n)
 
 /-- `op` run after `args` (pushed in order, NaN as `PUSHNAN`); `nm` names the case. -/
 private def opCases (suite : String) (op : Instr) (cs : List (String × Array (Option Int))) : Array OracleCase :=
@@ -129,6 +143,113 @@ private def excClosureCase (lim : Int) : OracleCase :=
       #[handler, .setContArgs 15 (-1), .setContArgs 15 (-1), .setContArgs 15 (-1), .popCtr 2, .throw 5]
   { mk "THROW" s!"exc-closure-handler/limit{lim}" prog with gasLimits := { gasLimit := lim, gasMax := lim } }
 
+/-- Grams (VarUInteger 16): 4-bit byte length, then the value. -/
+private def gramsBits (g : Nat) : BitString :=
+  let len := if g = 0 then 0 else (Nat.log2 g + 8) / 8
+  natToBits len 4 ++ natToBits g (8 * len)
+
+private def stdAddr (wc h : Nat) : BitString := natToBits 0b10 2 ++ #[false] ++ natToBits wc 8 ++ natToBits h 256
+
+/-- A dictionary with 32-bit keys of references to the given cells (`dictSetRefWithCells`). -/
+private def dict32 (entries : List (Nat × Cell)) : Option Cell :=
+  entries.foldl (fun root (k, v) =>
+    match dictSetRefWithCells root (natToBits k 32) v .set with
+    | .ok (r, _, _, _) => r
+    | .error _ => root) none
+
+/-- An extra-currency dictionary: currency 7, amount 100 (VarUInteger 32). -/
+private def extraCurrencies : Cell :=
+  match dictSetSliceWithCells none (natToBits 7 32) (Slice.ofCell (Cell.mkOrdinary (natToBits 1 5 ++ natToBits 100 8) #[])) .set with
+  | .ok (some r, _, _, _) => r
+  | _ => Cell.empty
+
+/-- int_msg_info$0 ihr_disabled bounce=1 bounced=0 src:addr_none dest:addr_std(0) value
+extra-currencies `ihr_fee`/`extra_flags` fwd_fee created_lt created_at, no init, an inline body. -/
+private def sendMsgCell (ihrDisabled : Bool) (value ihr fwd : Nat) (extra : Bool) : Cell :=
+  let hdr := #[false, ihrDisabled, true, false] ++ natToBits 0 2 ++ stdAddr 0 0x1234 ++ gramsBits value ++ #[extra] ++
+    gramsBits ihr ++ gramsBits fwd ++ natToBits 0 64 ++ natToBits 0 32
+  Cell.mkOrdinary (hdr ++ #[false, false] ++ natToBits 0x5a 8) (if extra then #[extraCurrencies] else #[])
+
+/-- msg_forward_prices#ea: IHR factor 1.5, first_frac 1/3. -/
+private def fwdPricesBits (lump bit cell : Nat) : BitString :=
+  natToBits 0xea 8 ++ natToBits lump 64 ++ natToBits bit 64 ++ natToBits cell 64 ++ natToBits 98304 32 ++
+    natToBits 21845 16 ++ natToBits 21845 16
+
+private def mcPrices : BitString := fwdPricesBits 10000000 655360000 65536000000
+private def bcPrices : BitString := fwdPricesBits 400000 26214400 2621440000
+
+/-- The configuration dictionary: prices under 24 and 25 (or `entries`), the global id under 19. -/
+private def configDict (entries : List (Nat × Cell) :=
+    [(19, Cell.mkOrdinary (natToBits (2 ^ 32 - 239) 32) #[]), (24, Cell.mkOrdinary mcPrices #[]),
+     (25, Cell.mkOrdinary bcPrices #[])]) : Value :=
+  match dict32 entries with
+  | some c => .cell c
+  | none => .null
+
+/-- `c7` of `SENDMSG` and `GLOBALID`: `params` slots 7, 8, 9, 11, 14 as given, 19 the configuration
+dictionary for `GLOBALID` before version 6. -/
+private def oldC7 (cfg9 : Value := configDict) (cfg19 : Value := configDict) (balance : Value := .tuple #[pi' 5000000000, .null])
+    (incoming : Value := .tuple #[pi' 777, .null]) (myWc : Nat := 0) : Array Value :=
+  let unpacked : Value := .tuple #[.null, .slice (Slice.ofCell (Cell.mkOrdinary (natToBits 5 32) #[])), .null, .null,
+    .slice (Slice.ofCell (Cell.mkOrdinary mcPrices #[])), .slice (Slice.ofCell (Cell.mkOrdinary bcPrices #[])), .null]
+  #[.tuple ((Array.range 20).map fun i =>
+    match i with
+    | 0 => pi' 0x076ef1ea
+    | 7 => balance
+    | 8 => .slice (Slice.ofCell (Cell.mkOrdinary (stdAddr myWc 0x99) #[]))
+    | 9 => cfg9
+    | 11 => incoming
+    | 14 => unpacked
+    | 19 => cfg19
+    | _ => .null)]
+
+private def sendCase (name : String) (msg : Cell) (mode : Int) (c7 : Array Value := oldC7) : OracleCase :=
+  { mk "SENDMSG" s!"old-rules/{name}" #[.tonEnvOp .sendMsg] #[.cell msg, pi' mode] with initC7 := c7 }
+
+private def sendMsgCases : Array OracleCase :=
+  #[sendCase "ihr-enabled" (sendMsgCell false 100 0 0 false) 1024,
+    sendCase "ihr-enabled-send" (sendMsgCell false 100 0 0 false) 0,
+    sendCase "ihr-enabled-user-ihr" (sendMsgCell false 100 1000000000 0 false) 1024,
+    sendCase "ihr-disabled-user-ihr" (sendMsgCell true 100 1000000000 0 false) 1024,
+    sendCase "user-fwd" (sendMsgCell true 100 0 1000000000 false) 1024,
+    sendCase "msg-extra" (sendMsgCell true 100 0 0 true) 1024,
+    sendCase "mode128-balance-extra" (sendMsgCell true 100 0 0 false) (128 + 1024)
+      (oldC7 (balance := .tuple #[pi' 5000000000, .cell extraCurrencies])),
+    sendCase "mode64-incoming-extra" (sendMsgCell true 100 0 0 false) (64 + 1024)
+      (oldC7 (incoming := .tuple #[pi' 777, .cell extraCurrencies])),
+    sendCase "mode64-incoming-short" (sendMsgCell true 100 0 0 false) (64 + 1024) (oldC7 (incoming := .tuple #[pi' 777])),
+    sendCase "masterchain" (sendMsgCell true 100 0 0 false) 1024 (oldC7 (myWc := 255)),
+    sendCase "cfg9-null" (sendMsgCell true 100 0 0 false) 1024 (oldC7 (cfg9 := .null)),
+    sendCase "cfg9-no-25" (sendMsgCell true 100 0 0 false) 1024
+      (oldC7 (cfg9 := configDict [(24, Cell.mkOrdinary mcPrices #[])])),
+    sendCase "cfg9-25-short" (sendMsgCell true 100 0 0 false) 1024
+      (oldC7 (cfg9 := configDict [(25, Cell.mkOrdinary (natToBits 0xea 8) #[])]))]
+
+private def globalIdCases : Array OracleCase :=
+  let mkG (name : String) (c7 : Array Value) : OracleCase :=
+    { mk "GLOBALID" s!"old-rules/{name}" #[.tonEnvOp .globalId] with initC7 := c7 }
+  #[mkG "cfg19" oldC7,
+    mkG "cfg19-short" (oldC7 (cfg19 := configDict [(19, Cell.mkOrdinary (natToBits 5 16) #[])])),
+    mkG "cfg19-missing" (oldC7 (cfg19 := configDict [(24, Cell.mkOrdinary mcPrices #[])])),
+    mkG "cfg19-not-cell" (oldC7 (cfg19 := pi' 19))]
+
+/-- `RUNVM` cases of the version rules: a child that throws with `c4` (mode 4) or `c4` and `c5`
+(mode 36) returned, and isolated gas after a free `CHKSIGNU` (4000 gas of free gas) with a child
+that loops until it runs out of its gas (10000 gas for the parent). -/
+private def runvmCases : Array OracleCase :=
+  let code (body : Array Instr) : Cell := Tests.Gen.Control.codeOf body
+  let child (body : Array Instr) (mode : Nat) (gas? : Option Int := none) : Array Instr :=
+    #[pi 0, .pushRef (code body), .ctos] ++ (if mode &&& 4 = 4 then #[.newc, .endc] else #[]) ++
+      (match gas? with | some g => #[pi g] | none => #[]) ++ #[.contExt (.runvm mode)]
+  let loop : Array Instr := #[.pushCont (Slice.ofCell (code #[])), .contExt (.again false)]
+  let sig : Value := .slice (Slice.ofCell (Cell.mkOrdinary (Array.replicate 512 false) #[]))
+  #[mk "RUNVM" "uncommitted/data" (child #[.throw 5] 4),
+    mk "RUNVM" "uncommitted/data-isnull" (child #[.throw 5] 4 ++ #[.isNull]),
+    mk "RUNVM" "uncommitted/data-actions-isnull" (child #[.throw 5] 36 ++ #[.isNull, .xchg0 1, .isNull]),
+    { mk "RUNVM" "isolated-gas-limit/after-free-gas"
+        (#[.cryptoOp .chkSignU, .pop 0] ++ child loop 136 (some 1000000000)) #[pi' 0, sig, pi' 12345] with
+      gasLimits := { gasLimit := 10000, gasMax := 10000 } }]
+
 /-- The cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   match suite with
@@ -163,6 +284,9 @@ def casesFor (suite : String) : Array OracleCase :=
   | "QLSHIFTDIVMOD" => shlDivCases suite (.arithExt (.shlDivMod 3 (-1) false true none)) false
   | "QLSHIFTADDDIVMOD" => shlDivCases suite (.arithExt (.shlDivMod 3 (-1) true true none)) true
   | "THROW" => #[1020, 1021, 1028, 1035, 1036, 1053, 1054].map excClosureCase
+  | "SENDMSG" => sendMsgCases
+  | "GLOBALID" => globalIdCases
+  | "RUNVM" => runvmCases
   | "LDMSGADDR" => addrCases suite (.tonEnvOp (.ldMsgAddr false))
   | "LDMSGADDRQ" => addrCases suite (.tonEnvOp (.ldMsgAddr true))
   | "PARSEMSGADDR" => addrCases suite (.tonEnvOp (.parseMsgAddr false))

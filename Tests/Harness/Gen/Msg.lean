@@ -246,8 +246,27 @@ private def movingMsgs : Array (String × Cell) :=
       (s!"initref-body{n}", intMsgWith 0 100 false 0 (some (true, stateInit.1, stateInit.2)) false
         (natToBits 0x5a5 (n - 2)) #[leaf 6])]
 
+/-- Prices under which the forward fee grows by a byte when the StateInit moves into a reference:
+only cells cost, 255 each (`cell_price` 255·2^16), `first_frac` 0. With a StateInit of 12 bits and no
+references, the StateInit moves for a body of 354 bits and more, and the body then moves too for 358
+bits and more: `msg_root_bits` reads the fee after the StateInit's move (tonops.cpp:2296-2347; 8 bits
+fewer with the fee before it). -/
+private def feeGrowsC7 : Array Value :=
+  let prices : Value := sl (natToBits 0xea 8 ++ natToBits 0 64 ++ natToBits 0 64 ++ natToBits (255 * 65536) 64 ++
+    natToBits 98304 32 ++ natToBits 0 16 ++ natToBits 0 16)
+  sendC7 (config := unpackedConfig prices prices .null)
+
+private def feeGrowsMsgs : Array (String × Cell) :=
+  let init12 : BitString := #[true] ++ natToBits 0 5 ++ #[true] ++ natToBits 0 2 ++ #[false, false, false]
+  (#[353, 354, 357, 358, 365, 366] : Array Nat).map fun b =>
+    (s!"init12-body{b}", intMsgWith 0 100 false 0 (some (false, init12, #[])) false (natToBits 0x5a5 b) #[])
+
 private def sendMsgCoverageCases (suite : String) : Array OracleCase := Id.run do
   let mut out : Array OracleCase := #[]
+  for (ml, m) in feeGrowsMsgs do
+    out := out.push
+      { name := s!"oracle/cov/moves-fee-grows/{ml}", instr := { name := suite }, program := #[env .sendMsg],
+        initStack := #[.cell m, iv 1024], initC7 := feeGrowsC7 }
   for (ml, m) in movingMsgs do
     for (cl, c7) in #[("base", sendC7), ("mc-myaddr", sendC7 (myAddr := myAddrMc))] do
       out := out.push
