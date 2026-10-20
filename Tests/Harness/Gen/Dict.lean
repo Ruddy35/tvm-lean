@@ -1,6 +1,7 @@
 import Tests.Harness.Registry
 import Tests.Harness.Gen.CellDepth
 import Tests.Harness.Gen.Control
+import Tests.Harness.Gen.VmCore
 
 /-!
 Oracle cases for dictionary paths the full coverage run of 2026-10-19 did not reach
@@ -166,6 +167,61 @@ def overflowCasesFor (suite : String) : Array OracleCase :=
       let pdel : Instr := .dictExt .pfxDel
       sizes 1016 (fun n => onPfxDict suite s!"merge-root-{n}" #[(zeros 8, "1"), (zeros n, "00")] (withKey (pushKey "1") pdel)) ++
       sizes 1016 (fun n => onPfxDict suite s!"merge-depth1-{n}" #[(zeros 8, "1"), (zeros 8, "01"), (zeros n, "000")] (withKey (pushKey "01") pdel))
+  | _ => #[]
+
+/-- A node with `n` key bits left: the label `lbl` as C++ writes it (`append_dict_label`), then
+`rest` and `refs`. -/
+private def node (lbl : BitString) (n : Nat) (rest : BitString) (refs : Array Cell := #[]) : Cell :=
+  Cell.mkOrdinary (dictLabelEncode lbl lbl.size n ++ rest) refs
+
+/-- Root labels (n = 4) stored in an encoding C++ does not write (`LabelParser::parse_label` reads
+any): (name, label, encoding). `""` as `10` and the length in 3 bits, or `11`, a bit and the length
+(C++ writes `00`); `"1"` as `11` or `10` (C++: `0101`); `"11"` as `11` (C++: `011011`, as long). -/
+private def otherLabels : Array (String × String × String) :=
+  #[("empty-10", "", "10000"), ("empty-11", "", "110000"), ("one-11", "1", "111001"),
+    ("one-10", "1", "100011"), ("two-11", "11", "111010")]
+
+/-- The dictionary (`pfx`: prefix-code, a node bit after each label) with 4-bit keys whose root,
+labelled `r` encoded as `enc`, forks into a fork with two leaves and a leaf; its keys, in order. The
+values are the code `PUSHINT 1`, `2`, `3` (0x71-0x73). -/
+private def otherLabelDict (pfx : Bool) (r enc : String) : Cell × Array BitString :=
+  let m := 3 - r.length
+  let zs (k : Nat) : BitString := Array.replicate k false
+  let leaf (v : Nat) : BitString := (if pfx then #[false] else #[]) ++ natToBits v 8
+  let fork : BitString := if pfx then #[true] else #[]
+  let left := node #[] m fork #[node (zs (m - 1)) (m - 1) (leaf 0x71), node (zs (m - 1)) (m - 1) (leaf 0x72)]
+  let root := Cell.mkOrdinary (bitsOf enc ++ fork) #[left, node (zs m) m (leaf 0x73)]
+  (root, #[bitsOf r ++ #[false, false] ++ zs (m - 1), bitsOf r ++ #[false, true] ++ zs (m - 1), bitsOf r ++ #[true] ++ zs m])
+
+/-- Deletions from a dictionary whose root label is encoded as C++ does not write it, or whose root
+is a library cell (a dictionary but not a prefix-code one: the model followed no library in those):
+deleting a key below the fork that keeps both children of the root writes the root's label anew
+(`dict.cpp:1165`, `975` for a prefix-code dictionary; the model copied the old root's bits),
+deleting the root's leaf merges the root's edge with its other child. -/
+def labelCasesFor (suite : String) : Array OracleCase :=
+  -- (name, root, library collections, keys)
+  let dicts (pfx : Bool) : Array (String × Cell × Array Cell × Array BitString) :=
+    otherLabels.map (fun (name, r, enc) => let (root, keys) := otherLabelDict pfx r enc; (name, root, #[], keys)) ++
+      (if pfx then #[] else
+        let (root, keys) := otherLabelDict pfx "" "00"
+        #[("library", Tests.Gen.VmCore.libCell root, #[Tests.Gen.VmCore.libCollection #[root]], keys)])
+  let cases (pfx : Bool) (op : Instr) (keyOf : BitString → Value) : Array OracleCase :=
+    (dicts pfx).flatMap fun (name, root, libs, keys) =>
+      keys.mapIdx fun j k =>
+        { name := s!"oracle/label/{name}/key{j}", instr := { name := suite }, program := #[op],
+          initStack := #[keyOf k, .cell root, iv 4], initLibraries := libs }
+  let byInt (k : BitString) : Value := iv (bitsToNat k)
+  match suite with
+  | "DICTDEL" => cases false (.dictExt (.del false false)) sl
+  | "DICTUDEL" => cases false (.dictExt (.del true true)) byInt
+  | "DICTDELGET" => cases false (.dictExt (.mutGet false false false .del)) sl
+  | "DICTUDELGET" => cases false (.dictExt (.mutGet true true false .del)) byInt
+  | "PFXDICTDEL" => cases true (.dictExt .pfxDel) sl
+  -- the minimum, the first key
+  | "DICTREMMIN" =>
+      (dicts false).map fun (name, root, libs, _) =>
+        { name := s!"oracle/label/{name}", instr := { name := suite }, program := #[.dictGetMinMax 18],
+          initStack := #[.cell root, iv 4], initLibraries := libs }
   | _ => #[]
 
 /-- Oracle cases of the suite named `suite`. -/

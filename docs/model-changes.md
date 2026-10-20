@@ -112,6 +112,12 @@ fuzz на нескольких версиях; новые случаи орак�
 | `Crypto/Ristretto255.lean` | `RIST255_*` (1900 случаев против libsodium) | libsodium `d24faf5`: `ristretto255_frombytes`, `_p3_tobytes`, `_from_hash`, `crypto_scalarmult_ristretto255{_base}` |
 | `Crypto/Bls12381*.lean` | `BLS_*` (20 296 случаев против blst): разбор и подгруппы как blst, GLV/GLS и окна умножения, таблицы и корзины `MULTIEXP`, правила бесконечности в `PAIRING` и проверках | `bls.cpp`, blst `6d960cd` (`e1.c`, `e2.c`, `multi_scalar.c`, `pairing.c`, `aggregate.c`) |
 
+### 1.5. Найдено по ходу фазы 5 (2026-10-20)
+
+| Файл | Что изменено | Основание в C++ |
+|---|---|---|
+| `Model/Cell/Primitives.lean` (`dictDeleteAuxWithLoads`), `Exec/Dict/Ext.lean` (`pfxLookupDeleteWithCells`) | **ошибка исходной модели:** удаление, после которого у развилки остаются оба ребёнка, пишет метку развилки заново (`dictLabelEncode`, как `append_dict_label`), а не копирует биты старой ячейки: метка могла быть записана другим своим кодом (`parse_label` читает любой), узел словаря — ячейкой-библиотекой. `DICT*DEL*`, `DICT*REMMIN/MAX*`, `DICT*SETGETOPTREF` с `null`, `PFXDICTDEL`; в транзакции — `clamp` валют резерва и удаление `CHANGELIB` | `dict_lookup_delete`, `pfx_dict_lookup_delete` (`dict.cpp:1165, 975`), `append_dict_label` (`dict.cpp:565`) |
+
 ## 2. Тотальность (поведение не меняется)
 
 Цель — чтобы все определения модели были тотальными и вычислимыми ядром Lean, без `partial` и без

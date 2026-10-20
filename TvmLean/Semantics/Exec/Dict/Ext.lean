@@ -294,9 +294,11 @@ private def pfxLookupDeleteWithCells (root : Option Cell) (key : BitString) (n :
           | some oldVal =>
               match childNew? with
               | some childNew =>
-                  -- Both children present: rebuild fork with updated child.
+                  -- Both children present: rebuild fork with updated child. C++ writes the label anew
+                  -- (`append_dict_label`, dict.cpp:975), not the bits of `cell`, whose label may be
+                  -- encoded otherwise.
                   let newRefs : Array Cell := if swBit then #[left0, childNew] else #[childNew, right0]
-                  let newCell : Cell := Cell.mkOrdinary cell.bits newRefs
+                  let newCell : Cell := Cell.mkOrdinary (dictLabelEncode labelBits lbl.len n ++ #[true]) newRefs
                   return (some oldVal, some newCell, createdChild + 1, #[cell] ++ loadedChild)
               | none =>
                   -- One child removed: merge current edge with the surviving child (C++ loads it first).
