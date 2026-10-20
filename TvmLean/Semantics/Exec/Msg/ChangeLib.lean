@@ -6,12 +6,18 @@ set_option maxHeartbeats 1000000 in
 def execInstrMsgChangeLib (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tonEnvOp .changeLib =>
-      -- Mirrors C++ `exec_change_lib` (tonops.cpp) for global_version >= 4.
+      -- Mirrors C++ `exec_change_lib` (tonops.cpp:2427-2438): from version 4 the mode is in
+      -- {0,1,2} ∪ {16,17,18}, other values up to 31 are rangeChk; before, it is up to 2.
       -- C++ checks the depth first: with one value on the stack it is stk_und, not range_chk.
       VM.checkUnderflow 2
-      let mode ← VM.popNatUpTo 31
-      if (mode &&& 0x0f) > 2 then
-        throw .rangeChk
+      let mode ←
+        if (← get).globalVersion ≥ 4 then
+          let mode ← VM.popNatUpTo 31
+          if (mode &&& 0x0f) > 2 then
+            throw .rangeChk
+          pure mode
+        else
+          VM.popNatUpTo 2
       let hash ← VM.popIntFinite
       if decide (hash < 0 ∨ hash ≥ intPow2 256) then
         throw .rangeChk

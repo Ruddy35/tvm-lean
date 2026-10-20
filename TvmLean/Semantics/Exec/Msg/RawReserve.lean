@@ -7,7 +7,8 @@ def execInstrMsgRawReserve (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tonEnvOp .rawReserve =>
       VM.checkUnderflow 2
-      let f ← VM.popNatUpTo 31
+      -- C++ `exec_reserve_raw`: the mode is up to 31 from version 4, up to 15 before (tonops.cpp:2370)
+      let f ← VM.popNatUpTo (if (← get).globalVersion ≥ 4 then 31 else 15)
       let x ← VM.popIntFinite
       if x < 0 then
         throw .rangeChk

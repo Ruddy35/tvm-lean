@@ -6,12 +6,17 @@ set_option maxHeartbeats 1000000 in
 def execInstrMsgSetLibCode (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .tonEnvOp .setLibCode =>
-      -- Mirrors C++ `exec_set_lib_code` (tonops.cpp) for global_version >= 4:
-      -- mode ∈ {0,1,2} ∪ {16,17,18}; other values are rangeChk.
+      -- Mirrors C++ `exec_set_lib_code` (tonops.cpp:2403-2414): from version 4 the mode is in
+      -- {0,1,2} ∪ {16,17,18}, other values up to 31 are rangeChk; before, it is up to 2.
       VM.checkUnderflow 2
-      let mode ← VM.popNatUpTo 31
-      if (mode &&& 0x0f) > 2 then
-        throw .rangeChk
+      let mode ←
+        if (← get).globalVersion ≥ 4 then
+          let mode ← VM.popNatUpTo 31
+          if (mode &&& 0x0f) > 2 then
+            throw .rangeChk
+          pure mode
+        else
+          VM.popNatUpTo 2
       let codeCell ← VM.popCell
       modify fun st => st.consumeGas cellCreateGasPrice
       let st ← get
