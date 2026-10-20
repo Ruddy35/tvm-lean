@@ -23,7 +23,11 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
   key, the code, the elector's code, do nothing or an unknown action, with a wrong seqno, expired, a
   validator's vote and a wrong signature; internal messages from the masterchain (a new validator
   set from the elector, valid or not, a voting proposal, an unknown operation, a simple transfer)
-  and from the basechain; tick and tock, also with a next validator set (parameter 36) due.
+  and from the basechain; tick and tock, also with a next validator set (parameter 36) due;
+- manual DNS (`dns-manual-code.fc`), its records in a prefix-code dictionary: setting a record, a
+  chain of operations that sets, deletes a category, deletes a name, clears a table and sends a
+  message, replacing and clearing the root, a new key, an invalid operation, a name without its zero
+  byte, new code, an expired query, a wrong contract id and a wrong signature; an internal message.
 -/
 
 namespace Tests.Tx
@@ -67,6 +71,9 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     "bad-signature", "no-order"].mapM fun n => return (n, ← get s!"wallet3.msg.{n}")
   let w3deploy ← ["deploy", "deploy-transfer"].mapM fun n => return (n, ← get s!"wallet3.msg.{n}")
   let hlmsgs ← ["two", "five", "none", "expired", "bad-signature"].mapM fun n => return (n, ← get s!"highload2.msg.{n}")
+  let dns := (← get "dns.code", ← get "dns.data", (← get "dns.addr").bits)
+  let dnsmsgs ← ["set", "multi", "root-null", "root-clear", "set-key", "bad-op", "bad-name", "set-code", "expired",
+    "wrong-id", "bad-signature"].mapM fun n => return (n, ← get s!"dns.msg.{n}")
   let cfgCode ← get "config.code"
   let pub := (← get "key.pub").bits
   let cfgBodies ← ["set-param", "set-key", "set-code", "elector-code", "noop", "unknown", "seqno", "expired", "vote",
@@ -92,6 +99,12 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     for (dname, d) in [("fresh", data), ("seen", hlSeen)] do
       for (n, m) in hlmsgs do
         out := out.push (mk s!"highload2/{n}/{dname}" (mkAccount 0 addr (.active code d) 1000000000 1700000000 0 1000) m)
+    let (code, data, addr) := dns
+    for (bname, bal) in [("rich", 1000000000), ("poor", 3000000)] do
+      for (n, m) in dnsmsgs do
+        out := out.push (mk s!"dns/{n}/{bname}" (mkAccount 0 addr (.active code data) bal 1700000000 0 1000) m)
+    out := out.push (mk "dns/internal" (mkAccount 0 addr (.active code data) 1000000000 1700000000 0 1000)
+      (intMsg 0 addr 100000000 true none (natToBits 0x12345678 32)))
     let (code, data) := el
     let elAcc := mkAccount (-1) elAddr (.active code data) 500000000000 1700000000 0 1000
     for (n, body) in [("transfer", natToBits 0 32), ("stake", natToBits 0x4e73744b 32 ++ natToBits 7 64),
@@ -115,12 +128,14 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
         out := out.push { mk s!"config/{if isTock then "tock" else "tick"}{dname}" (cfgAcc dict) Cell.empty with
           tickTock := some isTock }
     let mc (a : BitString) : Int × BitString := (-1, a)
+    -- not the elector (`other`, -1:3333..33, is the elector's address in the testnet configuration)
+    let stranger := natToBits 0x4444444444444444444444444444444444444444444444444444444444444444 256
     let q (tag : Nat) : BitString := natToBits tag 32 ++ natToBits 11 64
     for (n, src, body, refs) in [("new-vset-from-elector", mc elAddr, q 0x4e565354, #[vsetAt vset 1700001000 1700100000]),
         ("new-vset-from-elector-past", mc elAddr, q 0x4e565354, #[vsetAt vset 1690000000 1700100000]),
-        ("new-vset-from-other", mc other, q 0x4e565354, #[vsetAt vset 1700001000 1700100000]),
-        ("proposal", mc other, q 0x6e565052, #[]), ("unknown", mc other, q 0x11111111, #[]),
-        ("transfer", mc other, #[], #[]), ("from-basechain", (0, other), q 0x6e565052, #[])] do
+        ("new-vset-from-other", mc stranger, q 0x4e565354, #[vsetAt vset 1700001000 1700100000]),
+        ("proposal", mc stranger, q 0x6e565052, #[]), ("unknown", mc stranger, q 0x11111111, #[]),
+        ("transfer", mc stranger, #[], #[]), ("from-basechain", (0, stranger), q 0x6e565052, #[])] do
       out := out.push (mk s!"config/internal/{n}" (cfgAcc cfg) (intMsg (-1) cfgAddr 2000000000 true none body
         (bodyRefs := refs) (src := src)))
   return out

@@ -118,3 +118,46 @@ cfgcode "config.code" put
 pk-other key !
 0x43665021 0 1800000000 cfghead 100 32 i, <b 0x1234 16 u, b> ref, b> signed-body "config.body.bad-signature" put
 pk key !
+
+// --- manual DNS (dns-manual-code.fc): contract_id last_cleaned public_key root old_queries, the
+// root a prefix-code dictionary of names (zeros count ++ name) to dictionaries of categories; a
+// message is signature contract_id query_id ops (op:6 ..., continued in the last reference),
+// sent with the body in a reference
+"auto/dns-manual-code.fif" include constant dnscode
+11 constant dnsid
+<b dnsid 32 u, 0 64 u, pub B, null dict, null dict, b> constant dnsdata
+<b b{0011} s, dnscode ref, dnsdata ref, null dict, b> hashu constant dnsaddr
+dnscode "dns.code" put
+dnsdata "dns.data" put
+<b dnsaddr 256 u, b> "dns.addr" put
+{ swap 0 1 u, over $len 1+ 6 u, swap $, 0 8 u, } : name,            // ( b S -- b' ): S and a zero byte, inline
+{ 3 roll 11 6 u, 3 roll 256 u, rot name, 1 1 u, swap ref, } : set-op,   // ( b cat S value -- b' )
+{ rot 12 6 u, rot 256 u, swap name, } : del-cat-op,                  // ( b cat S -- b' )
+{ swap 22 6 u, swap name, } : del-name-op,                           // ( b S -- b' )
+{ swap 21 6 u, swap name, 0 1 u, } : clear-table-op,                 // ( b S -- b' )
+{ rot 1 6 u, rot 8 u, swap ref, } : send-op,                         // ( b mode msg -- b' )
+// ( addr body -- ext-msg ): the body signed with `key`, in a reference
+{ dup hashu key @ ed25519_sign_uint <b swap B, swap <s s, b>
+  <b b{1000100} s, 0 3 roll addr, 0 Gram, b{01} s, swap ref, b>
+} : signed-ext-ref
+{ <b dnsid 32 u, NOW 60 + 32 << rot + 64 u, } : dnshead   // ( n -- b ): the query n
+{ dnsaddr swap signed-ext-ref } : dnsext
+1 dnshead 1 "test" <b 0x1234 16 u, b> set-op, b> dnsext "dns.msg.set" put
+// set test/1, test/2, tesla/1, a/7; delete test/1; delete tesla; clear zz; send 0.1
+<b 3 100000000 transfer send-op, b>
+<b "zz" clear-table-op, swap ref, b>
+<b "tesla" del-name-op, swap ref, b>
+<b 1 "test" del-cat-op, swap ref, b>
+<b 7 "a" <b 7 8 u, b> set-op, swap ref, b>
+<b 1 "tesla" <b 3 8 u, b> set-op, swap ref, b>
+<b 2 "test" <b 2 8 u, b> set-op, swap ref, b>
+2 dnshead 1 "test" <b 1 8 u, b> set-op, swap ref, b> dnsext "dns.msg.multi" put
+3 dnshead 31 6 u, 0 1 u, b> dnsext "dns.msg.root-null" put
+4 dnshead 32 6 u, b> dnsext "dns.msg.root-clear" put
+5 dnshead 51 6 u, pk-other priv>pub B, b> dnsext "dns.msg.set-key" put
+6 dnshead 50 6 u, b> dnsext "dns.msg.bad-op" put
+7 dnshead 11 6 u, 1 256 u, 0 1 u, 2 6 u, <b 65 8 u, 66 8 u, b> <s s, 0 1 u, b> dnsext "dns.msg.bad-name" put
+8 dnshead 9 6 u, dnscode ref, b> dnsext "dns.msg.set-code" put
+<b dnsid 32 u, NOW 100 - 32 << 9 + 64 u, 0 6 u, b> dnsext "dns.msg.expired" put
+<b 12 32 u, NOW 60 + 32 << 10 + 64 u, 0 6 u, b> dnsext "dns.msg.wrong-id" put
+pk-other key ! 11 dnshead 0 6 u, b> dnsext "dns.msg.bad-signature" put pk key !
