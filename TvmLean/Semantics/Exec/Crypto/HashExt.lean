@@ -10,16 +10,20 @@ def execInstrCryptoHashExt (host : Host) (i : Instr) (next : VM Unit) : VM Unit 
       -- Args: hash_id8 + rev(bit8) + append(bit9). If hash_id8 = 255, read hash_id from stack.
       -- Stack (append=false):  ... x[cnt-1] ... x[0] cnt  -- ... hash
       -- Stack (append=true):   ... builder x[cnt-1] ... x[0] cnt  -- ... builder'
+      let gv : Nat := (← get).globalVersion
       let mut hashId : Nat := hashId0
       if hashId = 255 then
-        -- C++ (modern TVM): `check_underflow(2); pop_smallint_range(254)`.
-        VM.checkUnderflow 2
+        -- C++: `check_underflow(2)` from version 9 (`check_underflow(0)` before), then
+        -- `pop_smallint_range(254)` (tonops.cpp:687-689)
+        if gv ≥ 9 then
+          VM.checkUnderflow 2
         hashId := (← VM.popNatUpTo 254)
 
-      -- C++: `cnt = pop_smallint_range(stack.depth() - 1 - append)`
+      -- C++: `cnt = pop_smallint_range(stack.depth() - 1 - append)`, the builder of `HASHEXTA`
+      -- left out of the count from version 9 (tonops.cpp:691): before, the count may take it in
       let stBeforeCnt ← get
       let depth : Nat := stBeforeCnt.stack.size
-      let maxCntInt : Int := Int.ofNat depth - 1 - (if append then 1 else 0)
+      let maxCntInt : Int := Int.ofNat depth - 1 - (if append ∧ gv ≥ 9 then 1 else 0)
       let cntVal ← VM.popInt
       let cnt : Nat ←
         match cntVal with

@@ -11,6 +11,8 @@ threshold it takes one branch, on the other side the other.
   `2^30 - 1` from version 4, up to 255 before (stackops.cpp:404-530): a count of 256 on a deep
   stack works (and charges the entries over 255) or is range_chk; on a short stack it is stk_und or
   range_chk. `BLKSWX` charges the entries over 255 only from version 4 (stackops.cpp:443).
+- `HASHEXT` with the hash id from the stack checks for two entries before popping it from version
+  9 only (tonops.cpp:688): a single `null` is stk_und or type_chk.
 -/
 
 namespace Tests.Gen.Versions
@@ -52,6 +54,10 @@ def casesFor (suite : String) : Array OracleCase :=
   | "CHKDEPTH" => countCases suite .chkDepth oneCount
   | "ONLYTOPX" => countCases suite .onlyTopX oneCount
   | "ONLYX" => countCases suite .onlyX oneCount
+  | "HASHEXT" | "HASHEXTR" | "HASHEXTA" | "HASHEXTAR" =>
+      let append := suite == "HASHEXTA" || suite == "HASHEXTAR"
+      let rev := suite == "HASHEXTR" || suite == "HASHEXTAR"
+      #[mk suite "id-from-stack/null-only" #[.cryptoOp (.hashExt 255 append rev)] #[.null]]
   | _ => #[]
 
 end Tests.Gen.Versions
