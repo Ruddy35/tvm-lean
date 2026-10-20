@@ -260,12 +260,12 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
             else
               if code.refPos < code.cell.refs.size then
                 let refCell := code.cell.refs[code.refPos]!
-                let st1 := st0.registerCellLoad refCell
-                if st1.gasExhaustedNow then
+                let (st1, exhausted) := st0.registerCellLoads (refCell :: (st0.libraryLoads refCell).toList)
+                if exhausted then
                   st1.outOfGasHalt
                 else
                   -- C++ `load_cell_slice_ref`: a library cell runs its library's root; exotic cells are cell_und
-                  match libraryResolver st1.libraries refCell with
+                  match (libraryResolveLoads st1.libraries st1.globalVersion refCell).2 with
                   | .ok root =>
                       -- `gas.check()` ends the step (the load, before version 4)
                       if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else

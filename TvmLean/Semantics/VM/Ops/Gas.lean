@@ -41,10 +41,34 @@ def VmState.registerCellLoad (st : VmState) (c : Cell) : VmState :=
       { st with loadedCells := st.loadedCells.push h }
   st'.consumeGas (if seen then cellReloadGasPrice else cellLoadGasPrice)
 
-/-- VM-monad cell load: registers the cell and consumes gas. This mirrors C++
-`load_cell_slice_impl` → `register_cell_load` → `consume_gas`, which from version 4 throws
-`VmNoGas` at once on gas exhaustion, aborting the instruction (`VmState.gasExhaustedNow`). -/
+/-- The loads C++ charges after the load of `c` when it loads `c` as a cell slice
+(`load_cell_slice_impl`): those of following a library (`libraryResolveLoads`), none from
+version 5 or for an ordinary cell. -/
+def VmState.libraryLoads (st : VmState) (c : Cell) : Array Cell :=
+  if c.special && st.globalVersion < 5 then (libraryResolveLoads st.libraries st.globalVersion c).1 else #[]
+
+/-- Charges the loads of `cells` in order (`register_cell_load` each); from version 4 the first one
+that exhausts gas throws and the rest are not charged: `true` then. -/
+def VmState.registerCellLoads (st : VmState) : List Cell → VmState × Bool
+  | [] => (st, false)
+  | c :: cs =>
+      let st := st.registerCellLoad c
+      if st.gasExhaustedNow then (st, true) else st.registerCellLoads cs
+
+/-- VM-monad load of `c` as C++ `load_cell_slice` loads it (`load_cell_slice_impl`): `c` is
+charged (`register_cell_load` → `consume_gas`, which from version 4 throws `VmNoGas` at once,
+aborting the instruction: `VmState.gasExhaustedNow`), then the loads of following a library
+(`VmState.libraryLoads`). -/
 def VM.registerCellLoad (c : Cell) : VM Unit := do
+  let st ← get
+  let (st', exhausted) := st.registerCellLoads (c :: (st.libraryLoads c).toList)
+  set st'
+  if exhausted then
+    throw .outOfGas
+
+/-- VM-monad load of `c` that may stay exotic (C++ `load_cell_slice_special`,
+`load_cell_slice_ref_special`): no library is followed, only `c` is charged. -/
+def VM.registerCellLoadSpecial (c : Cell) : VM Unit := do
   modify fun st => st.registerCellLoad c
   if (← get).gasExhaustedNow then
     throw .outOfGas

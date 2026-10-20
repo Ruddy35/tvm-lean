@@ -19,16 +19,19 @@ def VM.popStackCount : VM Nat := do
   VM.popNatUpTo (if (← get).globalVersion ≥ 4 then (1 <<< 30) - 1 else 255)
 
 /-- The cell loader of C++ `load_cell_slice_impl` (cells/CellSlice.cpp) in this VM: a library cell
-is replaced by the root of its library from `VmState.libraries`, any other exotic cell is cell_und.
-Passed as `resolve` to the dictionary functions, which load every node this way. -/
+is replaced by the root of its library from `VmState.libraries`, any other exotic cell is cell_und
+(`libraryResolveLoads` at the VM's global version). Passed as `resolve` to the dictionary functions,
+which load every node this way; `VM.registerCellLoad` charges the loads. -/
 def VM.cellResolver : VM (Cell → Except Excno Cell) := do
-  return libraryResolver (← get).libraries
+  let st ← get
+  return fun c => (libraryResolveLoads st.libraries st.globalVersion c).2
 
-/-- C++ `load_cell_slice` / `load_cell_slice_ref`: the load of `c` is charged (a library cell's,
-not its root's), then `c` is resolved as by `VM.cellResolver`. -/
+/-- C++ `load_cell_slice` / `load_cell_slice_ref`: the load of `c` is charged (with the loads of
+following a library, `VM.registerCellLoad`), then `c` is resolved as by `VM.cellResolver`. -/
 def VM.loadCellSlice (c : Cell) : VM Slice := do
   VM.registerCellLoad c
-  match libraryResolver (← get).libraries c with
+  let st ← get
+  match (libraryResolveLoads st.libraries st.globalVersion c).2 with
   | .ok r => return Slice.ofCell r
   | .error e => throw e
 

@@ -167,7 +167,7 @@ def execInstrCellExt (i : Instr) (next : VM Unit) : VM Unit := do
             if quiet then
               VM.pushSmallInt (-1)
             return
-          VM.registerCellLoad c0
+          VM.registerCellLoadSpecial c0
           let st ← get
           let resolve : Except Excno Cell := do
             if !c0.special then

@@ -13,7 +13,8 @@ def VM.countMsgCells (maxCells : Nat) (todo : Array Cell) (seen : Array (Array U
     let todo' := todo.pop
     let hsh := Cell.hashBytes c
     if !(seen.any (fun x => x == hsh)) then
-      VM.registerCellLoad c
+      -- `load_cell_slice_special`: a library cell is counted as itself
+      VM.registerCellLoadSpecial c
       VM.countMsgCells maxCells (todo' ++ c.refs.reverse) (seen.push hsh) (cells + 1) (bits + c.bits.size)
     else
       VM.countMsgCells maxCells todo' seen cells bits
