@@ -402,7 +402,8 @@ def suite : InstrSuite where
           .ordinary (Slice.ofCell Cell.empty) (.quit 8) OrdCregs.empty { stack := #[], nargs := 1 }
         let stUnd0 : VmState :=
           { base with cc := .repeatBody bodyRet afterNeedArg 0 }
-        let stUnd := stepOnce stUnd0
+        -- the jump is checked when the continuation is entered, the next step (C++ `adjust_jump_cont` in `jump_to`)
+        let stUnd := stepOnce (stepOnce stUnd0)
         if stUnd.cc != base.regs.c2 then
           throw (IO.userError s!"repeatBody/runtime-underflow: expected jump to c2, got {reprStr stUnd.cc}")
         else if stUnd.stack != #[intV 0, intV Excno.stkUnd.toInt] then

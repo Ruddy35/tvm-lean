@@ -233,6 +233,13 @@ private def genWhileEndBrkFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
       let (noise, rng2) := pickNoise rng1
       (mkCase "fuzz/ok/alt" (noise ++ #[q0]), rng2)
 
+/-- The step after `res`: the arguments a jump needs are checked when the continuation is entered,
+the next step (C++ `adjust_jump_cont` in `jump_to`). -/
+private def thenStep (res : StepResult) : StepResult :=
+  match res with
+  | .continue st => VmState.step stubHost st
+  | r => r
+
 def suite : InstrSuite where
   id := whileEndBrkId
   unit := #[
@@ -446,7 +453,7 @@ def suite : InstrSuite where
         let after : Continuation :=
           .envelope (.quit 17) OrdCregs.empty { stack := #[], nargs := 2 }
         let st ← expectContinue "step/whilecond-false/nargs-underflow"
-          (runStepWith #[intV 0] (.whileCond (.quit 9) (.quit 5) after) (.quit 88))
+          (thenStep (runStepWith #[intV 0] (.whileCond (.quit 9) (.quit 5) after) (.quit 88)))
         if st.cc != .excQuit then
           throw (IO.userError s!"step/whilecond-false/nargs-underflow: expected cc=excQuit, got {reprStr st.cc}")
         else if st.stack != #[intV 0, intV Excno.stkUnd.toInt] then

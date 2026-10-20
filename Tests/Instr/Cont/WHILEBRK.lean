@@ -260,6 +260,13 @@ private def genWhileBrkFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
       let (noise, rng2) := pickNoise rng1
       (mkCase "fuzz/ok/basic" (noise ++ #[q0, q0]), rng2)
 
+/-- The step after `res`: the arguments a jump needs are checked when the continuation is entered,
+the next step (C++ `adjust_jump_cont` in `jump_to`). -/
+private def thenStep (res : StepResult) : StepResult :=
+  match res with
+  | .continue st => VmState.step stubHost st
+  | r => r
+
 def suite : InstrSuite where
   id := whileBrkId
   unit := #[
@@ -466,13 +473,13 @@ def suite : InstrSuite where
         let afterNeedArgOrd : Continuation :=
           .ordinary (Slice.ofCell Cell.empty) (.quit 0) OrdCregs.empty { stack := #[], nargs := 1 }
         expectExcContinue "step/after-nargs/ordinary-underflow"
-          (runWhileCondStep #[intV 0] condNoC0 bodyNoC0 afterNeedArgOrd)
+          (thenStep (runWhileCondStep #[intV 0] condNoC0 bodyNoC0 afterNeedArgOrd))
           .stkUnd
 
         let afterNeedArgEnv : Continuation :=
           .envelope (.quit 9) OrdCregs.empty { stack := #[], nargs := 2 }
         expectExcContinue "step/after-nargs/envelope-underflow"
-          (runWhileCondStep #[intV 44, intV 0] condNoC0 bodyNoC0 afterNeedArgEnv)
+          (thenStep (runWhileCondStep #[intV 44, intV 0] condNoC0 bodyNoC0 afterNeedArgEnv))
           .stkUnd
 
         let stOk ← expectContinue "step/after-nargs/ordinary-satisfied"

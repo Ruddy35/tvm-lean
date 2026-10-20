@@ -361,7 +361,9 @@ def suite : InstrSuite where
             stack := #[intV 1]
             regs := { (VmState.initial Cell.empty).regs with c0 := .quit 111 }
             cc := .againBody bodyNeedsTwoArgs }
-        let st ← expectContinue "runtime/nargs-underflow/no-c0" (stepOnce st0)
+        -- the jump is checked when the continuation is entered, the next step (C++ `adjust_jump_cont` in `jump_to`)
+        let st1 ← expectContinue "runtime/nargs-underflow/no-c0/loop" (stepOnce st0)
+        let st ← expectContinue "runtime/nargs-underflow/no-c0" (stepOnce st1)
         if st.cc != st0.regs.c2 then
           throw (IO.userError s!"runtime/nargs-underflow/no-c0: expected cc=c2, got {reprStr st.cc}")
         else if st.stack != #[intV 0, intV Excno.stkUnd.toInt] then
@@ -380,7 +382,9 @@ def suite : InstrSuite where
             stack := #[intV 1]
             regs := { (VmState.initial Cell.empty).regs with c0 := .quit 112 }
             cc := .againBody bodyNeedsTwoArgsHasC0 }
-        let st ← expectContinue "runtime/nargs-underflow/has-c0" (stepOnce st0)
+        -- the jump is checked when the continuation is entered, the next step (C++ `adjust_jump_cont` in `jump_to`)
+        let st1 ← expectContinue "runtime/nargs-underflow/has-c0/loop" (stepOnce st0)
+        let st ← expectContinue "runtime/nargs-underflow/has-c0" (stepOnce st1)
         if st.cc != st0.regs.c2 then
           throw (IO.userError s!"runtime/nargs-underflow/has-c0: expected cc=c2, got {reprStr st.cc}")
         else if st.stack != #[intV 0, intV Excno.stkUnd.toInt] then

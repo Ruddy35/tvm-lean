@@ -200,6 +200,13 @@ private def genUntilBrkFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
       let (noise, rng2) := pickNoise rng1
       (mkCase "fuzz/ok/basic" (noise ++ #[q0]), rng2)
 
+/-- The step after `res`: the arguments a jump needs are checked when the continuation is entered,
+the next step (C++ `adjust_jump_cont` in `jump_to`). -/
+private def thenStep (res : StepResult) : StepResult :=
+  match res with
+  | .continue st => VmState.step stubHost st
+  | r => r
+
 def suite : InstrSuite where
   id := untilBrkId
   unit := #[
@@ -376,7 +383,7 @@ def suite : InstrSuite where
         let afterNeedArg : Continuation :=
           .envelope (.quit 1) OrdCregs.empty { stack := #[], nargs := 1 }
         let _ ← expectExcContinue "step/after-nargs/underflow"
-          (runUntilBodyStep #[intV 1] (.quit 9) afterNeedArg)
+          (thenStep (runUntilBodyStep #[intV 1] (.quit 9) afterNeedArg))
           .stkUnd
         pure () }
     ,
@@ -390,7 +397,7 @@ def suite : InstrSuite where
             { OrdCregs.empty with c0 := some (.quit 404) }
             { stack := #[], nargs := 1 }
         let stHasC0 ← expectExcContinue "step/body-nargs/has-c0"
-          (runUntilBodyStep #[intV 0] bodyNeedArgHasC0 after marker)
+          (thenStep (runUntilBodyStep #[intV 0] bodyNeedArgHasC0 after marker))
           .stkUnd
         if stHasC0.regs.c0 != marker then
           throw (IO.userError
@@ -401,7 +408,7 @@ def suite : InstrSuite where
             OrdCregs.empty
             { stack := #[], nargs := 1 }
         let stNoC0 ← expectExcContinue "step/body-nargs/no-c0"
-          (runUntilBodyStep #[intV 0] bodyNeedArgNoC0 after marker)
+          (thenStep (runUntilBodyStep #[intV 0] bodyNeedArgNoC0 after marker))
           .stkUnd
         if stNoC0.regs.c0 != .untilBody bodyNeedArgNoC0 after then
           throw (IO.userError

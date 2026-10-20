@@ -28,6 +28,13 @@ def VmState.raiseException (st : VmState) (e : Int) : StepResult :=
   else
     .continue stExc
 
+/-- C++ `adjust_jump_cont` (vm.cpp:259-260), run by every jump (`jump`, and `jump_to` for each
+continuation of a chain): a continuation expecting more arguments than the stack holds is not
+entered, stk_und. The model applies the jump's control data when the continuation is entered (the
+next step), so the check is made there; `VM.jump` and `VM.call` apply it at once and clear it. -/
+def OrdCdata.needsMoreArgs (cdata : OrdCdata) (depth : Nat) : Bool :=
+  decide (0 ≤ cdata.nargs) && cdata.nargs.toNat > depth
+
 def VmState.applyCregsCdata (st : VmState) (cregs : OrdCregs) (cdata : OrdCdata) : VmState :=
   -- Mirrors C++ `adjust_cr(save)` + `adjust_jump_cont` stack truncation/merge on jump/call.
   let regs0 := st.regs
@@ -119,33 +126,16 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
         | .error e => e.toInt
       .halt (~~~ n) st'
   | .whileCond cond body after =>
-      let action : VM Unit := do
-        if (← VM.popBool) then
-          -- Match C++ `WhileCont::jump[_w]`: install while-body continuation in c0 only if `body` has no c0.
+      -- C++ `WhileCont::jump[_w]` at the end of the condition: on true run `body`, installing the
+      -- loop as `c0` unless `body` has `c0`; on false jump to `after`
+      match VM.popBool.run st with
+      | (.error e, st') => st'.raiseException e.toInt
+      | (.ok true, st') =>
           if body.hasC0 then
-            modify fun st => { st with cc := body }
+            .continue { st' with cc := body }
           else
-            modify fun st => { st with regs := { st.regs with c0 := .whileBody cond body after }, cc := body }
-        else
-          let st ← get
-          let afterNeedsMoreArgs : Bool :=
-            match after with
-            | .ordinary _ _ _ cdata
-            | .envelope _ _ cdata =>
-                decide (0 ≤ cdata.nargs) && cdata.nargs.toNat > st.stack.size
-            | _ =>
-                false
-          if afterNeedsMoreArgs then
-            throw .stkUnd
-          else
-            -- the jump to `after` applies its own saved registers only (C++ `OrdCont::jump`)
-            modify fun st => { st with cc := after }
-      let (res, st') := (action.run st)
-      match res with
-      | .ok _ =>
-          .continue st'
-      | .error e =>
-          st'.raiseException e.toInt
+            .continue { st' with regs := { st'.regs with c0 := .whileBody cond body after }, cc := body }
+      | (.ok false, st') => .continue { st' with cc := after }
   | .whileBody cond body after =>
       -- Match C++ `WhileCont::jump[_w]`: install while-cond continuation in c0 only if `cond` has no c0.
       if cond.hasC0 then
@@ -153,92 +143,32 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
       else
         .continue { st with regs := { st.regs with c0 := .whileCond cond body after }, cc := cond }
   | .untilBody body after =>
-      let action : VM Unit := do
-        if (← VM.popBool) then
-          let st ← get
-          let afterNeedsMoreArgs : Bool :=
-            match after with
-            | .ordinary _ _ _ cdata
-            | .envelope _ _ cdata =>
-                decide (0 ≤ cdata.nargs) && cdata.nargs.toNat > st.stack.size
-            | _ =>
-                false
-          if afterNeedsMoreArgs then
-            throw .stkUnd
-          else
-            -- the jump to `after` applies its own saved registers only (C++ `OrdCont::jump`)
-            modify fun st => { st with cc := after }
-        else
-          -- C++ `UntilCont::jump`: if `body` doesn't have `c0`, re-install this until continuation into `c0`
-          -- because `RET` swaps `c0 := quit0` when returning to `c0`.
-          let st ← get
-          let bodyNeedsMoreArgs : Bool :=
-            match body with
-            | .ordinary _ _ _ cdata
-            | .envelope _ _ cdata =>
-                decide (0 ≤ cdata.nargs) && cdata.nargs.toNat > st.stack.size
-            | _ =>
-                false
+      -- C++ `UntilCont::jump[_w]` at the end of the body: on true jump to `after`; on false run `body`
+      -- again, installing the loop as `c0` unless `body` has `c0`
+      match VM.popBool.run st with
+      | (.error e, st') => st'.raiseException e.toInt
+      | (.ok true, st') => .continue { st' with cc := after }
+      | (.ok false, st') =>
           if body.hasC0 then
-            if bodyNeedsMoreArgs then
-              throw .stkUnd
-            else
-              modify fun st => { st with cc := body }
+            .continue { st' with cc := body }
           else
-            -- Match C++ order in `UntilCont::jump`: install `c0` first, then jump to body
-            -- (which may throw `stk_und` in `adjust_jump_cont`).
-            modify fun st => { st with regs := { st.regs with c0 := .untilBody body after } }
-            if bodyNeedsMoreArgs then
-              throw .stkUnd
-            else
-              modify fun st => { st with cc := body }
-      let (res, st') := (action.run st)
-      match res with
-      | .ok _ =>
-          .continue st'
-      | .error e =>
-          st'.raiseException e.toInt
+            .continue { st' with regs := { st'.regs with c0 := .untilBody body after }, cc := body }
   | .repeatBody body after count =>
+      -- C++ `RepeatCont::jump[_w]`
       if count = 0 then
-        let afterNeedsMoreArgs : Bool :=
-          match after with
-          | .ordinary _ _ _ cdata
-          | .envelope _ _ cdata =>
-              decide (0 ≤ cdata.nargs) && cdata.nargs.toNat > st.stack.size
-          | _ =>
-              false
-        if afterNeedsMoreArgs then
-          st.raiseException Excno.stkUnd.toInt
-        else
-          -- the jump to `after` applies its own saved registers only (C++ `OrdCont::jump`)
-          .continue { st with cc := after }
+        .continue { st with cc := after }
       else if body.hasC0 then
         .continue { st with cc := body }
       else
-        let count' := count - 1
-        .continue { st with regs := { st.regs with c0 := .repeatBody body after count' }, cc := body }
+        .continue { st with regs := { st.regs with c0 := .repeatBody body after (count - 1) }, cc := body }
   | .againBody body =>
-      let bodyNeedsMoreArgs : Bool :=
-        match body with
-        | .ordinary _ _ _ cdata
-        | .envelope _ _ cdata =>
-            decide (0 ≤ cdata.nargs) && cdata.nargs.toNat > st.stack.size
-        | _ =>
-            false
+      -- C++ `AgainCont::jump[_w]`
       if body.hasC0 then
-        if bodyNeedsMoreArgs then
-          st.raiseException Excno.stkUnd.toInt
-        else
-          .continue { st with cc := body }
+        .continue { st with cc := body }
       else
-        -- Match C++ `AgainCont::jump[_w]`: install loop continuation in `c0` first,
-        -- then apply jump-time `nargs` checks (`adjust_jump_cont`).
-        let stLoop := { st with regs := { st.regs with c0 := .againBody body } }
-        if bodyNeedsMoreArgs then
-          stLoop.raiseException Excno.stkUnd.toInt
-        else
-          .continue { stLoop with cc := body }
+        .continue { st with regs := { st.regs with c0 := .againBody body }, cc := body }
   | .envelope ext cregs cdata =>
+      if cdata.needsMoreArgs st.stack.size then st.raiseException Excno.stkUnd.toInt else
       -- Mirrors C++ `ArgContExt::jump`: apply saved control regs, closure stack and nargs, then jump to `ext`.
       let st := st.applyCregsCdata cregs cdata
       -- the stack gas of that jump is `consume_stack_gas` (adjust_jump_cont): out of gas at once
@@ -247,6 +177,7 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
       else
         .continue { st with cc := ext }
   | .ordinary code saved cregs cdata =>
+      if cdata.needsMoreArgs st.stack.size then st.raiseException Excno.stkUnd.toInt else
       -- Apply pending continuation control regs (MVP: c0,c1,c2,c3,c4,c5,c7), once.
       let st2 := st.applyCregsCdata cregs cdata
       -- the stack gas of applying a closure (the jump to this continuation, e.g. to the exception

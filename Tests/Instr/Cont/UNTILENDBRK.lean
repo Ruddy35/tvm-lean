@@ -254,6 +254,13 @@ private def genUntilEndBrkFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
       let (program, rng2) := pickProgramOk rng1
       (mkCase "fuzz/ok/alt" #[] program, rng2)
 
+/-- The step after `res`: the arguments a jump needs are checked when the continuation is entered,
+the next step (C++ `adjust_jump_cont` in `jump_to`). -/
+private def thenStep (res : StepResult) : StepResult :=
+  match res with
+  | .continue st => VmState.step stubHost st
+  | r => r
+
 def suite : InstrSuite where
   id := untilEndBrkId
   unit := #[
@@ -430,7 +437,7 @@ def suite : InstrSuite where
         let afterNeedArg : Continuation :=
           .envelope (.quit 1) OrdCregs.empty { stack := #[], nargs := 1 }
         expectExcContinue "step/after-nargs/underflow"
-          (runUntilBodyStep #[intV 1] (.quit 9) afterNeedArg)
+          (thenStep (runUntilBodyStep #[intV 1] (.quit 9) afterNeedArg))
           .stkUnd }
     ,
     { name := "unit/order/bool-decode-errors-before-after-nargs-check"

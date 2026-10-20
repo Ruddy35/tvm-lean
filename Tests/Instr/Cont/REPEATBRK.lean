@@ -473,7 +473,8 @@ def suite : InstrSuite where
           .envelope (.quit 8) OrdCregs.empty { stack := #[], nargs := 1 }
         let stNeed0 : VmState :=
           { base with regs := { base.regs with c0 := .quit 2 }, cc := .repeatBody bodyRet afterNeedArg 0 }
-        let stNeed := stepOnce stNeed0
+        -- the jump is checked when the continuation is entered, the next step (C++ `adjust_jump_cont` in `jump_to`)
+        let stNeed := stepOnce (stepOnce stNeed0)
         if stNeed.cc != base.regs.c2 then
           throw (IO.userError
             s!"repeatBody/after-nargs-underflow: expected exception jump to c2, got {reprStr stNeed.cc}")
