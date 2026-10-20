@@ -91,6 +91,12 @@ private def callCases (suite : String) : Array OracleCase :=
         -- nargs 1 < 3 passed: the top one is copied, two dropped, the rest kept for the return
         progCase suite "captured-skip" #[.pushInt (.num 10), cont #[.add], .setContArgs 1 1, .callxArgs 3 (-1)]
           #[iv 1, iv 2, iv 3, iv 4],
+        -- no captured stack, nargs below the passed arguments: `Stack::split_top(copy, skip)` passes
+        -- the top `nargs` and drops the others passed (none passed with nargs 0)
+        progCase suite "nargs-skip" #[cont #[.pushInt (.num 5), .add], .setContArgs 0 1, .callxArgs 3 (-1)]
+          #[iv 1, iv 2, iv 3, iv 4],
+        progCase suite "nargs0-skip" #[cont #[.pushInt (.num 5)], .setContArgs 0 0, .callxArgs 2 1]
+          #[iv 1, iv 2, iv 3],
         { name := "oracle/vm-core/blessargs0-pass2", instr := { name := suite },
           program := #[.blessArgs 0 (-1), .callxArgs 2 1], initStack := #[iv 1, iv 2, iv 3, addSlice] } ]
   | "JMPX" =>

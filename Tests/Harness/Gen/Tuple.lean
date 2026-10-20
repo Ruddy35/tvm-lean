@@ -77,6 +77,12 @@ private def nullStacks : Array (Array Value) :=
 
 private def small : Array Nat := #[0, 1, 2, 3, 4, 15]
 
+/-- The tuple on top is shared with a copy below it (`DUP` first): C++ `do_explode_tuple` copies
+the components instead of moving them out of a uniquely held tuple. -/
+private def sharedCases (suite : String) (i : Instr) : Array OracleCase :=
+  #[tup #[iv 1, iv 2], tup #[iv 7, .null, iv (-3)], tup #[]].mapIdx fun k t =>
+    { name := s!"oracle/shared/stack{k}", instr := { name := suite }, program := #[.push 0, i], initStack := #[t] }
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   let op (o : TupleInstr) : Instr := .tupleOp o
@@ -87,16 +93,20 @@ def casesFor (suite : String) : Array OracleCase :=
       (fun (i, j) => (s!"i{i}j{j}", op (.index2 i j)))) oneTuple
   | "INDEX3" => cross suite (#[(0, 0, 0), (1, 1, 0), (1, 1, 1), (0, 1, 1), (3, 3, 3)].map
       (fun (i, j, k) => (s!"i{i}j{j}k{k}", op (.index3 i j k)))) oneTuple
-  | "UNTUPLE" => cross suite (small.map (fun n => (s!"n{n}", op (.untuple n)))) oneTuple
-  | "UNPACKFIRST" => cross suite (small.map (fun n => (s!"n{n}", op (.unpackFirst n)))) oneTuple
-  | "EXPLODE" => cross suite (small.map (fun n => (s!"n{n}", op (.explode n)))) oneTuple
+  | "UNTUPLE" => cross suite (small.map (fun n => (s!"n{n}", op (.untuple n)))) oneTuple ++
+      sharedCases suite (op (.untuple 2))
+  | "UNPACKFIRST" => cross suite (small.map (fun n => (s!"n{n}", op (.unpackFirst n)))) oneTuple ++
+      sharedCases suite (op (.unpackFirst 0))
+  | "EXPLODE" => cross suite (small.map (fun n => (s!"n{n}", op (.explode n)))) oneTuple ++
+      sharedCases suite (op (.explode 3))
   | "TLEN" => cross suite #[("tlen", op .tlen)] oneTuple
   | "QTLEN" => cross suite #[("qtlen", op .qtlen)] oneTuple
   | "ISTUPLE" => cross suite #[("istuple", op .isTuple)] oneTuple
   | "LAST" => cross suite #[("last", op .last)] oneTuple
   | "TPOP" => cross suite #[("tpop", op .tpop)] oneTuple
   | "SETINDEX" => cross suite (#[0, 1, 2, 3, 15].map (fun k => (s!"k{k}", op (.setIndex k)))) tupleAndValue
-  | "SETINDEXQ" => cross suite (#[0, 1, 2, 3, 15].map (fun k => (s!"k{k}", op (.setIndexQ k)))) tupleAndValue
+  | "SETINDEXQ" => cross suite (#[0, 1, 2, 3, 15].map (fun k => (s!"k{k}", op (.setIndexQ k))))
+      (tupleAndValue ++ #[#[.null, .null], #[tup #[], .null]])
   | "TPUSH" => cross suite #[("tpush", op .tpush)] tupleAndValue
   | "INDEXVAR" => cross suite #[("indexvar", op .indexVar)] tupleAndInt
   | "INDEXVARQ" => cross suite #[("indexvarq", op .indexVarQ)] tupleAndInt
@@ -104,7 +114,8 @@ def casesFor (suite : String) : Array OracleCase :=
   | "UNPACKFIRSTVAR" => cross suite #[("unpackfirstvar", op .unpackFirstVar)] tupleAndInt
   | "EXPLODEVAR" => cross suite #[("explodevar", op .explodeVar)] tupleAndInt
   | "SETINDEXVAR" => cross suite #[("setindexvar", op .setIndexVar)] tupleValueInt
-  | "SETINDEXVARQ" => cross suite #[("setindexvarq", op .setIndexVarQ)] tupleValueInt
+  | "SETINDEXVARQ" => cross suite #[("setindexvarq", op .setIndexVarQ)]
+      (tupleValueInt ++ #[#[.null, .null, iv 0], #[.null, .null, iv 254], #[.null, iv 1, iv 254], #[tup #[], .null, iv 3]])
   | "TUPLEVAR" => cross suite #[("tuplevar", op .mktupleVar)] valuesAndCount
   | "TUPLE" => cross suite (#[0, 1, 2, 3, 15].map (fun n => (s!"n{n}", op (.mktuple n))))
       (#[0, 1, 2, 3, 4, 14, 15, 16].map ints)
