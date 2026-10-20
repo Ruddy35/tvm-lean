@@ -68,12 +68,10 @@ private def pickFromPool {α : Type} [Inhabited α] (pool : Array α) (rng : Std
   let (idx, rng') := randNat rng 0 (pool.size - 1)
   (pool[idx]!, rng')
 
+/-- The values `0 … x` and the offset `x` on top: C++ `exec_roll` pops the offset and needs `x + 1`
+values below it (`check_underflow_p(x)`), so this is the smallest stack the roll succeeds on. -/
 private def mkRollStack (x : Nat) : Array Value :=
-  Id.run do
-    let mut st : Array Value := #[]
-    for i in [0 : x + 1] do
-      st := st.push (intV (Int.ofNat i))
-    pure st
+  ((Array.range (x + 1)).map (fun i => intV (Int.ofNat i))).push (intV (Int.ofNat x))
 
 private def mkCase
     (name : String)
