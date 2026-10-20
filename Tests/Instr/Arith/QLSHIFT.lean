@@ -31,8 +31,8 @@ Branch counts used for this suite:
 
 Mapped terminal outcomes covered:
 - finite success for signed operands and immediate boundaries (`bits ∈ [1, 256]`);
-- invalid-input compatibility split from C++ (`NaN` preserved for `bits < 64`,
-  normalized to integer zero for `bits ≥ 64`);
+- invalid-input compatibility split from C++ before TVM 14 (`NaN` preserved for `bits < 52`,
+  a shift by at least one 52-bit word makes it integer zero, `IntVal.nanLshiftCpp`);
 - quiet NaN funnel for numeric overflow and oversized injected values;
 - `stkUnd`;
 - `typeChk`;
@@ -125,7 +125,7 @@ private def shiftBoundaryPool : Array Nat :=
   #[1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256]
 
 private def nanCompatShiftPool : Array Nat :=
-  #[1, 2, 3, 8, 16, 32, 64, 128, 256]
+  #[1, 2, 3, 8, 16, 32, 51, 52, 63, 64, 128, 256]
 
 private def pickShiftBoundary (rng : StdGen) : Nat × StdGen :=
   let (idx, rng') := randNat rng 0 (shiftBoundaryPool.size - 1)
@@ -254,6 +254,10 @@ def suite : InstrSuite where
             (runQlshiftDirect bits #[intV x]) #[.int .nan]
         expectOkStack "quiet/nan-direct"
           (runQlshiftDirect 13 #[.int .nan]) #[.int .nan]
+        expectOkStack "quiet/nan-shift51-stays-nan"
+          (runQlshiftDirect 51 #[.int .nan]) #[.int .nan]
+        expectOkStack "quiet/nan-wordshift52-normalizes-zero"
+          (runQlshiftDirect 52 #[.int .nan]) #[intV 0]
         expectOkStack "quiet/nan-wordshift64-normalizes-zero"
           (runQlshiftDirect 64 #[.int .nan]) #[intV 0]
         expectOkStack "quiet/nan-wordshift128-normalizes-zero"
@@ -320,6 +324,9 @@ def suite : InstrSuite where
     mkQlshiftCase "quiet/overflow/one-shift256" 256 #[intV 1],
     mkQlshiftCase "quiet/overflow/pow2-255-shift1" 1 #[intV (pow2 255)],
     mkInputCase "quiet/nan/via-program" 13 .nan,
+    mkInputCase "regression/quiet/nan-shift51-stays-nan" 51 .nan,
+    mkInputCase "regression/quiet/nan-wordshift52-normalizes-zero" 52 .nan,
+    mkInputCase "regression/quiet/nan-shift63-normalizes-zero" 63 .nan,
     mkInputCase "regression/quiet/nan-wordshift64-normalizes-zero" 64 .nan,
     mkInputCase "regression/quiet/nan-wordshift128-normalizes-zero" 128 .nan,
     mkInputCase "quiet/nan/via-program-with-tail" 7 .nan #[intV 11],

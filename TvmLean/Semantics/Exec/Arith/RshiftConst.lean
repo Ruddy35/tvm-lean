@@ -9,18 +9,10 @@ def execInstrArithRshiftConst (i : Instr) (next : VM Unit) : VM Unit := do
       let x ← VM.popInt
       match x with
       | .nan =>
-          -- Match C++ `exec_rshift_tinyint8`: invalid integers are shifted via
-          -- `AnyIntView::rshift_any` instead of quiet-NaN funneling.
-          -- Since TVM 14 NaN stays NaN (before, a C++ BigInt quirk turned it into a number).
+          -- C++ `exec_rshift_tinyint8` (arithops.cpp:792-806): since TVM 14 NaN stays NaN; before,
+          -- the BigInt shift of NaN is computed (`IntVal.nanRshiftCpp`)
           let gv : Nat := (← get).globalVersion
-          let invalidCompat : IntVal :=
-            if gv ≥ 14 then .nan else
-            if bits == 0 then
-              .nan
-            else if bits > (64 - 52) then
-              .num (-1)
-            else
-              .num 0
+          let invalidCompat : IntVal := if gv ≥ 14 then .nan else IntVal.nanRshiftCpp bits
           VM.pushIntQuiet invalidCompat quiet
       | .num n => VM.pushIntQuiet (.num (floorDivPow2 n bits)) quiet
   | _ => next
