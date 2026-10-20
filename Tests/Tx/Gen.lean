@@ -495,6 +495,116 @@ def tickTockCases (cfg : Cell) (mk : String → Cell → Cell → TxCase) (a : B
   out := out.push (tt "none" (mkAccount 0 a .none 0 0 0 0) false)
   return out
 
+/-- The configuration with parameter `n` set to the cell `c`. -/
+def withParam (cfg : Cell) (n : Nat) (c : Cell) : Cell :=
+  match dictSetRefWithCells (some cfg) (natToBits n 32) c .set with
+  | .ok (some r, _, _, _) => r
+  | _ => cfg
+
+namespace Configs
+
+/-- `gas_prices#dd` (block.tlb:714-716). -/
+def gasPlain (price limit credit block freeze delete : Nat) : Cell :=
+  (((((((({} : W).uint 0xdd 8).uint price 64).uint limit 64).uint credit 64).uint block 64).uint freeze 64).uint delete 64).cell
+
+/-- `gas_prices_ext#de` (block.tlb:718-720), under `gas_flat_pfx#d1` (block.tlb:722-723) if `flat` is
+given. -/
+def gasExt (price limit special credit block freeze delete : Nat) (flat : Option (Nat × Nat) := none) : Cell :=
+  let w : W := match flat with
+    | some (fl, fp) => ((({} : W).uint 0xd1 8).uint fl 64).uint fp 64
+    | none => {}
+  ((((((((w.uint 0xde 8).uint price 64).uint limit 64).uint special 64).uint credit 64).uint block 64).uint freeze 64).uint
+    delete 64).cell
+
+/-- `msg_forward_prices#ea` (block.tlb:743-745). -/
+def msgPrices (lump bit cell ihr first next : Nat) : Cell :=
+  ((((((({} : W).uint 0xea 8).uint lump 64).uint bit 64).uint cell 64).uint ihr 32).uint first 16).uint next 16 |>.cell
+
+/-- Parameter 18 (`Hashmap 32 StoragePrices`, block.tlb:708-710): `storage_prices#cc` entries keyed
+by their `utime_since`. -/
+def storagePrices (entries : List (Nat × Nat × Nat × Nat × Nat)) : Cell := Id.run do
+  let mut root : Option Cell := none
+  for (since, bit, cell, mcBit, mcCell) in entries do
+    let w : W := (((((({} : W).uint 0xcc 8).uint since 32).uint bit 64).uint cell 64).uint mcBit 64).uint mcCell 64
+    let b : Builder := { bits := w.bits, refs := #[] }
+    if let .ok (r, _, _, _) := dictSetBuilderWithCells root (natToBits since 32) b .set then root := r
+  return root.getD Cell.empty
+
+/-- The fields of `size_limits_config` v1 (block.tlb:823-824). -/
+def limitsV1 (w : W) (msgBits msgCells libCells vmDepth extSize extDepth : Nat) : W :=
+  (((((w.uint msgBits 32).uint msgCells 32).uint libCells 32).uint vmDepth 16).uint extSize 32).uint extDepth 16
+
+/-- The fields `size_limits_config_v2` adds (block.tlb:825-828), the library loads unset. -/
+def limitsV2 (w : W) (accCells mcAccCells pubLibs defer extra prefixLen storageDict : Nat) : W :=
+  ((((((((w.uint accCells 32).uint mcAccCells 32).uint pubLibs 32).uint defer 32).uint extra 32).uint prefixLen 8).uint
+    storageDict 32).bool false)
+
+/-- The C++ defaults of `SizeLimitsConfig` (mc-config.h:398-412) in v1. -/
+def defaultsV1 (w : W) : W := limitsV1 w (2 ^ 21) (2 ^ 13) 1000 512 65535 512
+
+end Configs
+
+/-- Configurations other than the testnet one, at global version `v` (parameter 8 with the
+capabilities of the other cases, 46, unless the variant changes them): the gas prices of the
+basechain (parameter 21) as `gas_prices#dd`, with a flat price for the first 1000 gas, tight (gas limit
+5000, credit 1000), dear with low due limits for freezing and deleting; those of the masterchain
+(parameter 20) dear; message prices (parameters 24, 25) cheap or dear; storage prices (parameter 18)
+changing in time or dear; size limits (parameter 43) of v1 with small messages and VM data depth, of
+v2 with small account states, no extra currencies in messages and the storage dictionary from one
+cell, of v3 with small totals of messages; capabilities without `capBounceMsgBody`. -/
+def configVariants (cfg0 : Cell) (v : Nat) : List (String × Cell) :=
+  let cfg := withVersion cfg0 v 46
+  [("gas-dd", withParam cfg 21 (Configs.gasPlain 65536000 1000000 10000 10000000 100000000 1000000000)),
+   ("gas-flat", withParam cfg 21 (Configs.gasExt 26214400 1000000 1000000 10000 10000000 100000000 1000000000
+      (some (1000, 1000000)))),
+   ("gas-tight", withParam cfg 21 (Configs.gasExt 26214400 5000 5000 1000 10000000 100000000 1000000000)),
+   ("gas-dear", withParam cfg 21 (Configs.gasExt 6553600000 1000000 1000000 10000 10000000 1000 200000)),
+   ("gas-mc-dear", withParam cfg 20 (Configs.gasExt 655360000 1000000 70000000 10000 10000000 1000 200000
+      (some (100, 1000000)))),
+   ("msg-cheap", withParam (withParam cfg 24 (Configs.msgPrices 1 1 1 0 0 0)) 25 (Configs.msgPrices 1 1 1 0 0 0)),
+   ("msg-dear", withParam (withParam cfg 24 (Configs.msgPrices 1000000000 655360000000 65536000000000 98304 65535 32768))
+      25 (Configs.msgPrices 100000000 65536000000 6553600000000 98304 65535 32768)),
+   ("storage-steps", withParam cfg 18 (Configs.storagePrices
+      [(0, 1, 500, 1000, 500000), (1695000000, 1000, 1000000, 100000, 10000000)])),
+   ("storage-dear", withParam cfg 18 (Configs.storagePrices [(0, 65536000, 6553600000, 655360000, 65536000000)])),
+   ("limits-v1", withParam cfg 43 (Configs.limitsV1 (({} : W).uint 1 8) 1000 3 1 3 200 2).cell),
+   ("limits-v2", withParam cfg 43 (Configs.limitsV2 (Configs.defaultsV1 (({} : W).uint 2 8)) 4 4 0 256 0 0 1).cell),
+   ("limits-v3", withParam cfg 43 ((Configs.limitsV2 (Configs.defaultsV1 (({} : W).uint 3 8)) (2 ^ 16) (2 ^ 11) 256 256 2 8 26
+      ).uint 500 32 |>.uint 2 32).cell),
+   ("caps-0", withVersion cfg0 v 0)]
+
+/-- Under each configuration of `configVariants`: the contracts of `programs` with a rich, a poor and
+an old account and an internal message, the rich one with an external message too; those of
+`actionPrograms` (rich, internal); four of `programs` sent a bounceable message with a body; some in
+the masterchain; a deployment. -/
+def configCases (cfg0 : Cell) (v : Nat) (a : BitString) (data : Cell) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  for (cname, cfg) in configVariants cfg0 v do
+    let mk (name : String) (acc msg : Cell) : TxCase :=
+      { name := s!"v{v}/config-{cname}/{name}", config := cfg, account := acc, msg, now := 1700000200, lt := 3000000, seed }
+    for (pname, prog) in programs do
+      let code := asm prog
+      for (bname, bal, lastPaid) in [("rich", 1000000000, 1700000000), ("poor", 30000, 1700000000),
+                                      ("old", 1000000000, 1690000000)] do
+        out := out.push (mk s!"{pname}/{bname}/int" (mkAccount 0 a (.active code data) bal lastPaid 0 1000)
+          (intMsg 0 a 100000000 false none #[]))
+      out := out.push (mk s!"{pname}/rich/ext" (mkAccount 0 a (.active code data) 1000000000 1700000000 0 1000)
+        (extMsg 0 a none (natToBits 5 8)))
+    for (pname, prog) in actionPrograms do
+      out := out.push (mk s!"{pname}/rich/int" (mkAccount 0 a (.active (asm prog) data) 1000000000 1700000000 0 1000)
+        (intMsg 0 a 100000000 false none #[]))
+    for (pname, prog) in programs.take 4 do
+      out := out.push (mk s!"bounce-{pname}" (mkAccount 0 a (.active (asm prog) data) 1000000000 1700000000 0 1000)
+        (intMsg 0 a 100000000 true none (natToBits 0xabcdef 300)))
+    for (pname, prog) in programs.filter (fun (n, _) => ["accept", "c7", "c7-v6", "burn", "loop"].contains n) ++
+        actionPrograms.filter (fun (n, _) => ["send", "send-mc"].contains n) do
+      out := out.push (mk s!"mc-{pname}" (mkAccount (-1) a (.active (asm prog) data) 1000000000 1690000000 0 1000)
+        (intMsg (-1) a 100000000 false none #[]))
+    let si := stateInit (asm [.tonEnvOp .accept]) data
+    let addr := bytesToBits si.hashBytes
+    out := out.push (mk "deploy/none" (mkAccount 0 addr .none 0 0 0 0) (intMsg 0 addr 100000000 false (some si) #[]))
+  return out
+
 /-- The cases on the configuration `cfg0`, for each version of `versions`. -/
 def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
   let mut out : Array TxCase := #[]
@@ -571,6 +681,7 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (withLibs (mk "lib-code/chain" (mkAccount 0 a (.active chain data) 1000000000 1700000000 0 1000)
       (intMsg 0 a 100000000 true none #[])) (globalLibsOf [inner, asm [.tonEnvOp .accept, .throw 9]]))
     out := out ++ libraryLoadCases mk a data
+    if [3, 5, 9, 12, 16].contains v then out := out ++ configCases cfg0 v a data
     -- deploying a contract whose code is a library cell, the library in the message's StateInit
     let siLib := (((((({} : W).bool false).bool false).maybeRef (some libCode)).maybeRef (some data)).maybeRef
       (simpleLibs true [libBody])).cell
