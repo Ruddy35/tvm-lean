@@ -7,8 +7,8 @@ def execInstrStackReverseX (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .reverseX =>
       VM.checkUnderflow 2
-      let y ← VM.popNatUpTo ((1 <<< 30) - 1)
-      let x ← VM.popNatUpTo ((1 <<< 30) - 1)
+      let y ← VM.popStackCount
+      let x ← VM.popStackCount
       let st ← get
       let total : Nat := x + y
       if total ≤ st.stack.size then

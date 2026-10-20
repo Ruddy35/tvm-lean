@@ -12,6 +12,12 @@ def VM.checkUnderflow (n : Nat) : VM Unit := do
   if st.stack.size < n then
     throw .stkUnd
 
+/-- The count of the stack operations that take it from the stack (`PICK`, `ROLL`, `ROLLREV`,
+`BLKSWX`, `REVX`, `DROPX`, `XCHGX`, `CHKDEPTH`, `ONLYTOPX`, `ONLYX`): C++ `pop_smallint_range` up to
+`2^30 - 1` from version 4, up to 255 before (stackops.cpp:404-530). -/
+def VM.popStackCount : VM Nat := do
+  VM.popNatUpTo (if (← get).globalVersion ≥ 4 then (1 <<< 30) - 1 else 255)
+
 /-- The cell loader of C++ `load_cell_slice_impl` (cells/CellSlice.cpp) in this VM: a library cell
 is replaced by the root of its library from `VmState.libraries`, any other exotic cell is cell_und.
 Passed as `resolve` to the dictionary functions, which load every node this way. -/

@@ -6,7 +6,7 @@ set_option maxHeartbeats 1000000 in
 def execInstrStackOnlyTopX (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .onlyTopX =>
-      let x ← VM.popNatUpTo ((1 <<< 30) - 1)
+      let x ← VM.popStackCount
       let st ← get
       if x ≤ st.stack.size then
         let n := st.stack.size

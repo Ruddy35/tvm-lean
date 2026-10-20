@@ -7,13 +7,14 @@ def execInstrStackBlkSwapX (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .blkSwapX =>
       VM.checkUnderflow 2
-      let y ← VM.popNatUpTo ((1 <<< 30) - 1)
-      let x ← VM.popNatUpTo ((1 <<< 30) - 1)
+      let y ← VM.popStackCount
+      let x ← VM.popStackCount
       let st ← get
       let total : Nat := x + y
       if total ≤ st.stack.size then
         if x > 0 && y > 0 then
-          if total > 255 then
+          -- C++ charges the entries over 255 from version 4 (stackops.cpp:443-445)
+          if total > 255 ∧ st.globalVersion ≥ 4 then
             modify fun st => st.consumeGas (Int.ofNat (total - 255))
           let st ← get
           let n := st.stack.size

@@ -6,7 +6,7 @@ set_option maxHeartbeats 1000000 in
 def execInstrStackPick (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .pick =>
-      let x ← VM.popNatUpTo ((1 <<< 30) - 1)
+      let x ← VM.popStackCount
       let st ← get
       if x < st.stack.size then
         let v ← VM.fetch x
