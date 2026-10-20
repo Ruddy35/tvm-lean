@@ -154,6 +154,56 @@ private def ecSeqCases (suite : String) : Array OracleCase := Id.run do
       initStack := #[iv 0, .slice (Slice.ofCell Cell.empty)], initC7 := c7 }
   return out
 
+/-! ### Config-dependent instructions on real and malformed config entries
+
+`c7[0][14]` (the unpacked config) with storage prices, a global id, gas prices in each form
+(`gas_flat_pfx` around `gas_prices_ext`, plain `gas_prices`, plain `gas_prices_ext`) and
+forwarding prices; then entries with a wrong tag, cut short, or with trailing bits. The coverage
+run of 2026-10-19 never reached `do_get_one_storage_prices`, a global id under 32 bits, or the
+unflattened gas prices. -/
+
+private def u64 (n : Nat) : BitString := natToBits n 64
+private def storagePrices (bp cp mbp mcp : Nat) : BitString :=
+  natToBits 0xcc 8 ++ natToBits 1700000000 32 ++ u64 bp ++ u64 cp ++ u64 mbp ++ u64 mcp
+private def gasDd (price : Nat) : BitString :=
+  natToBits 0xdd 8 ++ u64 price ++ u64 1000000 ++ u64 10000 ++ u64 10000000 ++ u64 100000000 ++ u64 1000000000
+private def gasDe (price : Nat) : BitString :=
+  natToBits 0xde 8 ++ u64 price ++ u64 1000000 ++ u64 35000000 ++ u64 10000 ++ u64 10000000 ++ u64 100000000 ++
+    u64 1000000000
+private def gasFlat (limit price : Nat) (other : BitString) : BitString :=
+  natToBits 0xd1 8 ++ u64 limit ++ u64 price ++ other
+private def fwdPrices (lump bit cell : Nat) : BitString :=
+  natToBits 0xea 8 ++ u64 lump ++ u64 bit ++ u64 cell ++ natToBits 98304 32 ++ natToBits 21845 16 ++ natToBits 21845 16
+
+private def cfgC7 (entries : Array Value) : Array Value := #[tup ((params 18).set! 14 (tup entries))]
+
+def cfgC7Pool : Array (String × Array Value) :=
+  #[ ("cfg-flat", cfgC7 #[sl (storagePrices 1 500 1000 500000), sl (natToBits (2 ^ 32 - 239) 32),
+        sl (gasFlat 100 1000000 (gasDe 655360000)), sl (gasFlat 100 40000 (gasDe 26214400)),
+        sl (fwdPrices 10000000 655360000 65536000000), sl (fwdPrices 400000 26214400 2621440000), .null]),
+     ("cfg-dd", cfgC7 #[sl (storagePrices 7 11 13 17), sl (natToBits 5 32), sl (gasDd 65536000), sl (gasDd 26214400),
+        sl (fwdPrices 1 2 3), sl (fwdPrices 4 5 6), .null]),
+     ("cfg-de", cfgC7 #[sl (storagePrices 0 0 0 0), sl (natToBits 0x7fffffff 32), sl (gasDe 1), sl (gasDe 65536),
+        sl (fwdPrices 0 0 0), sl (fwdPrices 1 0 0), .null]),
+     ("cfg-wrong-tag", cfgC7 #[sl (natToBits 0xcd 8 ++ (storagePrices 1 2 3 4).extract 8 296), sl (natToBits 3 31),
+        sl (natToBits 0xdc 8 ++ (gasDd 1).extract 8 392), sl (natToBits 0xd2 8 ++ (gasDd 1).extract 8 392),
+        sl (natToBits 0xeb 8 ++ (fwdPrices 1 2 3).extract 8 328), sl (natToBits 0xeb 8), .null]),
+     ("cfg-cut", cfgC7 #[sl ((storagePrices 1 2 3 4).extract 0 100), sl (natToBits 1 16),
+        sl ((gasFlat 100 1 (gasDd 1)).extract 0 200), sl ((gasDd 1).extract 0 300),
+        sl ((fwdPrices 1 2 3).extract 0 200), sl ((fwdPrices 1 2 3).extract 0 300), .null]),
+     ("cfg-trailing", cfgC7 #[sl (storagePrices 1 2 3 4 ++ natToBits 5 3), sl (natToBits 0x80000001 40),
+        sl (gasDd 3 ++ #[true]), sl (gasDe 3 ++ #[true]), sl (fwdPrices 1 2 3 ++ #[true]), sl (fwdPrices 4 5 6 ++ #[true]), .null]) ]
+
+/-- Random seeds `c7[0][6]` that are not integers, negative (range_chk: no TVM integer reaches 2^256),
+the largest, and a parameter tuple without
+slot 6 (`tuple_index`: range_chk for RAND, RANDU256 and ADDRAND; SETRAND extends it). -/
+def seedC7Pool : Array (String × Array Value) :=
+  #[ ("seed-null", #[tup ((params 18).set! 6 .null)]),
+     ("seed-tuple", #[tup ((params 18).set! 6 (tup #[]))]),
+     ("seed-neg", #[tup ((params 18).set! 6 (iv (-1)))]),
+     ("seed-max", #[tup ((params 18).set! 6 (iv (2 ^ 256 - 1)))]),
+     ("params6", #[tup (params 6)]) ]
+
 /-- Oracle cases of the suite named `suite`. -/
 def casesFor (suite : String) : Array OracleCase :=
   let one (o : TonEnvInstr) : Array OracleCase := cross suite #[(suite, env o)] c7Pool noArgs
@@ -175,7 +225,7 @@ def casesFor (suite : String) : Array OracleCase :=
   | "UNPACKEDCONFIGTUPLE" => one .unpackedConfigTuple
   | "DUEPAYMENT" => one .duePayment
   | "GETPRECOMPILEDGAS" => one .getPrecompiledGas
-  | "GLOBALID" => one .globalId
+  | "GLOBALID" => cross suite #[("globalid", env .globalId)] (c7Pool ++ cfgC7Pool) noArgs
   | "GASCONSUMED" => one .gasConsumed
   | "ACCEPT" => one .accept
   | "COMMIT" => one .commit
@@ -200,16 +250,16 @@ def casesFor (suite : String) : Array OracleCase :=
   | "GETGLOBVAR" => cross suite #[("var", env .getGlobVar)] c7Pool (ints1 #[0, 1, 2, 3, 5, 31, 254, 255, -1])
   | "SETGLOBVAR" => cross suite #[("var", env .setGlobVar)] c7Pool
       ((#[0, 1, 2, 5, 31, 254, 255, -1] : Array Int).map (fun k => #[iv 42, iv k]) ++ #[#[iv 42], #[]])
-  | "RANDU256" => one .randu256
-  | "RAND" => cross suite #[("rand", env .rand)] c7Pool (ints1 #[0, 1, 1000, -5, 2 ^ 256 - 1])
-  | "SETRAND" => cross suite #[("setrand", env (.setRand false))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)]) ++
+  | "RANDU256" => cross suite #[("randu256", env .randu256)] (c7Pool ++ seedC7Pool) noArgs
+  | "RAND" => cross suite #[("rand", env .rand)] (c7Pool ++ seedC7Pool) (ints1 #[0, 1, 1000, -5, 2 ^ 256 - 1])
+  | "SETRAND" => cross suite #[("setrand", env (.setRand false))] (c7Pool ++ seedC7Pool) (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)]) ++
       -- a parameter tuple shorter than 7 is extended (consume_tuple_gas(tpay)), then c7 is charged
       -- (consume_tuple_gas(tuple)): gas may run out at the first charge (exec_set_rand)
       ((Array.range 14).map fun k =>
         { name := s!"oracle/gas/short-params/limit{72 + k}", instr := { name := suite },
           program := #[.pushInt (.num (Int.ofNat (72 + k))), .tonEnvOp .setGasLimit, env (.setRand false)],
           initStack := #[iv 5], initC7 := #[tup #[iv 1, iv 2]] })
-  | "ADDRAND" => cross suite #[("addrand", env (.setRand true))] c7Pool (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)])
+  | "ADDRAND" => cross suite #[("addrand", env (.setRand true))] (c7Pool ++ seedC7Pool) (ints1 #[0, 1, 2 ^ 256 - 1, -1, -(2 ^ 256)])
   | "SETGASLIMIT" => cross suite #[("setgaslimit", env .setGasLimit)] #[("default", #[])]
       (ints1 #[0, 1, 100, 1000000, -1, 2 ^ 63, 2 ^ 64])
   | "CONFIGDICT" => one .configDict
@@ -221,20 +271,20 @@ def casesFor (suite : String) : Array OracleCase :=
   | "REWRITESTDADDRQ" => cross suite #[("rwq", env (.rewriteStdAddr true))] #[("default", #[])] (addrPool.map (fun a => #[a]))
   | "REWRITEVARADDR" => cross suite #[("rw", env (.rewriteVarAddr false))] #[("default", #[])] (addrPool.map (fun a => #[a]))
   | "REWRITEVARADDRQ" => cross suite #[("rwq", env (.rewriteVarAddr true))] #[("default", #[])] (addrPool.map (fun a => #[a]))
-  | "GETGASFEE" => cross suite #[("fee", env .getGasFee)] c7Pool
+  | "GETGASFEE" => cross suite #[("fee", env .getGasFee)] (c7Pool ++ cfgC7Pool)
       ((#[0, 1, 1000, 1000000, -1, 2 ^ 63] : Array Int).flatMap (fun g => #[#[iv g, iv 0], #[iv g, iv (-1)]]) ++ #[#[iv 1], #[]])
-  | "GETGASFEESIMPLE" => cross suite #[("fee", env .getGasFeeSimple)] c7Pool
+  | "GETGASFEESIMPLE" => cross suite #[("fee", env .getGasFeeSimple)] (c7Pool ++ cfgC7Pool)
       ((#[0, 1, 1000, 1000000, -1, 2 ^ 63] : Array Int).flatMap (fun g => #[#[iv g, iv 0], #[iv g, iv (-1)]]) ++ #[#[iv 1], #[]])
-  | "GETSTORAGEFEE" => cross suite #[("fee", env .getStorageFee)] c7Pool
+  | "GETSTORAGEFEE" => cross suite #[("fee", env .getStorageFee)] (c7Pool ++ cfgC7Pool)
       #[#[iv 1, iv 100, iv 3600, iv 0], #[iv 10, iv 10000, iv 86400, iv (-1)], #[iv 0, iv 0, iv 0, iv 0],
         #[iv (-1), iv 1, iv 1, iv 0], #[iv (2 ^ 63), iv 1, iv 1, iv 0], #[iv 1, iv 1, iv 1], #[]]
-  | "GETFORWARDFEE" => cross suite #[("fee", env .getForwardFee)] c7Pool
+  | "GETFORWARDFEE" => cross suite #[("fee", env .getForwardFee)] (c7Pool ++ cfgC7Pool)
       #[#[iv 1, iv 100, iv 0], #[iv 10, iv 10000, iv (-1)], #[iv 0, iv 0, iv 0], #[iv (-1), iv 1, iv 0],
         #[iv (2 ^ 63), iv 1, iv 0], #[iv 1, iv 1], #[]]
-  | "GETFORWARDFEESIMPLE" => cross suite #[("fee", env .getForwardFeeSimple)] c7Pool
+  | "GETFORWARDFEESIMPLE" => cross suite #[("fee", env .getForwardFeeSimple)] (c7Pool ++ cfgC7Pool)
       #[#[iv 1, iv 100, iv 0], #[iv 10, iv 10000, iv (-1)], #[iv 0, iv 0, iv 0], #[iv (-1), iv 1, iv 0],
         #[iv (2 ^ 63), iv 1, iv 0], #[iv 1, iv 1], #[]]
-  | "GETORIGINALFWDFEE" => cross suite #[("fee", env .getOriginalFwdFee)] c7Pool
+  | "GETORIGINALFWDFEE" => cross suite #[("fee", env .getOriginalFwdFee)] (c7Pool ++ cfgC7Pool)
       #[#[iv 0, iv 0], #[iv 1000, iv 0], #[iv 1000, iv (-1)], #[iv (-1), iv 0], #[iv (2 ^ 63), iv 0], #[iv 1], #[]]
   | "GETEXTRABALANCE" => cross suite #[("get", getExtraBalance)] ecC7Pool
       (ints1 #[7, 8, 0, 3, 1000, 0xdeadbeef, 2 ^ 32 - 1, 2 ^ 32, -1]) ++ ecSeqCases suite

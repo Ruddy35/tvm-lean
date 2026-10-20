@@ -284,7 +284,7 @@ def casesFor (suite : String) : Array OracleCase :=
         #[#[.null, iv 1], #[.cell body], #[]])
   | "CHANGELIB" => cross suite (env .changeLib)
       (((#[0, 2 ^ 256 - 1, -1] : Array Int).flatMap (fun h =>
-        (#[0, 1, 2, 16, 17, -1] : Array Int).map (fun m => #[iv h, iv m]))) ++ #[#[.null, iv 1], #[iv 5], #[]])
+        (#[0, 1, 2, 3, 16, 17, 18, 19, 31, 32, -1] : Array Int).map (fun m => #[iv h, iv m]))) ++ #[#[.null, iv 1], #[iv 5], #[]])
   | _ => #[]
 
 end Tests.Gen.Msg
