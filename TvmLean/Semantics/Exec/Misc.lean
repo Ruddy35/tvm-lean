@@ -66,10 +66,14 @@ decreasing_by
 
 def VM.execCdataSize (quiet : Bool) : VM Unit := do
   VM.checkUnderflow 2
-  let n ← VM.popIntFinite
+  -- C++ `exec_compute_data_size`: `pop_int` (NaN allowed), the cell or slice, then range_chk for
+  -- a bound that is NaN or negative
+  let bound ← VM.popInt
   let c? ← VM.popMaybeCell
-  if n < 0 then
-    throw .rangeChk
+  let n : Int ←
+    match bound with
+    | .nan => throw .rangeChk
+    | .num n => if n < 0 then throw .rangeChk else pure n
   let maxBoundNat : Nat := (1 <<< 63) - 1
   let maxBound : Int := Int.ofNat maxBoundNat
   let limit : Nat := if n > maxBound then maxBoundNat else n.toNat
@@ -99,10 +103,14 @@ def VM.execCdataSize (quiet : Bool) : VM Unit := do
 
 def VM.execSdataSize (quiet : Bool) : VM Unit := do
   VM.checkUnderflow 2
-  let n ← VM.popIntFinite
+  -- C++ `exec_compute_data_size`: `pop_int` (NaN allowed), the cell or slice, then range_chk for
+  -- a bound that is NaN or negative
+  let bound ← VM.popInt
   let s ← VM.popSlice
-  if n < 0 then
-    throw .rangeChk
+  let n : Int ←
+    match bound with
+    | .nan => throw .rangeChk
+    | .num n => if n < 0 then throw .rangeChk else pure n
   let maxBoundNat : Nat := (1 <<< 63) - 1
   let maxBound : Int := Int.ofNat maxBoundNat
   let limit : Nat := if n > maxBound then maxBoundNat else n.toNat
