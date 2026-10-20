@@ -63,10 +63,21 @@ def IntVal.nanLshiftCpp (shift : Nat) : IntVal :=
   if 52 ≤ shift ∧ shift ≤ 311 then .num 0 else .nan
 
 /-- C++ `RefInt256 >> shift` (refint.cpp:157, `AnyIntView::rshift_any`, bigint.hpp:1544) applied to
-NaN, rounding down. A shift by 0 keeps NaN; up to 12 bits (`word_bits - word_shift`) the result
-is built from no words: 0; a longer shift gives the sign of the value, and the sign of NaN is
-`0x80000000` (`sgn`, bigint.hpp:281), negative: -1. -/
-def IntVal.nanRshiftCpp (shift : Nat) : IntVal :=
-  if shift = 0 then .nan else if shift ≤ 12 then .num 0 else .num (-1)
+NaN, and `rshift(shift, round_mode)` (bigint.hpp:453): rounding down (-1), to nearest (0) or up (1).
+A shift by 0 keeps NaN; up to 12 bits (`word_bits - word_shift`) the result is built from no words:
+0; a longer shift gives the result for the sign of the value, and the sign of NaN is `0x80000000`
+(`sgn`, bigint.hpp:281), negative: -1 rounding down, 0 otherwise. -/
+def IntVal.nanRshiftCpp (shift : Nat) (roundMode : Int := -1) : IntVal :=
+  if shift = 0 then .nan else if shift ≤ 12 then .num 0 else if roundMode < 0 then .num (-1) else .num 0
+
+/-- C++ `x & y` (`log_op_any` with `LogOpAnd`, bigint.hpp:845) when `x` or `y` is NaN: an operand 0
+(one zero word) makes the result 0, any other gives NaN. -/
+def IntVal.nanAndCpp (x y : IntVal) : IntVal :=
+  if x = .num 0 ∨ y = .num 0 then .num 0 else .nan
+
+/-- C++ `x | y` (`log_op_any` with `LogOpOr`) when `x` or `y` is NaN: an operand -1 makes the
+result -1, any other gives NaN. -/
+def IntVal.nanOrCpp (x y : IntVal) : IntVal :=
+  if x = .num (-1) ∨ y = .num (-1) then .num (-1) else .nan
 
 end TvmLean

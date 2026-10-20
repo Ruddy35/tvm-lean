@@ -138,7 +138,10 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
           VM.checkUnderflow 2
           let shiftRaw ← popLongLike
           let badShift := shiftOutOfRange shiftRaw 1023
-          if (!quiet) && badShift then
+          -- C++ `exec_lshift` (arithops.cpp:814-822): before version 13 a shift outside 0..1023 is
+          -- range_chk in the quiet form too, and NaN is shifted as a BigInt
+          let gv : Nat := (← get).globalVersion
+          if (!quiet || gv < 13) && badShift then
             throw .rangeChk
           let x ← VM.popInt
           if badShift then
@@ -146,7 +149,7 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
           else
             let shift : Nat := shiftRaw.toNat
             match x with
-            | .nan => VM.pushIntQuiet .nan quiet
+            | .nan => VM.pushIntQuiet (if gv ≥ 13 then .nan else IntVal.nanLshiftCpp shift) quiet
             | .num n =>
                 let qWords : Nat := shift / bigintWordShift
                 let isZeroHugeInvalid : Bool :=
@@ -159,7 +162,10 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
           VM.checkUnderflow 2
           let shiftRaw ← popLongLike
           let badShift := shiftOutOfRange shiftRaw 1023
-          if (!quiet) && badShift then
+          -- C++ `exec_rshift` (arithops.cpp:833-841): before version 13 a shift outside 0..1023 is
+          -- range_chk in the quiet form too, and NaN is shifted as a BigInt
+          let gv : Nat := (← get).globalVersion
+          if (!quiet || gv < 13) && badShift then
             throw .rangeChk
           let x ← VM.popInt
           if badShift then
@@ -167,7 +173,7 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
           else
             let shift : Nat := shiftRaw.toNat
             match x with
-            | .nan => VM.pushIntQuiet .nan quiet
+            | .nan => VM.pushIntQuiet (if gv ≥ 13 then .nan else IntVal.nanRshiftCpp shift) quiet
             | .num n => VM.pushIntQuiet (.num (floorDivPow2 n shift)) quiet
       | .shrMod mulMode addMode d roundMode quiet zOpt =>
           -- C++ `exec_mulshrmod` and `exec_shrmod` (arithops.cpp:530, 350): the ADD forms (result
@@ -192,7 +198,10 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
               | some z => pure (Int.ofNat z)
               | none => popLongLike
             let badShift := shiftOutOfRange shiftRaw 256
-            if (!quiet) && badShift then
+            -- C++ `exec_mulshrmod` (arithops.cpp:542-560): before version 13 a shift outside
+            -- 0..256 is range_chk in the quiet forms too, and NaN operands are computed as BigInts
+            let gv : Nat := (← get).globalVersion
+            if (!quiet || gv < 13) && badShift then
               throw .rangeChk
             let w ← if addMode then VM.popInt else pure (.num 0)
             let y ← VM.popInt
@@ -231,11 +240,24 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
                   | _ =>
                       throw .invOpcode
               | _, _, _ =>
-                  if d == 3 then
-                    VM.pushIntQuiet .nan quiet
-                    VM.pushIntQuiet .nan quiet
+                  if gv ≥ 13 then
+                    if d == 3 then
+                      VM.pushIntQuiet .nan quiet
+                      VM.pushIntQuiet .nan quiet
+                    else
+                      VM.pushIntQuiet .nan quiet
                   else
-                    VM.pushIntQuiet .nan quiet
+                    -- before version 13: `x * y + w` with a NaN operand is NaN (`add_mul_any`,
+                    -- bigint.hpp:952), its shift `IntVal.nanRshiftCpp`, its remainder NaN
+                    -- (`mod_pow2_any`, bigint.hpp:1443); a shift by 0 rounds down (arithops.cpp:547)
+                    let shift : Nat := shiftRaw.toNat
+                    let q := IntVal.nanRshiftCpp shift (if shift == 0 then -1 else roundMode)
+                    match d with
+                    | 1 => VM.pushIntQuiet q quiet
+                    | 2 => VM.pushIntQuiet .nan quiet
+                    | _ =>
+                        VM.pushIntQuiet q quiet
+                        VM.pushIntQuiet .nan quiet
           else
             -- RSHIFT/MODPOW2 family: runtime shift is strict `pop_smallint_range(256)` even in quiet mode.
             let st ← get
@@ -340,11 +362,21 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
             | some z => pure (Int.ofNat z)
             | none => popLongLike
           let badShift := shiftOutOfRange shiftRaw 256
-          if (!quiet) && badShift then
+          -- C++ `exec_shldivmod` (arithops.cpp:655-673): before version 13 a shift outside 0..256 is
+          -- range_chk in the quiet forms too, and NaN operands are computed as BigInts
+          let gv : Nat := (← get).globalVersion
+          if (!quiet || gv < 13) && badShift then
             throw .rangeChk
           let y ← VM.popInt
           let w ← if addMode then VM.popInt else pure (.num 0)
-          let x ← VM.popInt
+          let x0 ← VM.popInt
+          -- before version 13 `x << shift` of a NaN `x` is the BigInt shift of NaN in a 514-bit
+          -- BigInt (`DoubleInt`, 10 words): a valid 0 for a shift of at least one 52-bit word
+          -- (`lshift_any`, bigint.hpp:1611); the sum and the division then take NaN on to the results
+          let x : IntVal :=
+            match x0 with
+            | .nan => if gv < 13 ∧ 52 ≤ shiftRaw then .num 0 else .nan
+            | v => v
           if badShift then
               if d == 3 then
                 VM.pushIntQuiet .nan quiet

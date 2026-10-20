@@ -29,13 +29,17 @@ def execInstrArithMulShrModConst (i : Instr) (next : VM Unit) : VM Unit := do
           | _ =>
               throw .invOpcode
       | _, _ =>
+          -- C++ `exec_mulshrmod` (arithops.cpp:554-562): since version 13 a NaN operand gives NaN;
+          -- before, `x * y` is NaN (`add_mul_any`), its shift `IntVal.nanRshiftCpp`, its
+          -- remainder NaN (`mod_pow2_any`)
+          let q : IntVal := if (← get).globalVersion ≥ 13 then .nan else IntVal.nanRshiftCpp z roundMode
           match d with
           | 1 =>
-              VM.pushIntQuiet .nan false
+              VM.pushIntQuiet q false
           | 2 =>
               VM.pushIntQuiet .nan false
           | 3 =>
-              VM.pushIntQuiet .nan false
+              VM.pushIntQuiet q false
               VM.pushIntQuiet .nan false
           | _ =>
               throw .invOpcode

@@ -50,9 +50,11 @@ def execInstrArithContExt (i : Instr) (next : VM Unit) : VM Unit := do
           VM.checkUnderflow 2
           let y ← VM.popInt
           let x ← VM.popInt
+          -- C++ `exec_and` (arithops.cpp:873): since version 13 a NaN operand gives NaN; before, the
+          -- BigInt operation is computed
+          let gv : Nat := (← get).globalVersion
           match x, y with
-          | .nan, _ => VM.pushIntQuiet .nan true
-          | _, .nan => VM.pushIntQuiet .nan true
+          | .nan, _ | _, .nan => VM.pushIntQuiet (if gv ≥ 13 then .nan else IntVal.nanAndCpp x y) true
           | .num a, .num b =>
               let ba ← popBitsTwos257 a
               let bb ← popBitsTwos257 b
@@ -62,9 +64,11 @@ def execInstrArithContExt (i : Instr) (next : VM Unit) : VM Unit := do
           VM.checkUnderflow 2
           let y ← VM.popInt
           let x ← VM.popInt
+          -- C++ `exec_or` (arithops.cpp:889): since version 13 a NaN operand gives NaN; before, the
+          -- BigInt operation is computed
+          let gv : Nat := (← get).globalVersion
           match x, y with
-          | .nan, _ => VM.pushIntQuiet .nan true
-          | _, .nan => VM.pushIntQuiet .nan true
+          | .nan, _ | _, .nan => VM.pushIntQuiet (if gv ≥ 13 then .nan else IntVal.nanOrCpp x y) true
           | .num a, .num b =>
               let ba ← popBitsTwos257 a
               let bb ← popBitsTwos257 b

@@ -9,9 +9,11 @@ def execInstrArithAnd (i : Instr) (next : VM Unit) : VM Unit := do
       VM.checkUnderflow 2
       let y ← VM.popInt
       let x ← VM.popInt
+      -- C++ `exec_and` (arithops.cpp:873): since version 13 a NaN operand gives NaN; before, the BigInt
+      -- operation is computed
+      let gv : Nat := (← get).globalVersion
       match x, y with
-      | .nan, _ => VM.pushIntQuiet .nan false
-      | _, .nan => VM.pushIntQuiet .nan false
+      | .nan, _ | _, .nan => VM.pushIntQuiet (if gv ≥ 13 then .nan else IntVal.nanAndCpp x y) false
       | .num a, .num b =>
           let ba ←
             match intToBitsTwos a 257 with
