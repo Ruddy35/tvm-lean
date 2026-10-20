@@ -48,6 +48,14 @@ next step), so the check is made there; `VM.jump` and `VM.call` apply it at once
 def OrdCdata.needsMoreArgs (cdata : OrdCdata) (depth : Nat) : Bool :=
   decide (0 ≤ cdata.nargs) && cdata.nargs.toNat > depth
 
+/-- The control data a continuation is entered with. C++ runs `adjust_jump_cont` (closure stack and
+`nargs`) on the first continuation of a jump (`VmState::jump`, `throw_exception`) and, from version
+9, on every continuation `jump_to` reaches after it (vm.h:394-399). Before version 9 a continuation
+reached in a chain is entered by its own `jump` alone (`OrdCont::jump`, `ArgContExt::jump`): its save
+list is applied, its stack and `nargs` are not. `chainJumps` is 0 on the first continuation. -/
+def VmState.enteredCdata (st : VmState) (cdata : OrdCdata) : OrdCdata :=
+  if st.globalVersion ≥ 9 ∨ st.chainJumps = 0 then cdata else OrdCdata.empty
+
 def VmState.applyCregsCdata (st : VmState) (cregs : OrdCregs) (cdata : OrdCdata) : VmState :=
   -- Mirrors C++ `adjust_cr(save)` + `adjust_jump_cont` stack truncation/merge on jump/call.
   let regs0 := st.regs
@@ -188,6 +196,7 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
       -- instruction runs
       VmState.jumped { st with stack := st.stack.push (.int (.num n)), cc := next }
   | .envelope ext cregs cdata =>
+      let cdata := st.enteredCdata cdata
       if cdata.needsMoreArgs st.stack.size then st.raiseException Excno.stkUnd.toInt else
       -- Mirrors C++ `ArgContExt::jump`: apply saved control regs, closure stack and nargs, then jump to `ext`.
       let st := st.applyCregsCdata cregs cdata
@@ -197,6 +206,7 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
       else
         VmState.jumped { st with cc := ext }
   | .ordinary code saved cregs cdata =>
+      let cdata := st.enteredCdata cdata
       if cdata.needsMoreArgs st.stack.size then st.raiseException Excno.stkUnd.toInt else
       -- Apply pending continuation control regs (MVP: c0,c1,c2,c3,c4,c5,c7), once.
       let st2 := st.applyCregsCdata cregs cdata
