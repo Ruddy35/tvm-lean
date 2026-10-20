@@ -204,7 +204,7 @@ def _root_.TvmLean.Tx.W.varUIntPadded (w : W) (v n : Nat) : W :=
 /-- A `ShardAccount` at `(wc, addr)` with the storage statistics C++ computes; `padded` stores one
 amount with a leading zero byte: 1 the balance, 2 the cells used, 3 the due payment. -/
 def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt : Nat) (extra : Option Cell := none)
-    (padded : Nat := 0) (library : Option Cell := none) : Cell :=
+    (padded : Nat := 0) (library : Option Cell := none) (anycast : Option BitString := none) : Cell :=
   let stateBits : W :=
     match st with
     | .active code data => ((((({} : W).bool true).bool false).bool false).maybeRef (some code)).maybeRef (some data) |>.maybeRef library
@@ -220,7 +220,8 @@ def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt
     | .none => (({} : W).bool false).cell
     | _ =>
         let (c, b) := cellsAndBits (collectCells sc.refs.toList)
-        let w : W := (({} : W).bool true).bitStr (addrStd wc addr).bits
+        -- the stored address: `addr` itself, or with an anycast prefix (then `addr` is addr_orig)
+        let w : W := (({} : W).bool true).bitStr (Account.mkAddr wc anycast addr).bits
         let w := if padded == 2 then w.varUIntPadded (c + 1) 7 else w.varUInt (c + 1) 7
         let w := (w.varUInt (b + sc.bits.size) 7).uint 0 3 |>.uint lastPaid 32
         let w := if due > 0 then (if padded == 3 then (w.bool true).varUIntPadded due 16 else (w.bool true).grams due)
@@ -231,10 +232,11 @@ def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt
 /-- An internal message to `(wc, dest)`, with an optional `StateInit` in a reference and a body of
 `body` bits inline. -/
 def intMsg (wc : Int) (dest : BitString) (value : Nat) (bounce : Bool) (init : Option Cell) (body : BitString)
-    (extraFlags : Nat := 0) (bodyRefs : Array Cell := #[]) (extra : Option Cell := none) (padded : Nat := 0) : Cell :=
+    (extraFlags : Nat := 0) (bodyRefs : Array Cell := #[]) (extra : Option Cell := none) (padded : Nat := 0)
+    (anycast : Option BitString := none) : Cell :=
   let src := natToBits 0x2222222222222222222222222222222222222222222222222222222222222222 256
   let w : W := (((({} : W).bool false).bool true).bool bounce).bool false
-  let w := (w.bitStr (addrStd 0 src).bits).bitStr (addrStd wc dest).bits
+  let w := (w.bitStr (addrStd 0 src).bits).bitStr (Account.mkAddr wc anycast dest).bits
   -- `padded`: one amount with a leading zero byte (1 the value, 2 extra_flags, 3 fwd_fee)
   let pad (k v : Nat) (w : W) : W := if padded == k then w.varUIntPadded v 16 else w.grams v
   let w := (((pad 1 value w).maybeRef extra) |> pad 2 extraFlags |> pad 3 0) |>.uint 2000 64 |>.uint 1700000100 32
@@ -244,8 +246,8 @@ def intMsg (wc : Int) (dest : BitString) (value : Nat) (bounce : Bool) (init : O
   { ((w.bool false).bitStr body) with refs := (w.bool false).refs ++ bodyRefs }.cell
 
 /-- An external inbound message (`addr_none` source, no import fee). -/
-def extMsg (wc : Int) (dest : BitString) (init : Option Cell) (body : BitString) : Cell :=
-  let w : W := ((({} : W).uint 2 2).uint 0 2).bitStr (addrStd wc dest).bits |>.grams 0
+def extMsg (wc : Int) (dest : BitString) (init : Option Cell) (body : BitString) (anycast : Option BitString := none) : Cell :=
+  let w : W := ((({} : W).uint 2 2).uint 0 2).bitStr (Account.mkAddr wc anycast dest).bits |>.grams 0
   let w := match init with
     | some c => ((w.bool true).bool true).ref c
     | none => w.bool false
@@ -451,6 +453,19 @@ def cases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run do
     out := out.push (mk "lib-code/deploy" (mkAccount 0 siAddr .none 0 0 0 0) (intMsg 0 siAddr 100000000 false (some siLib) #[]))
     out := out.push (withLibs (mk "lib-code/deploy-global" (mkAccount 0 siAddr .none 0 0 0 0)
       (intMsg 0 siAddr 100000000 false (some siLib) #[])) (globalLibsOf [libBody]))
+    -- accounts with an anycast address (`addr` is addr_orig, the account lives at the rewritten
+    -- address): messages to the rewritten address or to the anycast form, contracts that read
+    -- MYADDR or send (the source is replaced by the address with its anycast before version 10)
+    for d in [1, 8, 30] do
+      let pfx : BitString := (List.range d).toArray.map (fun i => i % 3 == 0)
+      let actual := pfx ++ a.extract d 256
+      for (pname, prog) in programs.filter (fun (n, _) => ["accept", "c7"].contains n) ++
+          actionPrograms.filter (fun (n, _) => ["send", "send-bad-src", "send-all"].contains n) do
+        let acc := mkAccount 0 a (.active (asm prog) data) 1000000000 1700000000 0 1000 (anycast := some pfx)
+        out := out.push (mk s!"anycast{d}/{pname}/int" acc (intMsg 0 actual 100000000 false none #[]))
+        out := out.push (mk s!"anycast{d}/{pname}/int-anycast" acc (intMsg 0 a 100000000 true none #[] (anycast := some pfx)))
+        out := out.push (mk s!"anycast{d}/{pname}/ext" acc (extMsg 0 actual none #[]))
+        out := out.push (mk s!"anycast{d}/{pname}/ext-anycast" acc (extMsg 0 a none #[] (anycast := some pfx)))
     -- precompiled contracts (parameter 45): the VM runs with the gas limits of the configuration and
     -- the gas usage of the list is reported; out of gas, C++ fails
     let pre := ["accept", "throw42", "c7-v6", "accept-loop", "burn", "empty"].filterMap fun n =>
