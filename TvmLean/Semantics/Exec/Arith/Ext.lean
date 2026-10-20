@@ -170,6 +170,9 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
             | .nan => VM.pushIntQuiet .nan quiet
             | .num n => VM.pushIntQuiet (.num (floorDivPow2 n shift)) quiet
       | .shrMod mulMode addMode d roundMode quiet zOpt =>
+          -- C++ `exec_mulshrmod` and `exec_shrmod` (arithops.cpp:530, 350): the ADD forms (result
+          -- mode 0) exist from version 4, before that they are inv_opcode
+          if addMode && (← get).globalVersion < 4 then throw .invOpcode
           if mulMode then
             -- MULRSHIFT/MULMODPOW2 family: runtime shift range checks are relaxed in quiet mode
             -- (global version >= 13), producing NaN instead of throwing.
@@ -319,6 +322,9 @@ def execInstrArithExt (i : Instr) (next : VM Unit) : VM Unit := do
                 | _, _ =>
                     throw .invOpcode
       | .shlDivMod d roundMode addMode quiet zOpt =>
+          -- C++ `exec_shldivmod` (arithops.cpp:643): the ADD forms (result mode 0) exist from version 4,
+          -- before that they are inv_opcode
+          if addMode && (← get).globalVersion < 4 then throw .invOpcode
           -- TVM `exec_shldivmod` checks arity first, then pops runtime shift
           -- (when present), then divisor.
           let st ← get

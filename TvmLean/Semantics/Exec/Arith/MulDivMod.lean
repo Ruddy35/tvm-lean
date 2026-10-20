@@ -6,6 +6,9 @@ set_option maxHeartbeats 1000000 in
 def execInstrArithMulDivMod (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
   | .mulDivMod d roundMode addMode quiet =>
+      -- C++ `exec_muldivmod` (arithops.cpp:461): the ADD forms (result mode 0) exist from version 4,
+      -- before that they are inv_opcode
+      if addMode && (← get).globalVersion < 4 then throw .invOpcode
       let st ← get
       let need : Nat := if addMode then 4 else 3
       if st.stack.size < need then
