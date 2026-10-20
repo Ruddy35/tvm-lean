@@ -10,8 +10,10 @@ Oracle cases for dictionary paths the full coverage run of 2026-10-19 did not re
   remaining child into its parent edge), lookups of keys, of non-keys, of proper prefixes of keys
   and of keys extended past a leaf. The dictionary is built in the program by chained
   `PFXDICTSET`s from `null`, then the instruction under test runs on it;
-- `DICT{I,U}DEL`, `DICT{I,U}DELGET{,REF}` with an integer key outside the key's range: the
-  dictionary is returned unchanged with 0 (`exec_dict_delete`, `exec_dict_deleteget`).
+- `DICT{I,U}DEL`, `DICT{I,U}DELGET{,REF}` with an integer key outside the key's range:
+  `DictionaryFixed::integer_key` (`dict.cpp:418`, not quiet) throws range_chk, so the branch of
+  `exec_dict_delete` / `exec_dict_deleteget` that would return the dictionary unchanged with 0 is
+  never reached; the cases pin the range_chk.
 -/
 
 namespace Tests.Gen.Dict
@@ -67,7 +69,8 @@ private def pfxDepthCases (suite : String) (op : Instr) : Array OracleCase :=
     { name := s!"oracle/depth/{name}", instr := { name := suite }, program := prog ++ #[.pushInt (.num 8), op],
       initStack := stack }
 
-/-- `DICT{I,U}DEL{GET{,REF}}` with keys out of range (n = 4: signed -8..7, unsigned 0..15). -/
+/-- `DICT{I,U}DEL{GET{,REF}}` with keys out of range (n = 4: signed -8..7, unsigned 0..15):
+range_chk from `integer_key`. -/
 private def intKeyCases (suite : String) (op : Instr) (unsigned : Bool) : Array OracleCase :=
   let dict : Value :=
     match dictSetSliceWithCells none (natToBits 3 4) (Slice.ofCell (Cell.mkOrdinary (natToBits 5 8) #[])) .set with
