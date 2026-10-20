@@ -11,12 +11,12 @@
 |---|---|
 | Сборка всех библиотек и тестов | без ошибок |
 | Unit-тесты, все 919 наборов | 5989 / 5989 |
-| Оракул против C++, полный набор, глобальная версия 13 | 46 824 / 46 824 |
-| Оракул против C++, полный набор, глобальная версия 16 | 46 824 / 46 824 |
-| Fuzz против C++, версии 13 и 16 | 405 676 / 405 676 каждая |
+| Оракул против C++, полный набор, каждая глобальная версия 0..16 | 47 491 / 47 491 на каждой |
+| Fuzz против C++, каждая версия 0..16 | 405 676 / 405 676 на каждой |
 | Дифференциальные прогоны реального байткода | 35 889 / 35 889 |
 
-Проверено на `a5f0b60`.
+Проверено на `11ab4e2` (сервер). Разделы 1.4 и 4 (криптография на Lean, транзакции) проверены
+локально (числа — в разделах) и ждут полной проверки на сервере.
 
 ## 1. Поведение, исправленное по C++ (найдено сверкой)
 
@@ -70,6 +70,47 @@
 | `Exec/Flow/Runvm.lean` (`execInstrNested`) | **ошибка исходной модели:** `RUNVM` внутри дочерней VM был `inv_opcode`; глубина вложенности ограничена газом, рекурсия структурная | `run_child_vm`, `restore_parent_vm` (`vm.cpp:729, 770`), `exec_runvm_common` (`contops.cpp:230, 260-261`) |
 | `Exec/Dict/Ext.lean` (`PFXDICTSET`, `PFXDICTDEL`) | **ошибка исходной модели:** узлы, загруженные до ошибки ниже корня (значение или слитое ребро не помещается, испорченный узел), не списывались | `pfx_dict_set`, `pfx_dict_lookup_delete` (`dict.cpp:988, 993`) |
 | `Model/Cell/Primitives.lean` (`dictDeleteWithLoads`), `Exec/Dict/{Ext,DictGetMinMax}.lean` | **ошибка исходной модели:** при ошибке удаления (слитое ребро не помещается) списывались не те узлы: лишние соседи на пути (`DICT*DEL*`, `DICT*REMMIN/MAX*`) или без сливаемого ребёнка (`DICT*SETGETOPTREF`) | `DictionaryFixed::dict_lookup_delete` (`dict.cpp:1116-1188`) |
+| `Exec/Stack/{BlkSwapX,ReverseX}.lean` | **ошибка исходной модели:** нет `check_underflow(2)` до снятия счётчиков (найдено проходом коротких стеков по собственному опкоду набора) | `exec_blkswap_x`, `exec_reverse_x` (`stackops.cpp:439, 455`) |
+
+### 1.3. Глобальные версии ниже 13 (фаза 3, 2026-10-20)
+
+Источник — ветви C++ по `global_version` (`docs/audit/cpp-global-version.csv`): модель повторяла
+версию 13 на всех версиях. Каждая ветвь сверена полным оракулом на версиях по обе стороны порога;
+случаи, которых не было в наборах, — в `Tests/Harness/Gen/Versions.lean` (идут для каждого набора и
+каждой версии).
+
+| Файл | Что изменено | Основание в C++ |
+|---|---|---|
+| `Model/Instr/Codepage/Versions.lean`, `Step/Core.lean` | опкоды более поздней версии — `inv_opcode` после списания `gas_per_instr` | `OpcodeInstrWithVersion::dispatch` (`opctable.cpp:457-461`) |
+| `Exec/Arith/{DivMod,MulDivMod,Ext}.lean` | формы `ADD` деления и сдвигов (режим 0) — с версии 4, до неё `inv_opcode` | `exec_divmod`, `exec_shrmod`, `exec_muldivmod`, `exec_mulshrmod`, `exec_shldivmod` (`arithops.cpp:271, 350, 461, 530, 643`) |
+| `Step/Core.lean` (`VmState.enteredCdata`) | до версии 9 продолжение, в которое переходит цепочка `jump_to`, входит без своего стека и `nargs` | `jump_to` (`vm.h:394-399`) |
+| `Exec/Common.lean` (`VM.popStackCount`), `Exec/Stack/*X.lean`, `Exec/Stack/BlkSwapX.lean` | до версии 4 счётчик со стека — не больше 255; `BLKSWX` не списывает газ за элементы сверх 255 | `stackops.cpp:404-530`, `443-445` |
+| `Exec/Msg/{RawReserve,RawReserveX,SetLibCode,ChangeLib}.lean` | до версии 4 режим `RAWRESERVE` до 15, `SETLIBCODE`/`CHANGELIB` — до 2 | `tonops.cpp:2370, 2403-2414, 2427-2438` |
+| `Exec/Cell/Ext.lean` (`XLOAD`) | до версии 5 ячейка возвращается как есть, без загрузки | `exec_load_special_cell` (`cellops.cpp:906`) |
+| `Exec/Crypto/HashExt.lean` | до версии 9 нет `check_underflow(2)` для номера хэша со стека, счётчик `HASHEXTA` может включать построитель | `exec_hash_ext` (`tonops.cpp:687-691`) |
+| `Exec/Dict/Ext.lean` (`PFXDICTSET`, `PFXDICTDEL`) | до версии 9 проверка глубины на один элемент меньше | `dictops.cpp:570, 584` |
+| `Model/Value/IntVal.lean` (`nanLshiftCpp`, `nanRshiftCpp`, `nanAndCpp`, `nanOrCpp`), `Exec/Arith/{Lshift,Rshift,And,Or,ContExt,Ext,MulShrModConst,LshiftConst,RshiftConst}.lean` | до версии 13 NaN в сдвигах, `AND`, `OR`, `MULRSHIFT`, `LSHIFTDIV` проходит через `BigInt` C++ (NaN, сдвинутый на целые слова, — 0; `AND` с 0 — 0, `OR` с −1 — −1; …), тихие формы бросают `range_chk` на плохой сдвиг; **ошибка и на версии 13:** `LSHIFT#` NaN на 52..63 бита — 0 | `arithops.cpp:542-562, 655-673, 775-889`; `lshift_any`, `rshift_any`, `log_op_any` (`bigint.hpp`) |
+| `VM/Ops/Gas.lean` (`VmState.gasExhaustedNow`), `Step/Core.lean` | до версии 4 `consume_gas` не останавливает инструкцию: её находит `gas.check()` в конце шага; исключение списывается до остановки; прыжок в обработчик исключения не проверяется, и первая инструкция обработчика исполняется; `CHKSIGN*` не считаются | `VmState::consume_gas` (`vm.h:203-209`), `run_inner` (`vm.cpp:483-497`), `register_chksgn_call` (`vm.h:434-443`) |
+| `Model/Cell/Primitives.lean` (`skipMaybeAnycast`, `skipMessageAddr`, `parseMaybeAnycast`, `parseMessageAddr`), `Exec/TonEnv/{LdMsgAddr,ParseMsgAddr,RewriteStdAddr,RewriteVarAddr}.lean` | до версии 10 адрес может быть `addr_var` и иметь anycast; `REWRITEVARADDR` строит новую ячейку (создание и загрузка) | `tonops.cpp:1608-1853` |
+| `Exec/TonEnv/GlobalId.lean` | до версии 6 — запись 19 словаря конфигурации из параметра 19 `c7` | `exec_get_global_id` (`tonops.cpp:277-304`) |
+| `Exec/Msg/SendMsg.lean` | до версии 6 цены из словаря конфигурации (параметр 9, ключи 24/25) и предел 2¹³ ячеек; до 10 — учёт словаря валют сообщения и валют баланса (режимы 128/64); до 11 — плата IHR, если сообщение её не отключает; до 12 — `extra_flags` читается как `ihr_fee`; **ошибка:** длина корня считалась с платой до переноса `init` в ссылку | `exec_send_message` (`tonops.cpp:2121-2357`) |
+| `Model/Cell/Primitives.lean` (`libraryResolveLoads`), `VM/Ops/Gas.lean` (`VM.registerCellLoad`, `registerCellLoadSpecial`), `Exec/Common.lean`, `Step/Core.lean` | до версии 5 корень библиотеки загружается и списывается, библиотека в библиотеке разрешается дальше; до версии 4 поиск в коллекции списывает её узлы | `load_cell_slice_impl` (`CellSlice.cpp:1074-1136`), `VmState::load_library` (`vm.cpp:643-670`) |
+| `Exec/Flow/Runvm.lean` | **ошибка:** родитель, не способный оплатить газ дочерней VM (или стек её результатов), сообщал газ без этой оплаты | `restore_parent_vm` (`vm.cpp:788, 805`) |
+| `Model/Cont/Cregs.lean` (`Value.nullCell`), `Exec/Flow/Runvm.lean` | `RUNVM`: до версии 10 пределы газа дочерней VM — по остатку до оплаты бесплатного газа; до 11 незафиксированные `c4`/`c5` — запись-ячейка без ячейки (не `null` для `ISNULL`) | `run_child_vm`, `restore_parent_vm` (`vm.cpp:729-826`) |
+
+### 1.4. Криптография на Lean (фаза 4, 2026-10-20)
+
+Внешние функции `Host` заменены реализациями на Lean (`TvmLean/Model/Crypto/`). Каждая сверена с
+самой библиотекой, которую вызывает C++, на тысячах случаев (0 расхождений), наборы — оракулом и
+fuzz на нескольких версиях; новые случаи оракула и fuzz — на найденные правила библиотек.
+
+| Файл | Что | Основание в C++ |
+|---|---|---|
+| `Crypto/Keccak.lean`, `Crypto/Blake2b.lean`, `Basics/Bytes.lean` (SHA-256/512) | `HASHEXT{A}{R}`, `SHA256U` (сверка с hashlib и `crypto/keccak` на 710 длинах до 12 000 байт) | `Hasher.cpp` (OpenSSL EVP, `keccak_digest(…, padding = 1)`) |
+| `Crypto/Weierstrass.lean`, `Crypto/Secp256k1.lean` | `ECRECOVER`, `SECP256K1_XONLY_PUBKEY_TWEAK_ADD` (4333 случая против libsecp256k1) | `secp256k1.cpp`, libsecp256k1 `acf5c55`: `parse_compact`, `ecdsa_sig_recover`, `xonly_pubkey_parse`, `tweak_add_helper` |
+| `Crypto/P256.lean` | `P256_CHKSIGNU/S` (2983 случая против OpenSSL) | `p256.cpp`, OpenSSL 3.5.5: `oct2point`, `ecdsa_simple_verify_sig` |
+| `Crypto/Ristretto255.lean` | `RIST255_*` (1900 случаев против libsodium) | libsodium `d24faf5`: `ristretto255_frombytes`, `_p3_tobytes`, `_from_hash`, `crypto_scalarmult_ristretto255{_base}` |
+| `Crypto/Bls12381*.lean` | `BLS_*` (20 296 случаев против blst): разбор и подгруппы как blst, GLV/GLS и окна умножения, таблицы и корзины `MULTIEXP`, правила бесконечности в `PAIRING` и проверках | `bls.cpp`, blst `6d960cd` (`e1.c`, `e2.c`, `multi_scalar.c`, `pairing.c`, `aggregate.c`) |
 
 ## 2. Тотальность (поведение не меняется)
 
@@ -90,10 +131,27 @@
 ## 3. Инфраструктура
 
 - `Semantics/Contract.lean` — фаза исполнения (`computePhase`): начальное состояние, фиксация `c4/c5`, откат. Используется дифференциальным тестированием.
+- `VmState.steps` — шаги VM, как их считает C++ (`vm_steps` транзакции): шаг с инструкцией, неявным
+  `RET` или `JMPREF`, обработанное исключение, нехватка газа, шаги дочерней VM (`vm.cpp:458, 496,
+  527, 778`); сверяется эмулятором транзакций.
 - `Proofs/ModelEquiv.lean` — доказательства из раздела 2.
 - `Proofs/DecEq.lean` — разрешимое равенство для ячеек и инструкций.
 - `Apps/TestsSubset.lean` — прогон тестов изменённых инструкций.
 - `Validation/{Diff,Oracle}/Runner.lean`, `oracle/fif/ton_oracle_runvm_lib.fif` — выбор глобальной версии в сверке.
+
+## 4. Транзакции (фаза 5, начата 2026-10-20)
+
+`TvmLean/Transaction/` — обычная транзакция по `crypto/block/transaction.cpp` в порядке эмулятора
+транзакций (`emulator/transaction-emulator.cpp`): конфигурация (параметры 0, 5, 8, 12, 18, 20/21,
+24/25, 31, 43, 44, 45), счёт (`Account::unpack`, `init_new`), входящее сообщение, фазы хранения,
+кредита, исполнения (газ, причины пропуска, развёртывание и разморозка по `StateInit`, `c7` всех
+версий, предкомпилированный код), действий (`SENDRAWMSG`, `RAWRESERVE`, `SETCODE`, `CHANGELIB`,
+штрафы, пределы состояния) и bounce (оба формата тела), новое состояние счёта (статистика хранения,
+хэш словаря ячеек) и ячейка транзакции. Эталон — `libemulator.so` эталонной сборки
+(`tools/txoracle/txoracle.py`); `tvm-lean-tx-test` сравнивает хэши транзакции и нового счёта:
+случаи на всех версиях 0..16 и случайные транзакции (`--fuzz`), без расхождений. Не смоделированы:
+дополнительные валюты, транзакции кроме обычных (tick-tock, split/merge), предел загрузок
+библиотек транзакции (`max_transaction_library_loads`).
 
 ## Вынесено из модели (отдельный архив)
 
@@ -104,9 +162,12 @@
 
 1. Доказать равенства, помеченные «не доказано» в разделе 2.
 2. Аудит по исходникам C++ `3d478cb`: полный список опкодов и ветвей против модели; инструкции `EXTCALL`, `XCHG_IJ`, `SETCP_SHORT`.
-3. Глобальные версии ниже 13.
-4. Криптография и хэши, которые сейчас — внешние функции `Host`: secp256k1, P-256, ristretto255, BLS12-381, blake2b, keccak (ed25519 и SHA-2 — уже на Lean).
-5. Фазы транзакции: хранение, кредит, действия, bounce.
+3. Глобальные версии ниже 13: ветви закрыты (раздел 1.3); граница цепочки библиотек
+   (`libraryChainBound`, 1024) и библиотека внутри коллекции библиотек до версии 4 (C++ следовал
+   бы ей) не воспроизводятся.
+4. Криптография — на Lean (раздел 1.4); внешних функций нет.
+5. Фазы транзакции (раздел 4): дополнительные валюты, tick-tock и split/merge, предел загрузок
+   библиотек; больше случаев (счета мастерчейна и особые, anycast, библиотеки в коде).
 6. Покрытие ветвей C++ при сверке (`gcov`): замер есть (`docs/coverage/README.md`), идёт закрытие непокрытых ветвей.
 7. Поле `savedC0` обычного продолжения (`Continuation.ordinary`) больше не читается семантикой и
    всегда `quit 0`: удалить (механическая правка ~400 мест).
