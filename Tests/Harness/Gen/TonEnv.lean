@@ -1,4 +1,5 @@
 import Tests.Harness.Registry
+import Tests.Harness.Gen.VmCore
 
 /-!
 Oracle cases for the TON environment instructions (C++ `crypto/vm/tonops.cpp`): each instruction
@@ -154,6 +155,33 @@ private def ecSeqCases (suite : String) : Array OracleCase := Id.run do
       initStack := #[iv 0, .slice (Slice.ofCell Cell.empty)], initC7 := c7 }
   return out
 
+/-- A library cell as the dictionary or as a node of it. C++ loads the nodes with
+`load_cell_slice_impl` under the call's `VmStateInterface` (`LocalVmState` for the cheap calls,
+whose `load_library` asks the VM): the library's root replaces it, a missing library is cell_und. -/
+private def ecLibCases (suite : String) : Array OracleCase := Id.run do
+  let lib := Tests.Gen.VmCore.libCell
+  let root : Cell := match ecDicts[2]!.2 with | .cell c => c | _ => Cell.empty
+  -- the root with its first child replaced by a library cell of that child
+  let child : Cell := root.refs[0]!
+  let rootChildLib : Cell := Cell.mkOrdinary root.bits (root.refs.set! 0 (lib child))
+  let dicts : Array (String × Cell × Array Cell) :=
+    #[("root-lib-hit", lib root, #[root]), ("root-lib-miss", lib root, #[]),
+      ("child-lib-hit", rootChildLib, #[child]), ("child-lib-miss", rootChildLib, #[])]
+  let mut out : Array OracleCase := #[]
+  for (dn, d, libs) in dicts do
+    let c7 := c7WithBalance (tup #[iv 5000, .cell d])
+    let initLibraries := if libs.isEmpty then #[] else #[Tests.Gen.VmCore.libCollection libs]
+    for k in [0, 7, 0xdeadbeef, 5] do
+      out := out.push
+        { name := s!"oracle/lib/{dn}/key{k}", instr := { name := suite }, program := #[getExtraBalance],
+          initStack := #[iv k], initC7 := c7, initLibraries }
+    -- seven calls: five cheap (LocalVmState), then the VM's own interface
+    let call (k : Nat) : Array Instr := #[.pushInt (.num (Int.ofNat k)), getExtraBalance, .pop 0]
+    out := out.push
+      { name := s!"oracle/lib/{dn}/seq7", instr := { name := suite },
+        program := (#[0, 0xdeadbeef, 1000, 2 ^ 31, 65535, 3, 7].map call).flatten, initC7 := c7, initLibraries }
+  return out
+
 /-! ### Config-dependent instructions on real and malformed config entries
 
 `c7[0][14]` (the unpacked config) with storage prices, a global id, gas prices in each form
@@ -287,7 +315,7 @@ def casesFor (suite : String) : Array OracleCase :=
   | "GETORIGINALFWDFEE" => cross suite #[("fee", env .getOriginalFwdFee)] (c7Pool ++ cfgC7Pool)
       #[#[iv 0, iv 0], #[iv 1000, iv 0], #[iv 1000, iv (-1)], #[iv (-1), iv 0], #[iv (2 ^ 63), iv 0], #[iv 1], #[]]
   | "GETEXTRABALANCE" => cross suite #[("get", getExtraBalance)] ecC7Pool
-      (ints1 #[7, 8, 0, 3, 1000, 0xdeadbeef, 2 ^ 32 - 1, 2 ^ 32, -1]) ++ ecSeqCases suite
+      (ints1 #[7, 8, 0, 3, 1000, 0xdeadbeef, 2 ^ 32 - 1, 2 ^ 32, -1]) ++ ecSeqCases suite ++ ecLibCases suite
   | _ => #[]
 
 end Tests.Gen.TonEnv
