@@ -56,8 +56,9 @@ theorem OrdCregs.WF.ofC0 {k : Continuation} (hk : k.WF) :
   simp [hk]
 
 /-- `wf_vc` for the conditions on continuations: the continuations, saved registers and closure
-stacks built are split into their fields first (`OrdCregs.wf_mk`); `wf_cont [h₁, h₂]` gives
-`grind` more lemmas. -/
+stacks built are split into their fields first (`OrdCregs.wf_mk`), and `wf_vc` runs on what this
+leaves (nothing, when the splitting proves the condition); `wf_cont [h₁, h₂]` gives `grind` more
+lemmas. -/
 syntax "wf_cont" (" [" Lean.Parser.Tactic.grindParam,* "]")? : tactic
 
 macro_rules
@@ -79,8 +80,8 @@ macro_rules
         OrdCdata.empty_WF, OrdCdata.empty_stack, Option.some.injEq, forall_eq', reduceCtorEq,
         false_implies, implies_true, true_and, and_true, WF.not_mem_mk_nil, Array.not_mem_empty,
         Array.forall_mem_append] at *)
-     wf_vc [OrdCregs.wf_iff, OrdCregs.WF.ofC0, WF.not_mem_mk_nil, Array.not_mem_empty,
-       OrdCdata.empty_stack, Continuation.WF.forceCdata, $ts,*]))
+     all_goals wf_vc [OrdCregs.wf_iff, OrdCregs.WF.ofC0, WF.not_mem_mk_nil, Array.not_mem_empty,
+        OrdCdata.empty_stack, Continuation.WF.forceCdata, $ts,*]))
 
 /-! ## Registers and saved registers -/
 
