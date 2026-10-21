@@ -59,7 +59,7 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
    ```
    and pass it to `execInstr_WF`.
 
-Done: none yet. Left: Stack, Cell, CellOp, Arith, Cont, Flow (with `RUNVM`, which runs a child VM
+Done: Stack. Left: Cell, CellOp, Arith, Cont, Flow (with `RUNVM`, which runs a child VM
 with `execInstr`: `VmState.WF.runWith` applies), Tuple, TonEnv, Crypto, Msg, Misc, Debug,
 Exception, Dict. The VM operations of those families without a specification yet: `VM.call`,
 `VM.callComputeStacks`, `VM.extractCc` (mvcgen unfolds them; their conditions need the
