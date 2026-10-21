@@ -1,3 +1,4 @@
+import Lean
 import TvmLean.Semantics
 
 /-!
@@ -529,5 +530,129 @@ theorem forIn_push_childLevelInfos (l : List Cell) (acc : Array CellLevelInfo) :
       | ok is =>
         show Except.ok (acc.push x ++ is) = Except.ok (acc ++ (#[x] ++ is))
         rw [← Array.append_assoc]; rfl
+
+open Lean Meta in
+/-- The pairs of distinct constants at the same position of `a` and `b` (each pair once). -/
+def constDiffs (a b : Expr) (acc : Array (Expr × Expr)) : MetaM (Array (Expr × Expr)) := do
+  if a == b then return acc
+  match a, b with
+  | .app f1 x1, .app f2 x2 => constDiffs x1 x2 (← constDiffs f1 f2 acc)
+  | .lam _ t1 b1 _, .lam _ t2 b2 _ => constDiffs b1 b2 (← constDiffs t1 t2 acc)
+  | .forallE _ t1 b1 _, .forallE _ t2 b2 _ => constDiffs b1 b2 (← constDiffs t1 t2 acc)
+  | .letE _ t1 v1 b1 _, .letE _ t2 v2 b2 _ => constDiffs b1 b2 (← constDiffs v1 v2 (← constDiffs t1 t2 acc))
+  | .mdata _ e1, .mdata _ e2 => constDiffs e1 e2 acc
+  | .proj _ i1 e1, .proj _ i2 e2 => if i1 == i2 then constDiffs e1 e2 acc else throwError "projections differ"
+  | .const n1 _, .const n2 _ =>
+      if acc.any (fun (x, y) => x == a && y == b) then return acc
+      unless (← isMatcher n1) && (← isMatcher n2) do throwError m!"{n1} and {n2} differ (not both matchers)"
+      return acc.push (a, b)
+  | _, _ => throwError m!"the two sides differ: {a} and {b}"
+
+open Lean Meta Elab Tactic in
+/-- Closes an equality whose two sides are the same term except for auxiliary `match` functions that
+were elaborated twice (distinct constants of the same type, definitionally equal): it checks that each
+differing pair is such a pair and that replacing them makes the two sides identical, then closes the
+goal with `Eq.refl`; the kernel checks the definitional equality, unfolding the matchers where they
+differ (elaborator-level `rfl` on these terms does not finish). -/
+elab "matchers_rfl" : tactic => do
+  let g ← getMainGoal
+  let t ← instantiateMVars (← g.getType)
+  let some (_, l, r) := t.eq? | throwError "matchers_rfl: not an equality"
+  let pairs ← constDiffs l r #[]
+  for (x, y) in pairs do
+    unless ← isDefEq (← inferType x) (← inferType y) do throwError m!"{x} and {y}: different types"
+    unless ← withTransparency .all (isDefEq x y) do throwError m!"{x} and {y}: not definitionally equal"
+  -- with the matchers replaced the two sides must be the same term; the kernel then checks `l ≡ r`
+  -- by unfolding the matchers where they differ
+  let l' := l.replace fun e => (pairs.find? (fun (x, _) => x == e)).map (·.2)
+  unless l' == r do throwError "matchers_rfl: the sides differ beyond auxiliary matchers"
+  g.assign (← mkExpectedTypeHint (← mkEqRefl l) t)
+
+/-- The original body, its loop over the references aside, is `Cell.levelInfoFromChildren` (the body
+was moved there; its `for x in [a:b]` loops became `List.range'`). -/
+theorem levelBody_split (rec : Cell → Except String CellLevelInfo) (c : Cell) :
+    Orig.levelBody rec c = (do
+      if c.refs.size > 4 then
+        throw "Too many references"
+      if c.bits.size > 1023 then
+        throw "Too many data bits"
+      let mut childInfos : Array CellLevelInfo := #[]
+      for r in c.refs do
+        childInfos := childInfos.push (← rec r)
+      Cell.levelInfoFromChildren c childInfos) := by
+  unfold Orig.levelBody Cell.levelInfoFromChildren
+  simp only [Std.Range.forIn_eq_forIn_range', Std.Range.size, Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one,
+    ← sha256Digest_eq_orig, ← bitsToByte_eq_orig, ← bitsToPaddedLastByte_eq_orig, ← bitStringToBytesBE_eq_orig]
+  matchers_rfl
+
+/-- The fixed point: `Cell.computeLevelInfo?` satisfies the defining equation of the original
+`partial def` (its body `Orig.levelBody` with the recursive call). -/
+theorem Cell.computeLevelInfo?_fix (c : Cell) :
+    Cell.computeLevelInfo? c = Orig.levelBody Cell.computeLevelInfo? c := by
+  rw [levelBody_split]
+  rcases c with ⟨bits, ⟨refs⟩, sp, lm⟩
+  rw [Cell.computeLevelInfo?]
+  simp only [← Array.forIn_toList, pure_bind, forIn_push_childLevelInfos, bind_map_left, Array.empty_append]
+
+/-- `Cell.beqList` is the original loop over the references (pairwise `Cell.beq`). -/
+theorem Cell.beqList_eq_all (r1 r2 : List Cell) (h : r1.length = r2.length) :
+    Cell.beqList r1 r2 = (List.range' 0 r1.length).all (fun i => Cell.beq r1[i]! r2[i]!) := by
+  induction r1 generalizing r2 with
+  | nil => cases r2 <;> simp_all [Cell.beqList]
+  | cons a as ih =>
+    cases r2 with
+    | nil => simp at h
+    | cons b bs =>
+      simp only [List.length_cons, Nat.add_right_cancel_iff] at h
+      rw [Cell.beqList, ih bs h]
+      simp only [List.length_cons, List.range'_eq_map_range, List.range_succ_eq_map, List.all_cons, List.all_map,
+        Function.comp_def, Nat.zero_add, List.getElem!_cons_zero, List.getElem!_cons_succ]
+
+/-- The flag loop of the original `Cell.beq`: `ok := false` where `c i` fails. -/
+theorem forIn_flag_not (l : List Nat) (c : Nat → Bool) (ok : Bool) :
+    (do
+      let r ← forIn (m := Id) l ok fun i r =>
+        if (!c i) = true then do
+          pure PUnit.unit
+          pure (ForInStep.yield false)
+        else do
+          pure PUnit.unit
+          pure (ForInStep.yield r)
+      pure r).run = (ok && l.all c) := by
+  induction l generalizing ok with
+  | nil => simp
+  | cons a l ih =>
+    simp only [List.forIn_cons, List.all_cons]
+    cases h : c a
+    · simpa [h] using ih false
+    · simpa [h] using ih ok
+
+theorem array_mk_beq_mk {α} [BEq α] [LawfulBEq α] (x y : List α) :
+    (({ toList := x } : Array α) == { toList := y }) = (x == y) := by
+  rw [Bool.eq_iff_iff]; simp
+
+/-- The original (partial) definition of `Cell.beq` (e1f334f) as its defining equation. -/
+theorem Cell.beq_orig (a b : Cell) :
+    Cell.beq a b =
+      (a.special == b.special &&
+        a.levelMask == b.levelMask &&
+          a.bits == b.bits &&
+            a.refs.size == b.refs.size &&
+              Id.run do
+                let mut ok := true
+                for i in [0:a.refs.size] do
+                  if !(Cell.beq a.refs[i]! b.refs[i]!) then
+                    ok := false
+                return ok) := by
+  rcases a with ⟨⟨b1⟩, ⟨r1⟩, s1, l1⟩
+  rcases b with ⟨⟨b2⟩, ⟨r2⟩, s2, l2⟩
+  simp only [Std.Range.forIn_eq_forIn_range', Std.Range.size]
+  rw [Cell.beq, forIn_flag_not, array_mk_beq_mk]
+  simp only [List.size_toArray, Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one, Bool.true_and]
+  by_cases hl : r1.length = r2.length
+  · rw [Cell.beqList_eq_all r1 r2 hl]
+    simp [hl]
+  · have hb : (r1.length == r2.length) = false := by simpa using hl
+    simp [hb]
 
 end TvmLean

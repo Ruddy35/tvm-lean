@@ -147,7 +147,7 @@ fuzz на нескольких версиях; новые случаи орак�
 | `Basics/Bytes.lean` | `countWhile` вместо циклов `while` (`SDCNT*`) | **доказано** `countWhile_eq` |
 | `Cell/Primitives.lean` | поиск в словаре — структурная рекурсия | **доказаны** исходные уравнения (`*_eq`, `*_fuel`) |
 | `Cell/Primitives.lean` | `dictLabelMatches` через `allBelow` | **доказано** равенство исходному |
-| `Cell/Cell.lean` | `Cell.beq`, `computeLevelInfo?` — структурная взаимная рекурсия | частично; **не доказана** неподвижная точка |
+| `Cell/Cell.lean` | `Cell.beq`, `computeLevelInfo?` — структурная взаимная рекурсия | **доказано**: `Cell.beq` удовлетворяет уравнению исходного определения (`Cell.beq_orig`), `computeLevelInfo?` — неподвижная точка исходного тела `Orig.levelBody` (`Cell.computeLevelInfo?_fix`; хвост тела перенесён в `levelInfoFromChildren`, `levelBody_split`) |
 | `Instr/Codepage/Cp0.lean` | `takeRefsInv` вместо четырёх циклов декодера (`PUSHCONT`, `PUSHSLICE` r2, `PUSHSLICE_REFS`, `STSLICECONST`) | **доказано** равенство исходному циклу (`takeRefsInv_eq_orig`) |
 | `Exec/Dict/Ext.lean`, `Exec/Misc.lean`, `Value/Value.lean`, `Cont/Continuation.lean` | `partial` → тотальные с доказанным завершением | исходник `partial` не имеет логического содержания; проверено тестами |
 | `Exec/Crypto/HashExt.lean` | цикл `while off < size` по 32-байтным кускам дайджеста → `hashExtChunks` (структурная рекурсия по числу кусков) | **доказано**: удовлетворяет уравнению исходного цикла (`hashExtChunks_loop`) |
