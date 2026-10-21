@@ -32,7 +32,11 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
   order): transfers, no order, wrong seqno, expiry and signature;
 - the proof-of-work test giver (`pow-testgiver-code.fc`, `randomize_lt`, `random`, `muldivr`): a
   solution ("Mine") under a complexity every hash meets and one none meets, with a wrong seed and
-  expired; rescaling the complexity, too early; a signed transfer.
+  expired; rescaling the complexity, too early; a signed transfer;
+- multisig (`multisig-code.fc`, three owners): initialization; a query sent at once (one signature
+  needed); with two needed, a query left pending, one carrying a second owner's signature, the
+  confirmation of a pending query by the second owner and again by the first; an unknown owner, a
+  wrong signature, wallet id, an expired query and one due too soon.
 -/
 
 namespace Tests.Tx
@@ -87,6 +91,13 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
   let pow := (← get "pow.code", ← get "pow.data.easy", ← get "pow.data.hard", (← get "pow.addr").bits)
   let powmsgs ← ["mine", "mine-wrong-seed", "mine-expired", "rescale", "rescale-early", "transfer"].mapM fun n =>
     return (n, ← get s!"pow.msg.{n}")
+  let ms := (← get "multisig.code", ← get "multisig.data.k1", (← get "multisig.addr.k1").bits,
+    ← get "multisig.data.k2", (← get "multisig.addr.k2").bits, ← get "multisig.data.k2-pending")
+  let msmsg (n : String) := get s!"multisig.msg.{n}"
+  let msK2 ← ["init", "k2-root", "k2-cosigned", "unknown-owner", "bad-signature", "wrong-wallet", "expired",
+    "too-soon"].mapM fun n => return (n, ← msmsg n)
+  let msPending ← ["k2-confirm", "k2-root"].mapM fun n => return (n, ← msmsg n)
+  let msK1 ← msmsg "k1-send"
   let cfgCode ← get "config.code"
   let pub := (← get "key.pub").bits
   let cfgBodies ← ["set-param", "set-key", "set-code", "elector-code", "noop", "unknown", "seqno", "expired", "vote",
@@ -126,6 +137,14 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     for (dname, data) in [("easy", easy), ("hard", hard)] do
       for (n, m) in powmsgs do
         out := out.push (mk s!"pow/{n}/{dname}" (mkAccount 0 addr (.active code data) 100000000000 1700000000 0 1000) m)
+    let (code, d1, a1, d2, a2, d2p) := ms
+    let msAcc (d : Cell) (a : BitString) := mkAccount 0 a (.active code d) 1000000000 1700000000 0 1000
+    out := out.push (mk "multisig/k1-send" (msAcc d1 a1) msK1)
+    for (n, m) in msK2 do
+      out := out.push (mk s!"multisig/{n}" (msAcc d2 a2) m)
+    for (n, m) in msPending do
+      out := out.push (mk s!"multisig/pending/{n}" (msAcc d2p a2) m)
+    out := out.push (mk "multisig/internal" (msAcc d2 a2) (intMsg 0 a2 100000000 true none #[]))
     let (code, data) := el
     let elAcc := mkAccount (-1) elAddr (.active code data) 500000000000 1700000000 0 1000
     for (n, body) in [("transfer", natToBits 0 32), ("stake", natToBits 0x4e73744b 32 ++ natToBits 7 64),

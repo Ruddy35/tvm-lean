@@ -207,3 +207,40 @@ NOW 5 - 0x1234 mine-solved pgext "pow.msg.mine-expired" put
 <b 0x5253636c 32 u, NOW 10 - 32 u, b> pgext "pow.msg.rescale" put
 <b 0x5253636c 32 u, NOW 10 + 32 u, b> pgext "pow.msg.rescale-early" put
 <b 77 32 u, NOW 100 + 32 u, 0 32 u, 500000000 transfer ref, 3 8 u, b> pgaddr swap signed-ext "pow.msg.transfer" put
+
+// --- multisig (multisig-code.fc): wallet_id n k last_cleaned owner_infos (i -> public_key flood)
+// pending_queries; a message is signature(root) i signatures wallet_id query_id (mode ^msg)*, the
+// signatures a chain of (signature j ^next) over the hash of the query; an empty message
+// initializes. Owners 0, 1, 2 are the fixed key and two more.
+"auto/multisig-code.fif" include constant mscode
+B{2121212121212121212121212121212121212121212121212121212121212121} constant pk1
+B{3131313131313131313131313131313131313131313131313131313131313131} constant pk2
+{ <b rot B, 0 8 u, b> <s swap rot 8 udict!+ drop } : owner+   // ( D pub i -- D' ): public_key, flood 0
+dictnew pub 0 owner+ pk1 priv>pub 1 owner+ pk2 priv>pub 2 owner+ constant owners
+NOW 3700 + 32 << constant msq                  // a query not yet due for an hour
+<b 77 32 u, msq 1 + 64 u, 3 8 u, 500000000 transfer ref, b> constant msquery
+// ( k pending owners -- data ), ( k pending -- data )
+{ <b 77 32 u, 3 8 u, 3 roll 8 u, 0 64 u, swap dict, swap dict, b> } : msdata-o
+{ owners msdata-o } : msdata
+// the owners after owner 0 created a query (its flood 1)
+dictnew <b pub B, 1 8 u, b> <s 0 rot 8 udict!+ drop pk1 priv>pub 1 owner+ pk2 priv>pub 2 owner+ constant owners-q
+// the query msquery pending, signed by owner 0 (cnt 1, cnt_bits 001)
+dictnew <b 1 1 u, 0 8 u, 1 8 u, 1 3 u, msquery <s 32 64 + u@+ nip s, b> <s msq 1 + rot 64 udict!+ drop constant mspending
+{ <b rot 8 u, swap dict, swap <s s, b> } : msroot   // ( query i signatures -- body ): signed by owner i
+{ rot hashu swap ed25519_sign_uint <b swap B, swap 8 u, null dict, b> } : cosign   // ( query j key -- signature j )
+1 null msdata constant ms1data   mscode ms1data addr-of constant ms1addr
+2 null msdata constant ms2data   mscode ms2data addr-of constant ms2addr
+mscode "multisig.code" put
+ms1data "multisig.data.k1" put  <b ms1addr 256 u, b> "multisig.addr.k1" put
+ms2data "multisig.data.k2" put  <b ms2addr 256 u, b> "multisig.addr.k2" put
+2 mspending owners-q msdata-o "multisig.data.k2-pending" put
+<b b{1000100} s, 0 ms2addr addr, 0 Gram, b{00} s, b> "multisig.msg.init" put
+ms1addr msquery 0 null msroot signed-ext "multisig.msg.k1-send" put
+ms2addr msquery 0 null msroot signed-ext "multisig.msg.k2-root" put
+ms2addr msquery 0 msquery 1 pk1 cosign msroot signed-ext "multisig.msg.k2-cosigned" put
+pk1 key ! ms2addr msquery 1 null msroot signed-ext "multisig.msg.k2-confirm" put pk key !
+ms2addr msquery 7 null msroot signed-ext "multisig.msg.unknown-owner" put
+pk2 key ! ms2addr msquery 0 null msroot signed-ext "multisig.msg.bad-signature" put pk key !
+ms2addr <b 78 32 u, msq 2 + 64 u, 3 8 u, 500000000 transfer ref, b> 0 null msroot signed-ext "multisig.msg.wrong-wallet" put
+ms2addr <b 77 32 u, NOW 10 - 32 << 64 u, 3 8 u, 500000000 transfer ref, b> 0 null msroot signed-ext "multisig.msg.expired" put
+ms2addr <b 77 32 u, NOW 100 + 32 << 64 u, 3 8 u, 500000000 transfer ref, b> 0 null msroot signed-ext "multisig.msg.too-soon" put
