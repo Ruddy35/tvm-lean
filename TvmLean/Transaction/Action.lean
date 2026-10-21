@@ -71,35 +71,39 @@ structure RelaxedMsg where
   init : Slice
   /-- `body:(Either X ^X)` -/
   body : Slice
+  /-- no `StateInit`, or one whose library is a dictionary of `SimpleLib`
+  (`block::tlb::validate_message_relaxed_libs`, block-parse.cpp:2476-2490) -/
+  initLibsValid : Bool
 
 /-- A slice of `s` from its position to that of `t` (the part `t` was read from). -/
 def _root_.TvmLean.Slice.upTo (s t : Slice) : Slice :=
   Slice.ofCell (Cell.mkOrdinary (s.cell.bits.extract s.bitPos t.bitPos) (s.cell.refs.extract s.refPos t.refPos))
 
-/-- `MessageRelaxed Any`, validated (`StateInit` with a valid library dictionary). -/
+/-- `MessageRelaxed Any`, validated as the generated TL-B code does (`StateInit` with
+`library:(Maybe ^Cell)`); whether the library is a valid dictionary is recorded, not required. -/
 def parseRelaxedMsg (c : Cell) : Option RelaxedMsg := do
   if c.special then none
   let s := Slice.ofCell c
   let (info, s1) ← Reader.relaxedInfo s
   -- init
-  let s2 ←
+  let (s2, initLibsValid) ←
     if !s1.haveBits 1 then none
-    else if !(s1.readBits 1)[0]! then some (s1.advanceBits 1)
+    else if !(s1.readBits 1)[0]! then some (s1.advanceBits 1, true)
     else if !s1.haveBits 2 then none
     else if !(s1.readBits 2)[1]! then
       let (si, r) ← Reader.stateInitCell (s1.advanceBits 2)
-      if !validStateInitWithLibs si then none
-      some r
+      some (r, validStateInitWithLibs si)
     else
       let r := s1.advanceBits 2
       if !r.haveRefs 1 then none
-      if !validStateInitWithLibs r.cell.refs[r.refPos]! then none
-      some { r with refPos := r.refPos + 1 }
+      let si := r.cell.refs[r.refPos]!
+      if (Reader.runExact Account.Reader.stateInit si).isNone then none
+      some ({ r with refPos := r.refPos + 1 }, validStateInitWithLibs si)
   -- body: left (the rest) or right (one reference, nothing else)
   if !s2.haveBits 1 then none
   if (s2.readBits 1)[0]! then
     if s2.bitsRemaining != 1 || s2.refsRemaining != 1 then none
-  return { info, init := s1.upTo s2, body := s2 }
+  return { info, init := s1.upTo s2, body := s2, initLibsValid }
 
 /-- `OutAction` of an `OutListNode` (`prev:^Cell action:OutAction`), validated as
 `t_OutListNode.validate_ref`. -/
@@ -352,6 +356,9 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
   if mode &&& 0x1c != 0 || mode &&& 0xc0 == 0xc0 then
     return if t.gv ≥ 13 then skip ap (-1) else (-1, t, ap)
   let some msg := parseRelaxedMsg msgCell | return (-1, t, ap)
+  -- `validate_message_relaxed_libs` (transaction.cpp:2704-2707): the action list passed validation
+  -- with any library cell in the `StateInit`; here it must be a dictionary of `SimpleLib`
+  if !msg.initLibsValid then return if t.gv ≥ 13 then skip ap (-1) else (-1, t, ap)
   -- `redoing`: the StateInit into a reference (if it is inline with its references), then the body
   let mut init := msg.init
   let mut body := msg.body
