@@ -40,7 +40,12 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
 - restricted wallet v3 (`restricted-wallet3-code.fc`): the first message, which sets the final key
   and the schedule of locked grams; transfers 500 s after the start (part of the balance reserved),
   with the start read from configuration parameter -13 (absent, and set 2000 s before), for more
-  than the balance; a wrong seqno, subwallet, signature and an expired message.
+  than the balance; a wrong seqno, subwallet, signature and an expired message;
+- the payment channel (`payment-channel-code.fc`), in each state: init messages (internal, with
+  value) signed by A, by B, by both, with a wrong channel and more than the value, again by A; close
+  messages (external) signed by A or B with the other's promise, without a promise, by both; timeouts
+  before and after expiry; the payout with and without enough balance; an unknown operation, a
+  simple transfer and an empty body.
 -/
 
 namespace Tests.Tx
@@ -108,6 +113,23 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
   let rwInit ← rwmsg "init"
   let rwmsgs ← ["transfer", "transfer-small", "transfer-too-much", "seqno", "subwallet", "expired",
     "bad-signature"].mapM fun n => return (n, ← rwmsg n)
+  let pcCode ← get "pchan.code"
+  let pcAddr := (← get "pchan.addr").bits
+  let pcData (n : String) := get s!"pchan.data.{n}"
+  let pcBody (n : String) := get s!"pchan.body.{n}"
+  -- (state, message, internal value or none for an external message, balance)
+  let pcCases : List (String × String × Option Nat × Nat) :=
+    [("init", "init-a", some 3000000000, 1000000000), ("init", "init-both", some 3500000000, 1000000000),
+     ("init", "init-wrong-channel", some 3000000000, 1000000000), ("init", "init-too-much", some 3000000000, 1000000000),
+     ("init", "transfer", some 100000000, 1000000000), ("init", "unknown", some 100000000, 1000000000),
+     ("init", "timeout", none, 5000000000), ("init-a", "init-b", some 1500000000, 3000000000),
+     ("init-a", "init-a", some 3000000000, 3000000000), ("init-expired", "timeout", none, 3000000000),
+     ("close", "close-a", none, 5000000000), ("close", "close-a-nosig", none, 5000000000),
+     ("close", "close-both", none, 5000000000), ("close", "timeout", none, 5000000000),
+     ("close-a", "close-b", none, 5000000000), ("close-a", "close-a", none, 5000000000),
+     ("close-expired", "timeout", none, 5000000000), ("payout", "payout", none, 5000000000),
+     ("payout", "payout", none, 3500000000), ("payout", "transfer", none, 5000000000)]
+  let pcRun ← pcCases.mapM fun (st, m, v, bal) => return (st, m, v, bal, ← pcData st, ← pcBody m)
   let cfgCode ← get "config.code"
   let pub := (← get "key.pub").bits
   let cfgBodies ← ["set-param", "set-key", "set-code", "elector-code", "noop", "unknown", "seqno", "expired", "vote",
@@ -163,6 +185,14 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     for (dname, d, c) in [("started", dStarted, cfg), ("from-config", dFromCfg, cfg), ("from-config-set", dFromCfg, cfgStart)] do
       for (n, m) in rwmsgs do
         out := out.push { mk s!"restricted3/{dname}/{n}" (rwAcc d) m with config := c }
+    for (st, m, v, bal, d, body) in pcRun do
+      let acc := mkAccount 0 pcAddr (.active pcCode d) bal 1700000000 0 1000
+      let msg := match v with
+        | some value => intMsg 0 pcAddr value true none body.bits (bodyRefs := body.refs)
+        | none => extMsgRef 0 pcAddr body
+      out := out.push (mk s!"pchan/{st}/{m}/{bal}" acc msg)
+    out := out.push (mk "pchan/init/empty" (mkAccount 0 pcAddr (.active pcCode (← pcData "init")) 1000000000 1700000000 0 1000)
+      (intMsg 0 pcAddr 100000000 true none #[]))
     let (code, data) := el
     let elAcc := mkAccount (-1) elAddr (.active code data) 500000000000 1700000000 0 1000
     for (n, body) in [("transfer", natToBits 0 32), ("stake", natToBits 0x4e73744b 32 ++ natToBits 7 64),

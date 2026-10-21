@@ -267,3 +267,48 @@ rwcode "restricted3.code" put  rwdata0 "restricted3.data.new" put  <b rwaddr 256
 <b 6 32 u, 1800000000 32 u, 1 32 u, 3 8 u, 50000000 transfer ref, b> rwext "restricted3.msg.subwallet" put
 <b 5 32 u, NOW 32 u, 1 32 u, 3 8 u, 50000000 transfer ref, b> rwext "restricted3.msg.expired" put
 pk-other key ! <b 5 32 u, 1800000000 32 u, 1 32 u, 3 8 u, 50000000 transfer ref, b> rwext "restricted3.msg.bad-signature" put pk key !
+
+// --- payment channel (payment-channel-code.fc): data ^config ^state; config: timeouts 100 100,
+// A's key (the fixed one), B's key (pk1), A's and B's addresses, channel 99, min_A_extra 0; states
+// init (none signed, signed by A, signed by A and expired), close (none signed, signed by A with
+// promises 0.3 and 0.1, the same expired) and payout. Bodies: pchan_cmd, A's and B's signatures
+// (Maybe ^signature) over the message, the message; init messages for internal delivery
+"auto/payment-channel-code.fif" include constant pccode
+pk1 priv>pub constant pub1
+<b b{100} s, 0 8 i, dest 256 u, b> constant pc-a
+<b b{100} s, 0 8 i, 0x4444444444444444444444444444444444444444444444444444444444444444 256 u, b> constant pc-b
+<b 100 32 u, 100 32 u, pub B, pub1 B, pc-a ref, pc-b ref, 99 64 u, 0 Gram, b> constant pccfg
+{ <b pccfg ref, swap ref, b> } : pcdata   // ( state -- data )
+<b 0 3 i, 0 1 i, 0 1 i, 0 Gram, 0 Gram, 0 32 u, 0 Gram, 0 Gram, b> pcdata constant pc-init
+pccode pc-init addr-of constant pcaddr
+pccode "pchan.code" put  <b pcaddr 256 u, b> "pchan.addr" put
+pc-init "pchan.data.init" put
+<b 0 3 i, -1 1 i, 0 1 i, 0 Gram, 0 Gram, NOW 50 + 32 u, 2000000000 Gram, 0 Gram, b> pcdata "pchan.data.init-a" put
+<b 0 3 i, -1 1 i, 0 1 i, 0 Gram, 0 Gram, NOW 10 - 32 u, 2000000000 Gram, 0 Gram, b> pcdata "pchan.data.init-expired" put
+<b 1 3 i, 0 1 i, 0 1 i, 0 Gram, 0 Gram, 0 32 u, 2000000000 Gram, 1000000000 Gram, b> pcdata "pchan.data.close" put
+<b 1 3 i, -1 1 i, 0 1 i, 300000000 Gram, 100000000 Gram, NOW 50 + 32 u, 2000000000 Gram, 1000000000 Gram, b> pcdata "pchan.data.close-a" put
+<b 1 3 i, -1 1 i, 0 1 i, 300000000 Gram, 100000000 Gram, NOW 10 - 32 u, 2000000000 Gram, 1000000000 Gram, b> pcdata "pchan.data.close-expired" put
+<b 2 3 i, 2000000000 Gram, 1000000000 Gram, b> pcdata "pchan.data.payout" put
+variable pcm
+// ( msg a? b? -- body ): signed by A if a?, by B if b?
+{ rot pcm ! <b 0x912838d1 32 u, rot { -1 1 i, <b pcm @ hashu pk ed25519_sign_uint B, b> ref, } { 0 1 i, } cond
+  swap { -1 1 i, <b pcm @ hashu pk1 ed25519_sign_uint B, b> ref, } { 0 1 i, } cond pcm @ <s s, b> } : pcwrap
+// ( inc_A inc_B channel -- msg )
+{ <b 0x27317822 32 u, 3 roll Gram, rot Gram, 0 Gram, 0 Gram, swap 64 u, b> } : pcinit
+2000000000 0 99 pcinit true false pcwrap "pchan.body.init-a" put
+0 1000000000 99 pcinit false true pcwrap "pchan.body.init-b" put
+2000000000 1000000000 99 pcinit true true pcwrap "pchan.body.init-both" put
+2000000000 0 98 pcinit true false pcwrap "pchan.body.init-wrong-channel" put
+5000000000 0 99 pcinit true false pcwrap "pchan.body.init-too-much" put
+<b 0x43278a28 32 u, b> false false pcwrap "pchan.body.timeout" put
+<b 99 64 u, 300000000 Gram, 100000000 Gram, b> constant pcpromise
+// ( key -- close message with the promise signed by key )
+{ pcpromise hashu swap ed25519_sign_uint <b 0xf28ae183 32 u, 0 Gram, 0 Gram, -1 1 i, <b rot B, b> ref, pcpromise <s s, b> } : pcclose
+pk1 pcclose true false pcwrap "pchan.body.close-a" put
+pk pcclose false true pcwrap "pchan.body.close-b" put
+<b 0xf28ae183 32 u, 0 Gram, 0 Gram, 0 1 i, pcpromise <s s, b> constant pcclose-nosig
+pcclose-nosig true false pcwrap "pchan.body.close-a-nosig" put
+pcclose-nosig true true pcwrap "pchan.body.close-both" put
+<b 0x37fe7810 32 u, b> false false pcwrap "pchan.body.payout" put
+<b 7 32 u, b> "pchan.body.unknown" put
+<b 0 32 u, b> "pchan.body.transfer" put
