@@ -30,7 +30,8 @@ lean_lib TvmLeanTransaction where
     `TvmLean.Proofs.Exec.Tactic, `TvmLean.Proofs.Exec.Pilot.AddOne, `TvmLean.Proofs.Exec.Pilot.Wallet3,
     `TvmLean.Proofs.WF.Defs, `TvmLean.Proofs.WF.Library, `TvmLean.Proofs.WF.Monad, `TvmLean.Proofs.WF.Decode,
     `TvmLean.Proofs.WF.Step, `TvmLean.Proofs.WF.Exec.Stack, `TvmLean.Proofs.WF.Exec.Arith,
-    `TvmLean.Proofs.WF.Cells, `TvmLean.Proofs.WF.Exec.Cell, `TvmLean.Proofs.WF.Exec.CellOp]
+    `TvmLean.Proofs.WF.Cells, `TvmLean.Proofs.WF.Exec.Cell, `TvmLean.Proofs.WF.Exec.CellOp,
+    `TvmLean.Proofs.Fast.Twin]
 
 lean_lib TvmLeanValidation where
   roots := #[`TvmLean.Validation]
