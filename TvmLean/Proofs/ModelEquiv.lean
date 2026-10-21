@@ -655,4 +655,55 @@ theorem Cell.beq_orig (a b : Cell) :
   · have hb : (r1.length == r2.length) = false := by simpa using hl
     simp [hb]
 
+
+/-- A flag loop with membership proofs whose step is `ok := false` exactly where `g` fails. -/
+theorem forIn'_flag (l : List Nat) (g : Nat → Bool) (ok : Bool)
+    (f : (a : Nat) → a ∈ l → Bool → Id (ForInStep Bool))
+    (hf : ∀ a h r, f a h r = if g a = false then pure (ForInStep.yield false) else pure (ForInStep.yield r)) :
+    forIn' (m := Id) l ok f = (ok && l.all g) := by
+  induction l generalizing ok with
+  | nil => simp; rfl
+  | cons a l ih =>
+    rw [List.forIn'_cons, hf]
+    cases hg : g a
+    · simpa [hg] using ih false _ (fun b h r => hf b _ r)
+    · simpa [hg] using ih ok _ (fun b h r => hf b _ r)
+
+/-- The same for a loop without membership proofs. -/
+theorem forIn_flag' (l : List Nat) (g : Nat → Bool) (ok : Bool) (f : Nat → Bool → Id (ForInStep Bool))
+    (hf : ∀ a r, f a r = if g a = false then pure (ForInStep.yield false) else pure (ForInStep.yield r)) :
+    forIn (m := Id) l ok f = (ok && l.all g) := by
+  induction l generalizing ok with
+  | nil => simp; rfl
+  | cons a l ih =>
+    rw [List.forIn_cons, hf]
+    cases hg : g a
+    · simpa [hg] using ih false
+    · simpa [hg] using ih ok
+
+/-- The tuple case of `Value.beq` is the original `arrayBeqBy x y Value.beq` (the loop was inlined so
+that each element comes with its index bound, for termination; the other cases are the original
+clauses, with one for the newer constructor `nullCell`). -/
+theorem Value.beq_tuple (x y : Array Value) :
+    Value.beq (.tuple x) (.tuple y) = arrayBeqBy x y Value.beq := by
+  rw [Value.beq.eq_def]
+  simp only [arrayBeqBy]
+  by_cases hs : x.size = y.size
+  · simp only [hs, bne_self_eq_false, Bool.false_eq_true, if_false]
+    simp only [Std.Range.forIn'_eq_forIn'_range', Std.Range.forIn_eq_forIn_range', Std.Range.size,
+      Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one, Id.run, bind_pure]
+    let g : Nat → Bool := fun i => match x[i]?, y[i]? with
+      | some u, some v => Value.beq u v
+      | _, _ => false
+    rw [forIn'_flag _ g, forIn_flag' _ g, hs]
+    · intro a r
+      simp only [g]
+      split <;> simp_all
+    · intro a h r
+      have ha : a < x.size := by simp at h; omega
+      simp only [g, Array.getElem?_eq_getElem ha]
+      split <;> simp_all
+  · have hb : (x.size != y.size) = true := by simpa using hs
+    simp [hb]
+
 end TvmLean
