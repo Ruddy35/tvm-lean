@@ -32,7 +32,7 @@ lean_lib TvmLeanTransaction where
     `TvmLean.Proofs.WF.Step, `TvmLean.Proofs.WF.Exec.Stack, `TvmLean.Proofs.WF.Exec.Arith,
     `TvmLean.Proofs.WF.Cells, `TvmLean.Proofs.WF.Exec.Cell, `TvmLean.Proofs.WF.Exec.CellOp,
     `TvmLean.Proofs.Fast.Twin, `TvmLean.Proofs.Fast.Bits, `TvmLean.Proofs.Fast.Sha256,
-    `TvmLean.Proofs.Fast.Sha512]
+    `TvmLean.Proofs.Fast.Sha512, `TvmLean.Proofs.Fast.Hash]
 
 lean_lib TvmLeanValidation where
   roots := #[`TvmLean.Validation]
