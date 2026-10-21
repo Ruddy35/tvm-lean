@@ -64,11 +64,11 @@ namespace Account
 
 def isMasterchain (a : Account) : Bool := a.workchain == -1
 
-/-- `addr_std$10` (or `addr_var$11` outside -128..127) with the optional anycast `pfx`, the
-workchain and `addr`. -/
-def mkAddr (wc : Int) (anycast : Option BitString) (addr : BitString) : Cell :=
+/-- `addr_std$10` (or `addr_var$11` outside -128..`stdLimit - 1`, by default -128..127) with the
+optional anycast `pfx`, the workchain and `addr`. -/
+def mkAddr (wc : Int) (anycast : Option BitString) (addr : BitString) (stdLimit : Int := 128) : Cell :=
   let w : W := {}
-  let std := -128 ≤ wc ∧ wc < 128
+  let std := -128 ≤ wc ∧ wc < stdLimit
   let w := w.uint (if std then 2 else 3) 2
   let w := match anycast with
     | some pfx => ((w.bool true).uint pfx.size 5).bitStr pfx
@@ -77,10 +77,11 @@ def mkAddr (wc : Int) (anycast : Option BitString) (addr : BitString) : Cell :=
   (w.bitStr addr).cell
 
 /-- `Account::compute_my_addr(force = true)`: the address as stored (with the anycast prefix if
-any, and `addr_orig`) and exact (`addr`, without anycast). -/
+any, and `addr_orig`) and exact (`addr`, without anycast). `addr_std` only for the workchains -128..126
+(`workchain < 127`, transaction.cpp:350): in workchain 127 both are `addr_var`. -/
 def withMyAddr (a : Account) : Account :=
   let pfx := if a.addrRewriteLengthSet && a.addrRewriteLength > 0 then some (a.addrRewrite.extract 0 a.addrRewriteLength) else none
-  { a with myAddr := mkAddr a.workchain pfx a.addrOrig, myAddrExact := mkAddr a.workchain none a.addr }
+  { a with myAddr := mkAddr a.workchain pfx a.addrOrig 127, myAddrExact := mkAddr a.workchain none a.addr 127 }
 
 /-- `Account::init_new`: a new account at the address `(wc, addr)`. -/
 def initNew (wc : Int) (addr : BitString) : Account :=
@@ -124,8 +125,13 @@ def unpackAddress (a : Account) (pfx? : Option BitString) (wc : Int) (addrOrig :
     if (pfx?.getD #[]) ++ addrOrig.extract len 256 != a.addr then none
   else if a.addr != addrOrig then none
   if a.workchain != wc then none
-  return withMyAddr { a with addrOrig, addrRewriteLengthSet := true, addrRewriteLength := len,
-                             addrRewrite := a.addr.extract 0 32 }
+  let a := { a with addrOrig, addrRewriteLengthSet := true, addrRewriteLength := len, addrRewrite := a.addr.extract 0 32 }
+  -- without anycast `my_addr_exact` is the stored address and `compute_my_addr` (`Account::unpack`,
+  -- transaction.cpp:341) keeps both; with it both are computed
+  if len = 0 then
+    let stored := mkAddr wc none addrOrig
+    return { a with myAddr := stored, myAddrExact := stored }
+  return withMyAddr a
 
 /-- `Account::unpack_storage_info` (exact): storage used, the storage dict hash (`storage_extra_info$001`),
 last paid, due payment. -/

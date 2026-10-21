@@ -4,6 +4,14 @@ namespace TvmLean.Tx
 
 /-! ## The emulator (`transaction_emulator_emulate_transaction`) -/
 
+/-- `compute_state` ends with `FAIL_UNLESS(block::tlb::t_Account.validate_ref(new_total_state))`
+(transaction.cpp:3733): the address of the new account must pass `block::tlb::MsgAddressInt` (the rest
+of the account C++ builds from parts already validated). It does not for an anycast account in
+workchain 127, whose address `compute_my_addr` makes `addr_var` of 256 bits. -/
+def accountAddrValid (acc : Cell) : Bool :=
+  let s := Slice.ofCell acc
+  !(s.haveBits 1 && (s.readBits 1)[0]!) || (Reader.run Reader.msgAddressIntValid (s.advanceBits 1).toCellRemaining).isSome
+
 /-- `Account::unpack` of the account at `(wc, addr)`, `fetch_config_params` and the `Transaction`
 constructor (`block_lt` is `lt` rounded down to the block). -/
 def newTx (cfg : Config) (shardAccount inMsg : Cell) (kind : TxKind) (wc : Int) (addr addrBits : BitString)
@@ -104,6 +112,7 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
   -- `fwd_fee` or an extra currency C++ reads differently fails here, whatever happened before)
   if !messageValid inMsg then return .failed "the transaction fails block::tlb validation"
   let (t, newState) := t.computeState sl
+  if !accountAddrValid newState then return .failed "compute_state: the new account fails block::tlb validation"
   let some tx := t.serialize newState | return .failed "serialize"
   return .ok tx newState
 
@@ -139,6 +148,7 @@ def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : N
       | .ok (some t) => pure t
     else pure t
   let (t, newState) := t.computeState sl
+  if !accountAddrValid newState then return .failed "compute_state: the new account fails block::tlb validation"
   let some tx := t.serialize newState | return .failed "serialize"
   return .ok tx newState
 
