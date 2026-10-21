@@ -22,7 +22,7 @@ lean_lib TvmLeanTransaction where
 -- Machine-checked facts about the model itself: refactored definitions agree with the original
 -- ones, decidable equality, the compute-phase wrapper.
 lean_lib TvmLeanProofs where
-  roots := #[`TvmLean.Proofs.ModelEquiv, `TvmLean.Proofs.DecEq, `TvmLean.Semantics.Contract]
+  roots := #[`TvmLean.Proofs.ModelEquiv, `TvmLean.Proofs.DecEq, `TvmLean.Proofs.CellWF, `TvmLean.Semantics.Contract]
 
 lean_lib TvmLeanValidation where
   roots := #[`TvmLean.Validation]
