@@ -519,6 +519,15 @@ def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed
   | .continue stF => (stF, Excno.fatal.toInt)
 
 
+/-- The end of the compute phase once the VM ran: an accepted message pays for its gas (a special
+account pays nothing). -/
+def Tx.payGas (t : Tx) (gas : GasPrices) (cp : ComputePhase) : Except String (Tx × ComputePhase) := do
+  if !cp.accepted then return (t, cp)
+  if t.account.isSpecial then return (t, { cp with gasFees := 0 })
+  let fees := gas.gasPriceOf cp.gasUsed
+  if fees > t.balance then throw "gas fees above balance"
+  return ({ t with totalFees := t.totalFees + fees, balance := t.balance - fees }, { cp with gasFees := fees })
+
 /-- `Transaction::prepare_compute_phase` (no precompiled contract has an implementation: a
 precompiled code runs the VM with the gas limits of the configuration, its gas usage reported).
 `Except.error` for a path not modelled, `.ok none` where C++ fails (a precompiled contract out of gas). -/
@@ -577,9 +586,16 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
     return ← skip t 2
   if t.gv ≥ 10 then
     t := { t with myAddr := t.myAddrExact }
-  let code ← match t.newCode with
-    | some c => pure c
-    | none => throw "no code"
+  let some code := t.newCode
+    | -- no code (an active account or a `StateInit` without it): `VmState::run` returns `fatal` at
+      -- once (vm.cpp:513-516, `cp.exit_code = ~vm.run()`): no step, no gas, nothing committed; the
+      -- exit argument is the top of the initial stack (`in_msg_extern`, or -2 for tick-tock)
+      let accepted := t.computePhase.gasCredit == 0
+      let cp0 := { t.computePhase with exitCode := ~~~ Excno.fatal.toInt, vmSteps := 0, gasUsed := 0, accepted,
+                                       success := false, exitArg := if t.kind != .ord then -2 else if t.inMsgExtern then -1 else 0 }
+      let t0 := if accepted && t.useMsgState then { t with wasActivated := true, accStatus := .active } else t
+      let (t1, cp1) ← t0.payGas gas cp0
+      return some { t1 with computePhase := cp1 }
   let precompiled : Option Nat :=
     if t.kind != .ord then none else
     (dictGet t.cfg.precompiledList (bytesToBits code.hashBytes)).bind fun v =>
@@ -617,13 +633,9 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
     match stF.stack.back? with
     | some (.int (.num v)) => if -2 ^ 31 ≤ v ∧ v < 2 ^ 31 then cp := { cp with exitArg := v }
     | _ => pure ()
-  if accepted then
-    if t.account.isSpecial then cp := { cp with gasFees := 0 }
-    else
-      let fees := gas.gasPriceOf cp.gasUsed
-      if fees > t.balance then throw "gas fees above balance"
-      cp := { cp with gasFees := fees }
-      t := { t with totalFees := t.totalFees + fees, balance := t.balance - fees }
+  let (t', cp') ← t.payGas gas cp
+  t := t'
+  cp := cp'
   -- C++ never sets `msg_state_used` and `account_activated` of the compute phase (both stay false)
   return some { t with computePhase := cp }
 
