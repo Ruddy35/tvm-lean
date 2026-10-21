@@ -102,14 +102,16 @@ cell_ov if it would be too deep. -/
 
 /-- `LDSLICEX` (C++ `exec_load_slice`, mode 0): the first `n` bits of the slice as a new slice,
 then the rest; cell_und if the slice is shorter. -/
-@[vm_spec] theorem ldslicex (st : VmState) (s : Stack) (sl : Slice) (n : Nat) (hn : n ≤ 1023)
+@[vm_spec] theorem ldslicex (st : VmState) (s : Stack) (sl : Slice) (n : Int) (hn : 0 ≤ n ∧ n ≤ 1023)
     (hs : st.stack = (s.push (.slice sl)).push (.int (.num n))) :
     ExceptT.run (execInstr (.loadSliceX false false)) st =
-      if sl.haveBits n then
-        (.ok (), { st with stack := ((s.push (.slice (Slice.ofCell (Cell.mkOrdinary (sl.readBits n) #[])))).push
-                                      (.slice (sl.advanceBits n))) })
+      if sl.haveBits n.toNat then
+        (.ok (), { st with stack := ((s.push (.slice (Slice.ofCell (Cell.mkOrdinary (sl.readBits n.toNat) #[])))).push
+                                      (.slice (sl.advanceBits n.toNat))) })
       else (.error .cellUnd, { st with stack := s }) := by
-  vm_simp [hs]
+  have h1 : ¬ n < 0 := by omega
+  have h2 : ¬ n.toNat > 1023 := by omega
+  vm_simp [hs, h1, h2]
 
 end Spec
 

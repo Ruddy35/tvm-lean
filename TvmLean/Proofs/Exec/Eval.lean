@@ -45,20 +45,28 @@ def followDispatch (m : Expr) (fuel : Nat := 5000) : MetaM (Option Expr) := do
     cur ← whnfCore cur'
   return none
 
-/-- `ExceptT.run (d i next) st` for a dispatcher `d` and an instruction `i` whose constructor is
-known: the run of what the chain of dispatchers gives `i` to. -/
-dsimproc reduceExecInstrRun (@ExceptT.run Excno (StateM VmState) _ _ _) := fun e => do
+/-- `ExceptT.run (d i next) st` for a dispatcher `d` (not `execInstr` itself if `inner`) and an
+instruction `i` whose constructor is known: the run of what the chain of dispatchers gives `i` to. -/
+def dispatchRun (inner : Bool) (e : Expr) : SimpM DStep := do
   let args := e.getAppArgs
   unless e.isAppOf ``ExceptT.run && args.size == 5 do return .continue
   let m := args[3]!
   let some f := m.getAppFn.constName? | return .continue
   unless isDispatcher f do return .continue
+  if inner && f == ``execInstr then return .continue
   -- the instruction must be a constructor application for the matches to reduce
   unless m.getAppArgs.any (fun a => a.getAppFn.isConst && a.getAppFn.constName!.getPrefix == ``TvmLean.Instr) do
     return .continue
   match ← withTransparency .all (followDispatch m) with
   | some m' => if m' == m then return .continue else return .visit (mkAppN e.getAppFn (args.set! 3 m'))
   | none => return .continue
+
+/-- `ExceptT.run (d i next) st` for a dispatcher `d` and an instruction `i` whose constructor is
+known: the run of what the chain of dispatchers gives `i` to. -/
+dsimproc reduceExecInstrRun (@ExceptT.run Excno (StateM VmState) _ _ _) := dispatchRun false
+
+/-- `reduceExecInstrRun` below `execInstr` (the dispatchers it passes the instruction to). -/
+dsimproc reduceInnerDispatchRun (@ExceptT.run Excno (StateM VmState) _ _ _) := dispatchRun true
 
 /-- Whether the definition `n` may be unfolded where no lemma computes it: a function of the model
 (namespace `TvmLean`), not recursive (its value uses no recursor, `brecOn` or well-founded
@@ -92,9 +100,12 @@ end TvmLean.Exec
 
 namespace TvmLean
 
-/-- The discharger of `vm_simp`: a hypothesis, linear arithmetic, or `simp` with the hypotheses. -/
+/-- The discharger of `vm_simp`: a hypothesis, linear arithmetic, the reduction of projections of
+states written out. Nothing is decided by evaluation: a condition about a cell could need its hash
+(`VmState.registerCellLoad`), whose evaluation is out of reach. -/
 macro "vm_disch" : tactic =>
-  `(tactic| first | assumption | omega | (simp (config := { decide := true }) only [*]; done))
+  `(tactic| first | with_reducible assumption | omega | (simp only [freeNestedContJump]; done) |
+    (simp only [freeNestedContJump]; omega))
 
 /-- `simp` that runs a VM program on a state (`Proofs/Exec/Eval.lean`): the dispatch of
 `execInstr`, the simp set `vm_run`, the conditions on the stack depth by `omega` (`vm_disch`).
@@ -105,7 +116,7 @@ syntax (name := vmSimp) "vm_simp" (" [" Lean.Parser.Tactic.simpArg,* "]")? (Lean
 macro_rules
   | `(tactic| vm_simp $[[$args,*]]? $[$loc]?) => do
     let args := args.getD ⟨#[]⟩
-    `(tactic| simp (config := { contextual := true }) (disch := vm_disch) only [TvmLean.Exec.reduceExecInstrRun,
+    `(tactic| set_option maxRecDepth 100000 in simp (config := { contextual := true }) (disch := vm_disch) only [TvmLean.Exec.reduceExecInstrRun,
         TvmLean.Exec.unfoldModelRun, vm_run, Array.size_push,
         Array.pop_push, Array.size_pop, if_pos, if_neg, dif_pos, dif_neg, if_true, if_false, dite_true,
         dite_false, Bool.false_eq_true, Bool.true_eq_false, decide_true, decide_false, ne_eq,
@@ -113,7 +124,12 @@ macro_rules
         decide_eq_true_eq, decide_eq_false_iff_not, decide_not, Bool.not_not, Bool.not_true,
         Bool.not_false, Decidable.not_not, Bool.not_eq_true', Bool.not_eq_false', beq_iff_eq,
         Int.ofNat_eq_coe, Int.toNat_natCast, Bool.and_eq_true, Bool.or_eq_true, Bool.eq_false_iff, ite_not,
-        $args,*]
+        ge_iff_le, gt_iff_lt, reduceIte, reduceDIte, Nat.reduceAdd, Nat.reduceSub, Nat.reduceMul, Nat.reducePow,
+        Nat.reduceLT, Nat.reduceGT, Nat.reduceLeDiff, Nat.reduceSubDiff, Nat.reduceEqDiff, Nat.reduceBEq,
+        Nat.reduceBNe, Int.reduceAdd,
+        Int.reduceSub, Int.reduceMul, Int.reduceNeg, Int.reducePow, Int.reduceLT, Int.reduceLE, Int.reduceGT,
+        Int.reduceGE, Int.reduceEq, Int.reduceNe, Int.reduceNatCast, Int.reduceNatCast', Int.reduceOfNat,
+        Int.reduceToNat, $args,*]
         $[$loc]?)
 
 end TvmLean

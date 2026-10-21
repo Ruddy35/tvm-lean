@@ -369,6 +369,15 @@ current one. -/
   · simp [VM.run_bind, VM.run_get, VM.bindRes_ok, VM.run_pure, VM.run_set]
     split <;> simp_all
 
+/-- The state an exception makes (C++ `VmState::throw_exception`): the stack `[0, n]`, on the
+`push` form the stack lemmas compute with, and `c2` the current continuation. -/
+@[vm_run] theorem VM.throwException_eq (st : VmState) (e : Int) :
+    st.throwException e = { st with stack := (#[].push (.int (.num 0))).push (.int (.num e)), cc := st.regs.c2 } := rfl
+
+/-- `VM.throwException_eq` with an argument. -/
+@[vm_run] theorem VM.throwExceptionArg_eq (st : VmState) (e : Int) (arg : Value) :
+    st.throwExceptionArg e arg = { st with stack := (#[].push arg).push (.int (.num e)), cc := st.regs.c2 } := rfl
+
 @[vm_run] theorem VM.jumpTo_eq (st : VmState) (k : Continuation) : st.jumpTo k = { st with cc := k } := rfl
 
 /-- `VM.ret` (C++ `VmState::ret`): `c0` becomes `quit 0` and the VM jumps to the old `c0`. -/
@@ -408,5 +417,17 @@ gas at once), and the jump to the handler fails with stk_und if it expects more 
     (IntVal.num n).signedFits257 = decide (-2 ^ 256 ≤ n ∧ n < 2 ^ 256) := rfl
 
 @[vm_run] theorem VM.intVal_signedFits257_nan : IntVal.nan.signedFits257 = false := rfl
+
+@[vm_run] theorem VM.fst_pair {α β : Type} (a : α) (b : β) : (a, b).1 = a := rfl
+@[vm_run] theorem VM.snd_pair {α β : Type} (a : α) (b : β) : (a, b).2 = b := rfl
+
+@[vm_run] theorem VM.intPow2_eq (n : Nat) : intPow2 n = 2 ^ n := rfl
+
+/-- The complement of an integer (exit codes are complemented, `~~~ n`). -/
+@[vm_run] theorem VM.int_complement (n : Int) : ~~~ n = -n - 1 := by
+  show Int.not n = _
+  cases n with
+  | ofNat k => simp [Int.not]; omega
+  | negSucc k => simp [Int.not, Int.negSucc_eq]
 
 end TvmLean
