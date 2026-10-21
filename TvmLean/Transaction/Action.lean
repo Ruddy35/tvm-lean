@@ -81,7 +81,9 @@ def _root_.TvmLean.Slice.upTo (s t : Slice) : Slice :=
   Slice.ofCell (Cell.mkOrdinary (s.cell.bits.extract s.bitPos t.bitPos) (s.cell.refs.extract s.refPos t.refPos))
 
 /-- `MessageRelaxed Any`, validated as the generated TL-B code does (`StateInit` with
-`library:(Maybe ^Cell)`); whether the library is a valid dictionary is recorded, not required. -/
+`library:(Maybe ^Cell)`); whether the library is a valid dictionary is recorded, not required. The
+`^StateInit` and the body's `^X` are read by `validate_ref`, which refuses an exotic cell
+(`TLB::validate_ref_internal`, tlblib.cpp:139-147; a `^Cell` field of the `StateInit` takes any). -/
 def parseRelaxedMsg (c : Cell) : Option RelaxedMsg := do
   if c.special then none
   let s := Slice.ofCell c
@@ -98,12 +100,12 @@ def parseRelaxedMsg (c : Cell) : Option RelaxedMsg := do
       let r := s1.advanceBits 2
       if !r.haveRefs 1 then none
       let si := r.cell.refs[r.refPos]!
-      if (Reader.runExact Account.Reader.stateInit si).isNone then none
+      if si.special || (Reader.runExact Account.Reader.stateInit si).isNone then none
       some ({ r with refPos := r.refPos + 1 }, validStateInitWithLibs si)
   -- body: left (the rest) or right (one reference, nothing else)
   if !s2.haveBits 1 then none
   if (s2.readBits 1)[0]! then
-    if s2.bitsRemaining != 1 || s2.refsRemaining != 1 then none
+    if s2.bitsRemaining != 1 || s2.refsRemaining != 1 || s2.cell.refs[s2.refPos]!.special then none
   return { info, init := s1.upTo s2, body := s2, initLibsValid }
 
 /-- `OutAction` of an `OutListNode` (`prev:^Cell action:OutAction`), validated as
