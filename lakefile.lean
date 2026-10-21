@@ -20,8 +20,6 @@ lean_lib TvmLeanTransaction where
   roots := #[`TvmLean.Transaction]
 
 -- Machine-checked facts about the model itself: refactored definitions agree with the original
--- ones, decidable equality, the compute-phase wrapper; running code on symbolic states (Proofs/Exec).
-lean_lib TvmLeanProofs where
   roots := #[`TvmLean.Proofs.ModelEquiv, `TvmLean.Proofs.DecEq, `TvmLean.Proofs.CellWF,
     `TvmLean.Semantics.Contract, `TvmLean.Proofs.Contracts.CellLiteral,
     `TvmLean.Proofs.Contracts.Wallet3Code, `TvmLean.Proofs.Contracts.Bits, `TvmLean.Proofs.Contracts.Spec,
@@ -29,7 +27,8 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Contracts.Wallet3Kernel, `TvmLean.Proofs.Exec.Step, `TvmLean.Proofs.Exec.Eval,
     `TvmLean.Proofs.Exec.Spec.Stack, `TvmLean.Proofs.Exec.Spec.Arith, `TvmLean.Proofs.Exec.Spec.Flow,
     `TvmLean.Proofs.Exec.Spec.Cell, `TvmLean.Proofs.Exec.Spec.TonEnv, `TvmLean.Proofs.Exec.Run,
-    `TvmLean.Proofs.Exec.Tactic, `TvmLean.Proofs.Exec.Pilot.AddOne, `TvmLean.Proofs.Exec.Pilot.Wallet3]
+    `TvmLean.Proofs.Exec.Tactic, `TvmLean.Proofs.Exec.Pilot.AddOne, `TvmLean.Proofs.Exec.Pilot.Wallet3,
+    `TvmLean.Proofs.WF.Defs]
 
 lean_lib TvmLeanValidation where
   roots := #[`TvmLean.Validation]
