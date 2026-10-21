@@ -48,8 +48,15 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
    * a cell or slice the instruction carries: `hi : i.WF`; `simp only [Instr.WF] at hi` once
      `mvcgen` has substituted `i`;
    * an operation several handlers share (a helper of the family): prove its `@[spec]` triple
-     first, as in `Monad.lean`, and `mvcgen` uses it;
-   * a slow `mvcgen` (a long handler): `set_option maxHeartbeats 4000000 in` before the theorem.
+     first, as in `Monad.lean`, and `mvcgen` uses it; a `private def` helper cannot be named from
+     another module: `unfold_private M f` unfolds it in the goal, `private% M f` names it in the
+     statement of its specification (`M` the module, `f` the full name);
+   * a helper that computes on long bit strings (`intToBitsTwos n 257`, ...): `mvcgen` may evaluate
+     it; raise `maxRecDepth`, or `generalize` it in a hand-made specification;
+   * a long handler: `set_option maxHeartbeats 4000000` for the file (not `in`: the equations of
+     the handler `mvcgen` unfolds are built with the options of the file); compile a family file
+     single-threaded under a memory cap (`ulimit -v 10000000`; the resident memory stays under 3 GB
+     but Lean reserves much more address space).
 3. Chain the handlers as the family does:
    ```
    theorem execInstrX_WF : FamilyWF execInstrX := by
@@ -59,7 +66,7 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
    ```
    and pass it to `execInstr_WF`.
 
-Done: Stack. Left: Cell, CellOp, Arith, Cont, Flow (with `RUNVM`, which runs a child VM
+Done: Stack, Arith. Left: Cell, CellOp, Cont, Flow (with `RUNVM`, which runs a child VM
 with `execInstr`: `VmState.WF.runWith` applies), Tuple, TonEnv, Crypto, Msg, Misc, Debug,
 Exception, Dict. The VM operations of those families without a specification yet: `VM.call`,
 `VM.callComputeStacks`, `VM.extractCc` (mvcgen unfolds them; their conditions need the
@@ -72,6 +79,31 @@ open Std.Do
 set_option mvcgen.warning false
 
 namespace TvmLean
+
+/-! ## Private helpers of the instruction files -/
+
+open Lean Elab Tactic Meta in
+/-- `unfold_private M f` unfolds in the goal the private definition `f` of the module `M` (a helper
+of an instruction file, `private def`, which cannot be named from another module), so that `mvcgen`
+sees its code. -/
+elab "unfold_private " m:ident n:ident : tactic => do
+  let full := Name.mkNum (`_private ++ m.getId) 0 ++ n.getId
+  unless (← getEnv).contains full do
+    throwError "unfold_private: no private definition {n.getId} in {m.getId}"
+  let g ← getMainGoal
+  g.withContext do
+    let t ← instantiateMVars (← g.getType)
+    let t' ← deltaExpand t (· == full)
+    replaceMainGoal [← g.replaceTargetDefEq t'.headBeta]
+
+open Lean Elab Term in
+/-- `private% M f`: the private definition `f` of the module `M`, as a term (to state its
+specification). -/
+elab "private% " m:ident n:ident : term => do
+  let full := Name.mkNum (`_private ++ m.getId) 0 ++ n.getId
+  let some ci := (← getEnv).find? full
+    | throwError "private%: no private definition {n.getId} in {m.getId}"
+  return mkConst full (ci.levelParams.map fun _ => levelZero)
 
 /-! ## Loops computing values -/
 
