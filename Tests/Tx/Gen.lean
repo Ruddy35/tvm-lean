@@ -217,12 +217,20 @@ def _root_.TvmLean.Tx.W.varUIntPadded (w : W) (v n : Nat) : W :=
   (w.uint len (n - 1).log2.succ).uint v (8 * len)
 
 /-- A `ShardAccount` at `(wc, addr)` with the storage statistics C++ computes; `padded` stores one
-amount with a leading zero byte: 1 the balance, 2 the cells used, 3 the due payment. -/
+amount with a leading zero byte: 1 the balance, 2 the cells used, 3 the due payment. An active state
+may have a fixed prefix length `fpl`, the tick-tock flags `special` and no code (`noCode`, the code
+cell unused); `dictHash` is stored as `storage_extra_info$001 dict_hash`. -/
 def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt : Nat) (extra : Option Cell := none)
-    (padded : Nat := 0) (library : Option Cell := none) (anycast : Option BitString := none) : Cell :=
+    (padded : Nat := 0) (library : Option Cell := none) (anycast : Option BitString := none)
+    (fpl : Option Nat := none) (special : Option (Bool × Bool) := none) (dictHash : Option BitString := none)
+    (noCode : Bool := false) : Cell :=
   let stateBits : W :=
     match st with
-    | .active code data => ((((({} : W).bool true).bool false).bool false).maybeRef (some code)).maybeRef (some data) |>.maybeRef library
+    | .active code data =>
+        let w : W := ({} : W).bool true
+        let w := match fpl with | some d => (w.bool true).uint d 5 | none => w.bool false
+        let w := match special with | some (tk, tc) => ((w.bool true).bool tk).bool tc | none => w.bool false
+        ((w.maybeRef (if noCode then none else some code)).maybeRef (some data)).maybeRef library
     | .uninit => ({} : W).uint 0 2
     | .frozen h => (({} : W).uint 1 2).bitStr h
     | .none => {}
@@ -238,7 +246,9 @@ def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt
         -- the stored address: `addr` itself, or with an anycast prefix (then `addr` is addr_orig)
         let w : W := (({} : W).bool true).bitStr (Account.mkAddr wc anycast addr).bits
         let w := if padded == 2 then w.varUIntPadded (c + 1) 7 else w.varUInt (c + 1) 7
-        let w := (w.varUInt (b + sc.bits.size) 7).uint 0 3 |>.uint lastPaid 32
+        let w := w.varUInt (b + sc.bits.size) 7
+        let w := match dictHash with | some h => (w.uint 1 3).bitStr h | none => w.uint 0 3
+        let w := w.uint lastPaid 32
         let w := if due > 0 then (if padded == 3 then (w.bool true).varUIntPadded due 16 else (w.bool true).grams due)
           else w.bool false
         (w.slice (Slice.ofCell sc)).cell
