@@ -41,9 +41,11 @@ opcheck() { job opcode-check "$OUT/opcode-check.log" $T --opcode-check; }
 oracle() { job "oracle v$1" "$OUT/oracle-v$1.log" env TVMLEAN_GLOBAL_VERSION="$1" $T --oracle-only --no-progress; }
 fuzz() { job "fuzz v$1" "$OUT/fuzz-v$1.log" env TVMLEAN_GLOBAL_VERSION="$1" $T --fuzz-only --no-progress; }
 diffset() { job "diff $2" "$OUT/diff-$2.log" $DT --dir "$1" --strict-exit --out "$OUT/diff-$2.json"; }
-tx() { job tx "$OUT/tx.log" $TX --versions "$(echo $VERSIONS | tr ' ' ',')"; }
+tx() { job "tx v$1" "$OUT/tx-v$1.log" $TX --versions "$1"; }
 txfuzz() { job "tx fuzz" "$OUT/tx-fuzz.log" $TX --fuzz "${TX_FUZZ:-3000}"; }
-bg unit; bg opcheck; bg tx; bg txfuzz
+# the transaction cases first, one job per version: the longest jobs
+bg unit; bg opcheck; bg txfuzz
+for gv in $VERSIONS; do bg tx "$gv"; done
 for gv in $VERSIONS; do bg oracle "$gv"; bg fuzz "$gv"; done
 if [ -n "${FIXTURES:-}" ]; then
   for d in "$FIXTURES"/*/; do bg diffset "$d" "$(basename "$d")"; done
