@@ -398,3 +398,52 @@ rw1code "restricted1.code" put  rw1data0 "restricted1.data.new" put  <b rw1addr 
 <b 4 32 u, 1800000000 32 u, 3 8 u, 100000000 -1 elector transfer-to ref, b> rw1ext "restricted1.msg.seqno" put
 <b 1 32 u, NOW 32 u, 3 8 u, 100000000 -1 elector transfer-to ref, b> rw1ext "restricted1.msg.expired" put
 pk-other key ! <b 1 32 u, 1800000000 32 u, 3 8 u, 100000000 -1 elector transfer-to ref, b> rw1ext "restricted1.msg.bad-signature" put pk key !
+
+// --- restricted wallet v2 (restricted-wallet2-code.fc, new-restricted-wallet2.fif; in the
+// masterchain): seqno public_key start_at rdict; rdict (int32 seconds since start_at -> grams kept)
+// is looked up with idict_get_preveq? (32) at now - start_at (start_at 0: configuration parameter
+// -13; absent: -1) and the value reserved with mode 2; a message is signature seqno valid_until
+// (mode ^msg)*, seqno 0 accepted without a signature. new-restricted-wallet2.fif makes rdict with
+// 16-bit keys (make-rdict below, as there: the nominal amount at -32768, 3/4 at 92, 1/2 at 183, 1/4
+// at 366, 0 at 548); rw2sched has 32-bit keys
+"auto/restricted-wallet2-code.fif" include constant rw2code
+// D x t -- D'
+{ <b rot Gram, swap rot 16 b>idict! not abort"cannot add value"
+} : rdict-entry
+// balance -- dict
+{ dictnew
+  over -32768 rdict-entry
+  over 3/4 */ 92 rdict-entry
+  over 1/2 */ 183 rdict-entry
+  swap 1/4 */ 366 rdict-entry
+  0 548 rdict-entry
+} : make-rdict
+1000000000 make-rdict constant rw2rdict
+<b 0 32 u, pub B, 0 32 u, rw2rdict dict, b> constant rw2data0
+<b b{0011} s, rw2code ref, rw2data0 ref, null dict, b> constant rw2init
+rw2init hashu constant rw2addr
+rw2code "restricted2.code" put  rw2data0 "restricted2.data.new" put  <b rw2addr 256 u, b> "restricted2.addr" put
+<b 1 32 u, pub B, 0 32 u, rw2rdict dict, b> "restricted2.data.script" put
+// -1: 0.9, 0: 0.8, 1000: 0.1, 100000: 0
+dictnew
+  <b 900000000 Gram, b> <s -1 rot 32 idict!+ drop
+  <b 800000000 Gram, b> <s 0 rot 32 idict!+ drop
+  <b 100000000 Gram, b> <s 1000 rot 32 idict!+ drop
+  <b 0 Gram, b> <s 100000 rot 32 idict!+ drop constant rw2sched
+<b 1 32 u, pub B, NOW 500 - 32 u, rw2sched dict, b> "restricted2.data.started" put
+<b 1 32 u, pub B, NOW 500 + 32 u, rw2sched dict, b> "restricted2.data.not-started" put
+<b 1 32 u, pub B, NOW 200000 - 32 u, rw2sched dict, b> "restricted2.data.unlocked" put
+<b 1 32 u, pub B, 0 32 u, rw2sched dict, b> "restricted2.data.from-config" put
+// the message of new-restricted-wallet2.fif (a zero signature, seqno 0, valid_until -1) with the
+// StateInit, and the same without it
+<b b{1000100} s, -1 rw2addr addr, b{000010} s, rw2init <s s, b{0} s, 0 256 u, 0 256 u, 0 32 u, -1 32 i, b> "restricted2.msg.init" put
+<b b{1000100} s, -1 rw2addr addr, 0 Gram, b{00} s, 0 256 u, 0 256 u, 0 32 u, -1 32 i, b> "restricted2.msg.init-noinit" put
+{ rw2addr swap signed-ext-mc } : rw2ext
+<b 1 32 u, 1800000000 32 u, 3 8 u, 500000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.transfer" put
+<b 1 32 u, 1800000000 32 u, 3 8 u, 50000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.transfer-small" put
+<b 1 32 u, 1800000000 32 u, 3 8 u, 50000000 0 dest transfer-to ref, 3 8 u, 30000000 -1 other transfer-to ref, b> rw2ext "restricted2.msg.two" put
+<b 1 32 u, 1800000000 32 u, 0 8 u, 5000000000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.transfer-too-much" put
+<b 1 32 u, 1800000000 32 u, b> rw2ext "restricted2.msg.none" put
+<b 4 32 u, 1800000000 32 u, 3 8 u, 50000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.seqno" put
+<b 1 32 u, NOW 32 u, 3 8 u, 50000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.expired" put
+pk-other key ! <b 1 32 u, 1800000000 32 u, 3 8 u, 50000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.bad-signature" put pk key !

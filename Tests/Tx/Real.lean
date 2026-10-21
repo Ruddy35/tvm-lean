@@ -61,7 +61,15 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
   1), to it in the basechain, to the basechain and four at once (with another masterchain account and
   an external message), with configuration parameter -13 absent, before, at and after the case's
   time, and of 16 bits; for more than the balance, no order, a wrong seqno and signature, expired;
-  an internal message.
+  an internal message;
+- restricted wallet v2 (`restricted-wallet2-code.fc`, `new-restricted-wallet2.fif`, in the
+  masterchain): the first message (seqno 0, without a signature; deploying it too); transfers of 0.5
+  and 0.05 Gram, two at once and one for more than the balance, with the start in the data before,
+  after and long before the case, and the start read from configuration parameter -13 (absent,
+  before, at the case's time, of 16 bits), so that the schedule keeps 0.9, 0.8, 0.1, 0 or nothing;
+  the same with the 16-bit schedule of `new-restricted-wallet2.fif`, which the wallet's 32-bit lookup
+  cannot read (exit codes 10 and 9); no order, a wrong seqno and signature, expired; an internal
+  message.
 -/
 
 namespace Tests.Tx
@@ -117,6 +125,41 @@ def restricted1Cases (get : String → Except String Cell) (cfg : Cell) (mk : St
   out := out.push (mk "restricted1/new/init/uninit" (mkAccount (-1) addr .uninit 10000000000 1700000000 0 1000) init)
   out := out.push (mk "restricted1/new/init/none" (mkAccount (-1) addr .none 0 0 0 0) init)
   out := out.push (mk "restricted1/internal" (acc dStarted) (intMsg (-1) addr 100000000 true none (natToBits 0 32)))
+  return out
+
+/-- The restricted wallet v2 (`restricted-wallet2-code.fc`) in the masterchain, on the configuration
+`cfg` of a version (as `restricted1Cases`). Its schedule `rdict` is looked up at `now - start_at`:
+`start_at` 500 s before the case (0.8 Gram kept of 1), 500 s after it (no key at or before -500),
+200000 s before it (0 kept), or 0 (configuration parameter -13: absent, -1 and 0.9 kept; 2000 s before
+the case, 0.1 kept; at the case's time, 0.8 kept; a cell of 16 bits); and the 16-bit dictionary of
+`new-restricted-wallet2.fif`, which the wallet reads as one of 32-bit keys. -/
+def restricted2Cases (get : String → Except String Cell) (cfg : Cell) (mk : String → Cell → Cell → TxCase) :
+    Except String (Array TxCase) := do
+  let code ← get "restricted2.code"
+  let addr := (← get "restricted2.addr").bits
+  let data (n : String) := get s!"restricted2.data.{n}"
+  let msgs (ns : List String) := ns.mapM fun n => return (n, ← get s!"restricted2.msg.{n}")
+  let acc (d : Cell) := mkAccount (-1) addr (.active code d) 1000000000 1700000000 0 1000
+  let p13 (c : Cell) := withParam cfg (2 ^ 32 - 13) c
+  let u32 (t : Nat) := (({} : W).uint t 32).cell
+  let past := p13 (u32 (1700000200 - 2000))
+  let mut out : Array TxCase := #[]
+  for (dname, d, cfgs) in [("started", ← data "started", [("", cfg)]), ("not-started", ← data "not-started", [("", cfg)]),
+      ("unlocked", ← data "unlocked", [("", cfg)]),
+      ("from-config", ← data "from-config", [("/absent", cfg), ("/past", past), ("/now", p13 (u32 1700000200)),
+        ("/short", p13 (({} : W).uint 7 16).cell)]),
+      ("script", ← data "script", [("/absent", cfg), ("/past", past)])] do
+    for (cname, c) in cfgs do
+      for (n, m) in ← msgs ["transfer", "transfer-small", "two", "transfer-too-much"] do
+        out := out.push { mk s!"restricted2/{dname}{cname}/{n}" (acc d) m with config := c }
+  for (n, m) in ← msgs ["none", "seqno", "expired", "bad-signature", "init-noinit"] do
+    out := out.push (mk s!"restricted2/{n}" (acc (← data "started")) m)
+  for (n, m) in ← msgs ["init", "init-noinit", "transfer"] do
+    out := out.push (mk s!"restricted2/new/{n}" (acc (← data "new")) m)
+  let init ← get "restricted2.msg.init"
+  out := out.push (mk "restricted2/new/init/uninit" (mkAccount (-1) addr .uninit 1000000000 1700000000 0 1000) init)
+  out := out.push (mk "restricted2/new/init/none" (mkAccount (-1) addr .none 0 0 0 0) init)
+  out := out.push (mk "restricted2/internal" (acc (← data "started")) (intMsg (-1) addr 100000000 true none (natToBits 0 32)))
   return out
 
 /-- The transactions of the real contracts at each version of `versions` (`contracts`: the cells of
@@ -251,6 +294,7 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
       for (n, m) in rwmsgs do
         out := out.push { mk s!"restricted3/{dname}/{n}" (rwAcc d) m with config := c }
     out := out ++ (← restricted1Cases get cfg mk)
+    out := out ++ (← restricted2Cases get cfg mk)
     for (st, m, v, bal, d, body) in pcRun do
       let acc := mkAccount 0 pcAddr (.active pcCode d) bal 1700000000 0 1000
       let msg := match v with
