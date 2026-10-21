@@ -103,15 +103,18 @@ def withoutParam (cfg : Cell) (n : Nat) : Cell :=
   | .ok (_, some r, _, _) => r
   | _ => cfg
 
-/-- Parameter 12 with workchain `wc`: that of workchain 0 with `accept_msgs` false (`workchain#a6`, the
-bit after `basic` and `active`). -/
-def withClosedWorkchain (cfg : Cell) (wc : Nat) : Cell := Id.run do
+/-- Parameter 12 with workchain `wc`: that of workchain 0 with `accept_msgs` set to `accept`
+(`workchain#a6`, the bit after `basic` and `active`). -/
+def withWorkchain (cfg : Cell) (wc : Nat) (accept : Bool) : Cell := Id.run do
   let some c := Config.decode cfg | return cfg
   let some v := dictGet c.workchains (natToBits 0 32) | return cfg
-  let bits := (v.readBits v.bitsRemaining).set! 66 false
+  let bits := (v.readBits v.bitsRemaining).set! 66 accept
   match dictSetBuilderWithCells c.workchains (natToBits wc 32) { bits, refs := v.cell.refs.extract v.refPos v.cell.refs.size } .set with
   | .ok (some root, _, _, _) => withParam cfg 12 ((({} : W).bool true).ref root).cell
   | _ => cfg
+
+/-- Parameter 12 with workchain `wc` not accepting messages. -/
+def withClosedWorkchain (cfg : Cell) (wc : Nat) : Cell := withWorkchain cfg wc false
 
 /-- Parameter 44 (`suspended_address_list#00 addresses:(HashmapE 288 Unit) suspended_until:uint32`). -/
 def withSuspended (cfg : Cell) (addrs : List (Int × BitString)) (untilTime : Nat) : Cell := Id.run do
@@ -402,6 +405,11 @@ def actionListCases (x : Ctx) (perVersion : Bool) : Array TxCase := Id.run do
     out := out.push (x.case "lib/merkle3" (special (asm (setC5 (actChangeLib 2 (.inr (merkleProofs data1 3)))))) spMsg)
     out := out.push (x.case "lib/malformed-dict" (special (asm [.pushRef libCell, .pushInt (.num 2), .tonEnvOp .setLibCode])
       (some Cell.empty)) spMsg)
+    -- the account's entry at the hash of `libCell` holds another root (`ShardAccount` validation does
+    -- not compare them, 2387): by hash the library is not found (41), by reference it is added
+    if let .ok (some wrong, _, _, _) := dictSetBuilderWithCells none libHash { bits := #[true], refs := #[lib2] } .set then
+      out := out.push (x.case "lib/hash/key-mismatch" (special (asm (setC5 (actChangeLib 2 (.inl libHash)))) (some wrong)) spMsg)
+      out := out.push (x.case "lib/ref/key-mismatch" (special (asm (setC5 (actChangeLib 2 (.inr libCell)))) (some wrong)) spMsg)
   return out
 
 /-- `try_action_send_msg` (transaction.cpp:2700-3100) and the address checks (2520-2654): a message with
@@ -438,6 +446,18 @@ def sendCases (x : Ctx) (perVersion : Bool) : Array TxCase := Id.run do
     out := out.push (send "bad-lib-skip" badLib 2)
     out := out.push (x.case "send/valid-then-bad-lib" (active (asm (sendRaw (relaxedX dest 10000000) 0 ++ sendRaw badLib 0))) msg)
     out := out.push (send "anycast-dest" (relaxedX (stdA 0 other (some pfx5)) 10000000) 0)
+    -- an anycast account whose message names its exact address as the source: before version 10
+    -- `my_addr` keeps the prefix and only `my_addr_exact` matches (2530)
+    let pfx3 : BitString := natToBits 0b101 3
+    let exact := pfx3 ++ a1.extract 3 256
+    out := out.push (x.case "send/src-exact-anycast"
+      (mkAccount 0 a1 (.active (asm (sendRaw (relaxedX dest 10000000 (src := stdA 0 exact)) 0)) data0) 1000000000 1700000000 0 1000
+        (anycast := some pfx3))
+      (intMsg 0 exact 100000000 false none #[]))
+    -- workchain 1000 open: an anycast `addr_var` destination of 256 bits is rewritten before version 10
+    -- and repacked as `addr_var` (2640-2650), invalid from version 10 (36)
+    out := out.push (send "addr-var-dest-wc1000-anycast" (relaxedX (((((({} : W).uint 3 2).bool true).uint 5 5).bitStr pfx5
+      |>.uint 256 9 |>.int 1000 32 |>.bitStr other).bits) 10000000) 0 (withWorkchain x.cfg 1000 true))
     out := out.push (send "anycast-dest-mine" (relaxedX (stdA 0 other (some (a1.extract 0 5))) 10000000) 0)
     if x.v ≥ 15 then
       out := out.push (send "ext-total" (relaxedExtX 8 (natToBits 0 300)) 0 (limitsTotal x.cfg))
@@ -467,6 +487,11 @@ def sendCases (x : Ctx) (perVersion : Bool) : Array TxCase := Id.run do
     out := out.push (send "addr-var-dest" (relaxedX (varA 0 other) 10000000) 0)
     out := out.push (send "addr-var-dest-len100" (relaxedX (varA 0 (natToBits 1 100)) 10000000) 0)
     out := out.push (send "addr-var-dest-mc-len100" (relaxedX (varA (-1) (natToBits 1 100)) 10000000) 0)
+    -- `addr_var` of 256 bits outside -128..127 is not repacked (2569): unknown workchains (36), and
+    -- workchain 1000 open (sent as it is)
+    for wc in [(1000 : Int), -1000] do
+      out := out.push (send s!"addr-var-dest-wc{wc}" (relaxedX (varA wc other) 10000000) 0)
+    out := out.push (send "addr-var-dest-wc1000-open" (relaxedX (varA 1000 other) 10000000) 0 (withWorkchain x.cfg 1000 true))
     out := out.push (send "closed-workchain" (relaxedX (stdA 7 other) 10000000) 0 (withClosedWorkchain x.cfg 7))
     out := out.push (send "closed-workchain-skip" (relaxedX (stdA 7 other) 10000000) 2 (withClosedWorkchain x.cfg 7))
     out := out.push (send "src-extern" (relaxedX dest 10000000 (src := #[false, true] ++ natToBits 8 9 ++ natToBits 0x77 8)) 0)
@@ -534,6 +559,9 @@ def inMsgCases (x : Ctx) : Array TxCase := Id.run do
   out := out.push (x.case "in-msg/ext-deep" acc (extMsgRef 0 a1 (chain 2)) (limitsSmall x.cfg))
   out := out.push (x.case "in-msg/ext-large" acc (extMsgRef 0 a1 (Cell.mkOrdinary (natToBits 0 600) #[Cell.mkOrdinary (natToBits 0 600)]))
     (limitsSmall x.cfg))
+  -- 5 cells of few bits (depth 2): above `max_msg_cells` only (961)
+  out := out.push (x.case "in-msg/ext-many-cells" acc
+    (extMsgRef 0 a1 (Cell.mkOrdinary #[] ((List.range 4).toArray.map fun i => Cell.mkOrdinary (natToBits (i + 1) 8)))) (limitsSmall x.cfg))
   let params := active (asm inMsgParamsProg)
   out := out.push (x.case "in-msg/params-bounced" params (intMsgX dest 100000000 (bounced := true) (fwdFee := 12345)))
   return out
@@ -567,6 +595,8 @@ def accountCases (x : Ctx) (perVersion : Bool) : Array TxCase := Id.run do
     out := out.push (x.case "account/wc127" (mkAccount 127 a1 (.active accept data0) 1000000000 1700000000 0 1000)
       (intMsg 127 a1 100000000 false none #[]))
     out := out.push (x.case "account/none-addr-var" (mkAccount 1000 a1 .none 0 0 0 0) (intMsg 1000 a1 100000000 false none #[]))
+    -- an absent account in workchain -1000, below `addr_std` (`init_new`, 555)
+    out := out.push (x.case "account/none-wc-1000" (mkAccount (-1000) a1 .none 0 0 0 0) (intMsg (-1000) a1 100000000 false none #[]))
   return out
 
 end Cov
