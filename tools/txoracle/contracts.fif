@@ -244,3 +244,26 @@ pk2 key ! ms2addr msquery 0 null msroot signed-ext "multisig.msg.bad-signature" 
 ms2addr <b 78 32 u, msq 2 + 64 u, 3 8 u, 500000000 transfer ref, b> 0 null msroot signed-ext "multisig.msg.wrong-wallet" put
 ms2addr <b 77 32 u, NOW 10 - 32 << 64 u, 3 8 u, 500000000 transfer ref, b> 0 null msroot signed-ext "multisig.msg.expired" put
 ms2addr <b 77 32 u, NOW 100 + 32 << 64 u, 3 8 u, 500000000 transfer ref, b> 0 null msroot signed-ext "multisig.msg.too-soon" put
+
+// --- restricted wallet v3 (restricted-wallet3-code.fc): seqno subwallet public_key, then the final
+// public key (before the first message) or start_at and the schedule rdict (int32 seconds since
+// start_at -> grams kept); start_at 0 reads it from configuration parameter -13
+"auto/restricted-wallet3-code.fif" include constant rwcode
+dictnew
+  <b 900000000 Gram, b> <s -10 rot 32 idict!+ drop
+  <b 800000000 Gram, b> <s 0 rot 32 idict!+ drop
+  <b 100000000 Gram, b> <s 1000 rot 32 idict!+ drop constant rwsched
+<b 0 32 u, 5 32 u, pub B, pub B, b> constant rwdata0
+rwcode rwdata0 addr-of constant rwaddr
+rwcode "restricted3.code" put  rwdata0 "restricted3.data.new" put  <b rwaddr 256 u, b> "restricted3.addr" put
+<b 1 32 u, 5 32 u, pub B, NOW 500 - 32 u, rwsched dict, b> "restricted3.data.started" put
+<b 1 32 u, 5 32 u, pub B, 0 32 u, rwsched dict, b> "restricted3.data.from-config" put
+{ rwaddr swap signed-ext } : rwext
+<b 5 32 u, 1800000000 32 u, 0 32 u, NOW 500 - 32 u, rwsched dict, b> rwext "restricted3.msg.init" put
+<b 5 32 u, 1800000000 32 u, 1 32 u, 3 8 u, 500000000 transfer ref, b> rwext "restricted3.msg.transfer" put
+<b 5 32 u, 1800000000 32 u, 1 32 u, 3 8 u, 50000000 transfer ref, b> rwext "restricted3.msg.transfer-small" put
+<b 5 32 u, 1800000000 32 u, 1 32 u, 0 8 u, 5000000000000 transfer ref, b> rwext "restricted3.msg.transfer-too-much" put
+<b 5 32 u, 1800000000 32 u, 4 32 u, 3 8 u, 50000000 transfer ref, b> rwext "restricted3.msg.seqno" put
+<b 6 32 u, 1800000000 32 u, 1 32 u, 3 8 u, 50000000 transfer ref, b> rwext "restricted3.msg.subwallet" put
+<b 5 32 u, NOW 32 u, 1 32 u, 3 8 u, 50000000 transfer ref, b> rwext "restricted3.msg.expired" put
+pk-other key ! <b 5 32 u, 1800000000 32 u, 1 32 u, 3 8 u, 50000000 transfer ref, b> rwext "restricted3.msg.bad-signature" put pk key !

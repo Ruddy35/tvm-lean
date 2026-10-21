@@ -36,7 +36,11 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
 - multisig (`multisig-code.fc`, three owners): initialization; a query sent at once (one signature
   needed); with two needed, a query left pending, one carrying a second owner's signature, the
   confirmation of a pending query by the second owner and again by the first; an unknown owner, a
-  wrong signature, wallet id, an expired query and one due too soon.
+  wrong signature, wallet id, an expired query and one due too soon;
+- restricted wallet v3 (`restricted-wallet3-code.fc`): the first message, which sets the final key
+  and the schedule of locked grams; transfers 500 s after the start (part of the balance reserved),
+  with the start read from configuration parameter -13 (absent, and set 2000 s before), for more
+  than the balance; a wrong seqno, subwallet, signature and an expired message.
 -/
 
 namespace Tests.Tx
@@ -98,6 +102,12 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     "too-soon"].mapM fun n => return (n, ← msmsg n)
   let msPending ← ["k2-confirm", "k2-root"].mapM fun n => return (n, ← msmsg n)
   let msK1 ← msmsg "k1-send"
+  let rw := (← get "restricted3.code", (← get "restricted3.addr").bits, ← get "restricted3.data.new",
+    ← get "restricted3.data.started", ← get "restricted3.data.from-config")
+  let rwmsg (n : String) := get s!"restricted3.msg.{n}"
+  let rwInit ← rwmsg "init"
+  let rwmsgs ← ["transfer", "transfer-small", "transfer-too-much", "seqno", "subwallet", "expired",
+    "bad-signature"].mapM fun n => return (n, ← rwmsg n)
   let cfgCode ← get "config.code"
   let pub := (← get "key.pub").bits
   let cfgBodies ← ["set-param", "set-key", "set-code", "elector-code", "noop", "unknown", "seqno", "expired", "vote",
@@ -145,6 +155,14 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     for (n, m) in msPending do
       out := out.push (mk s!"multisig/pending/{n}" (msAcc d2p a2) m)
     out := out.push (mk "multisig/internal" (msAcc d2 a2) (intMsg 0 a2 100000000 true none #[]))
+    let (code, addr, dNew, dStarted, dFromCfg) := rw
+    let rwAcc (d : Cell) := mkAccount 0 addr (.active code d) 1000000000 1700000000 0 1000
+    out := out.push (mk "restricted3/init" (rwAcc dNew) rwInit)
+    -- configuration parameter -13 (the key 2^32 - 13): the start, 2000 s before the case
+    let cfgStart := withParam cfg (2 ^ 32 - 13) (({} : W).uint (1700000200 - 2000) 32).cell
+    for (dname, d, c) in [("started", dStarted, cfg), ("from-config", dFromCfg, cfg), ("from-config-set", dFromCfg, cfgStart)] do
+      for (n, m) in rwmsgs do
+        out := out.push { mk s!"restricted3/{dname}/{n}" (rwAcc d) m with config := c }
     let (code, data) := el
     let elAcc := mkAccount (-1) elAddr (.active code data) 500000000000 1700000000 0 1000
     for (n, body) in [("transfer", natToBits 0 32), ("stake", natToBits 0x4e73744b 32 ++ natToBits 7 64),
