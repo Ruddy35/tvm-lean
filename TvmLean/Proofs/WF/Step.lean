@@ -61,6 +61,11 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
      binds several values): `mvcgen` leaves `wp⟦jp ...⟧`; name it with `extract_lets`, prove
      `∀ p, ⦃...⦄ jp p ⦃...⦄` by `cases p`, `simp only [jp]` and `mvcgen`, `clear_value` it, and
      close what `mvcgen` leaves with `refine hjp _ _ ?_` (`execInstrCellStIntVar_WF`, `XLOAD`);
+   * a loop whose body has a `try ... catch` and a `break` (the body ends in a match on
+     `DoResultSBC`): `mvcgen` leaves that match and may build a term the kernel rejects
+     (`(kernel) application type mismatch`); bind the steps by hand, take the loop with
+     `VM.forIn_range_WF` and the result of the body apart with `rcases` before `mvcgen`
+     (`VM.execSdataSize_spec`, `Exec/Misc.lean`);
    * a long handler: `set_option maxHeartbeats 4000000` for the file (not `in`: the equations of
      the handler `mvcgen` unfolds are built with the options of the file); compile a family file
      single-threaded under a memory cap (`ulimit -v 10000000`; the resident memory stays under 3 GB
@@ -76,8 +81,9 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
 
 Done: Stack, Arith, Cell, CellOp (`wf_cells` of `Cells.lean`: `wf_vc` with the lemmas on the
 cells, slices and builders instructions build), Exception (`Continuation.WF.defineC0`,
-`Continuation.WF.defineC2`), Debug, Tuple. Left: Cont, Flow (with `RUNVM`, which runs a child VM
-with `execInstr`: `VmState.WF.runWith` applies), TonEnv, Crypto, Msg, Misc, Dict. The VM operations of those families without a specification yet: `VM.call`,
+`Continuation.WF.defineC2`), Debug, Tuple, Misc (`VM.forIn_range_WF`: a loop in the VM monad
+whose body `mvcgen` cannot take). Left: Cont, Flow (with `RUNVM`, which runs a child VM with
+`execInstr`: `VmState.WF.runWith` applies), TonEnv, Crypto, Msg, Dict. The VM operations of those families without a specification yet: `VM.call`,
 `VM.callComputeStacks`, `VM.extractCc` (mvcgen unfolds them; their conditions need the
 continuation lemmas of `Monad.lean`), the dictionary functions (`Library.lean` has the lookup; the
 setters build cells), the cell serialization of messages and actions.
