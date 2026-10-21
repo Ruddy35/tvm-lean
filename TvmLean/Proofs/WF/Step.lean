@@ -53,6 +53,14 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
      statement of its specification (`M` the module, `f` the full name);
    * a helper that computes on long bit strings (`intToBitsTwos n 257`, ...): `mvcgen` may evaluate
      it; raise `maxRecDepth`, or `generalize` it in a hand-made specification;
+   * a hash (`Cell.hashBytes`, `CellLevelInfo.getHash`), or an integer computed from one that
+     `VM.pushIntQuiet` range-checks: `mvcgen`, and then the kernel, would compute it; bind the steps
+     by hand (`Triple.bind`, `VM.spec_mono` of `Cells.lean`), `generalize` the hash or the integer,
+     and close with the specifications (`execCellOpChashI_WF`, `HASHBU` in `execInstrCellExt_WF`);
+   * a join point taking a pair or an `Except` and matching on it (the code after a `match` that
+     binds several values): `mvcgen` leaves `wp⟦jp ...⟧`; name it with `extract_lets`, prove
+     `∀ p, ⦃...⦄ jp p ⦃...⦄` by `cases p`, `simp only [jp]` and `mvcgen`, `clear_value` it, and
+     close what `mvcgen` leaves with `refine hjp _ _ ?_` (`execInstrCellStIntVar_WF`, `XLOAD`);
    * a long handler: `set_option maxHeartbeats 4000000` for the file (not `in`: the equations of
      the handler `mvcgen` unfolds are built with the options of the file); compile a family file
      single-threaded under a memory cap (`ulimit -v 10000000`; the resident memory stays under 3 GB
@@ -66,8 +74,9 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
    ```
    and pass it to `execInstr_WF`.
 
-Done: Stack, Arith. Left: Cell, CellOp, Cont, Flow (with `RUNVM`, which runs a child VM
-with `execInstr`: `VmState.WF.runWith` applies), Tuple, TonEnv, Crypto, Msg, Misc, Debug,
+Done: Stack, Arith, Cell, CellOp (`wf_cells` of `Cells.lean`: `wf_vc` with the lemmas on the
+cells, slices and builders instructions build). Left: Cont, Flow (with `RUNVM`, which runs a child
+VM with `execInstr`: `VmState.WF.runWith` applies), Tuple, TonEnv, Crypto, Msg, Misc, Debug,
 Exception, Dict. The VM operations of those families without a specification yet: `VM.call`,
 `VM.callComputeStacks`, `VM.extractCc` (mvcgen unfolds them; their conditions need the
 continuation lemmas of `Monad.lean`), the dictionary functions (`Library.lean` has the lookup; the
