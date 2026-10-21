@@ -471,7 +471,11 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
       let w : W := (((({} : W).bool false).bool ihrDisabled).bool bounce).bool false
       let w := ((w.bitStr src).bitStr dest).currencies { grams := req.toNat, extra := reqExtra }
       let w := (w.grams (if t.gv ≥ 12 then extraFlags else ihrFee)).grams fwdRemain
-      let w := ((w.uint lt 64).uint t.now 32).slice init |>.slice body
+      let w := (w.uint lt 64).uint t.now 32
+      -- `FAIL_UNLESS_ERRCODE(tlb::csr_pack(msg.info, info), ERRCODE_FAIL_ACTION_PHASE)`
+      -- (transaction.cpp:3026): a header that alone does not fit a cell fails the action phase
+      if w.bits.size > 1023 then return (errFailActionPhase, t, ap)
+      let w := (w.slice init).slice body
       if w.bits.size > 1023 || w.refs.size > 4 then
         return if redoing == 2 then skip (collectFine ap) 39 else (-2, t, ap)
       let newBits := w.bits.size
