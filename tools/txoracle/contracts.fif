@@ -362,3 +362,39 @@ swxcode "simple-wallet-ext.code" put  swxdata "simple-wallet-ext.data" put  <b s
 pk-other key ! <b 0 32 u, 3 8 u, 500000000 transfer ref, b> swxext "simple-wallet-ext.msg.bad-signature" put pk key !
 // the StateInit of the wallet (create_init_state) with a transfer, to deploy it
 swxaddr <b b{0011} s, swxcode ref, swxdata ref, null dict, b> <b 0 32 u, 3 8 u, 500000000 transfer ref, b> signed-ext-init "simple-wallet-ext.msg.deploy" put
+
+// --- restricted wallet v1 (restricted-wallet-code.fc, new-restricted-wallet.fif; in the
+// masterchain): seqno public_key; a message is signature seqno valid_until (mode ^msg)*; seqno 0 is
+// accepted without a signature; while configuration parameter -13 is absent or later than now, only
+// messages to the elector (parameter 1, -1:3333..33 in the testnet configuration of the cases) and
+// external messages are sent
+// ( addr body -- ext-msg ): signed-ext to -1:addr
+{ dup hashu key @ ed25519_sign_uint
+  <b b{1000100} s, -1 4 roll addr, 0 Gram, b{00} s, swap B, swap <s s, b>
+} : signed-ext-mc
+0x3333333333333333333333333333333333333333333333333333333333333333 constant elector
+0x4444444444444444444444444444444444444444444444444444444444444444 constant other
+{ true <b 0 32 u, b> create-int-msg } : transfer-to   // ( ng wc addr -- msg ): a simple transfer
+// an external message to addr_extern 0xabcd (16 bits)
+<b b{11} s, b{00} s, b{01} s, 16 9 u, 0xabcd 16 u, 0 64 u, 0 32 u, b{00} s, b> constant ext-out
+"auto/restricted-wallet-code.fif" include constant rw1code
+<b 0 32 u, pub B, b> constant rw1data0
+<b b{0011} s, rw1code ref, rw1data0 ref, null dict, b> constant rw1init
+rw1init hashu constant rw1addr
+rw1code "restricted1.code" put  rw1data0 "restricted1.data.new" put  <b rw1addr 256 u, b> "restricted1.addr" put
+<b 1 32 u, pub B, b> "restricted1.data" put
+// the message of new-restricted-wallet.fif (a zero signature, seqno 0, valid_until -1) with the
+// StateInit, and the same without it
+<b b{1000100} s, -1 rw1addr addr, b{000010} s, rw1init <s s, b{0} s, 0 256 u, 0 256 u, 0 32 u, -1 32 i, b> "restricted1.msg.init" put
+<b b{1000100} s, -1 rw1addr addr, 0 Gram, b{00} s, 0 256 u, 0 256 u, 0 32 u, -1 32 i, b> "restricted1.msg.init-noinit" put
+{ rw1addr swap signed-ext-mc } : rw1ext
+<b 1 32 u, 1800000000 32 u, 3 8 u, 100000000 -1 elector transfer-to ref, 3 8 u, 200000000 0 dest transfer-to ref,
+   3 8 u, 50000000 -1 other transfer-to ref, 3 8 u, ext-out ref, b> rw1ext "restricted1.msg.four" put
+<b 1 32 u, 1800000000 32 u, 3 8 u, 100000000 -1 elector transfer-to ref, b> rw1ext "restricted1.msg.elector" put
+<b 1 32 u, 1800000000 32 u, 3 8 u, 100000000 0 elector transfer-to ref, b> rw1ext "restricted1.msg.elector-basechain" put
+<b 1 32 u, 1800000000 32 u, 3 8 u, 200000000 0 dest transfer-to ref, b> rw1ext "restricted1.msg.basechain" put
+<b 1 32 u, 1800000000 32 u, 0 8 u, 5000000000000 -1 elector transfer-to ref, b> rw1ext "restricted1.msg.too-much" put
+<b 1 32 u, 1800000000 32 u, b> rw1ext "restricted1.msg.none" put
+<b 4 32 u, 1800000000 32 u, 3 8 u, 100000000 -1 elector transfer-to ref, b> rw1ext "restricted1.msg.seqno" put
+<b 1 32 u, NOW 32 u, 3 8 u, 100000000 -1 elector transfer-to ref, b> rw1ext "restricted1.msg.expired" put
+pk-other key ! <b 1 32 u, 1800000000 32 u, 3 8 u, 100000000 -1 elector transfer-to ref, b> rw1ext "restricted1.msg.bad-signature" put pk key !

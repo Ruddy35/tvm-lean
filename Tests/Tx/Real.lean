@@ -54,7 +54,14 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
 - the simple wallet ext (`simple-wallet-ext-code.fc`, a message signature seqno [mode ^msg]):
   transfers with the modes 3 and 128 and for more than the balance, no order, two references or
   more bits after the order (`end_parse` failing after `accept_message`), a wrong seqno and
-  signature; deployment with its `StateInit` and a transfer; an internal message.
+  signature; deployment with its `StateInit` and a transfer; an internal message;
+- restricted wallet v1 (`restricted-wallet-code.fc`, `new-restricted-wallet.fif`, in the
+  masterchain): the message of `new-restricted-wallet.fif` (seqno 0, accepted without a signature;
+  also deploying it, and on the wallet after it), messages to the elector (`-1:3333..33`, parameter
+  1), to it in the basechain, to the basechain and four at once (with another masterchain account and
+  an external message), with configuration parameter -13 absent, before, at and after the case's
+  time, and of 16 bits; for more than the balance, no order, a wrong seqno and signature, expired;
+  an internal message.
 -/
 
 namespace Tests.Tx
@@ -82,6 +89,35 @@ def extMsgRef (wc : Int) (dest : BitString) (body : Cell) : Cell :=
 def vsetAt (vset : Cell) (since untilTime : Nat) : Cell :=
   Cell.mkOrdinary (vset.bits.extract 0 8 ++ natToBits since 32 ++ natToBits untilTime 32 ++ vset.bits.extract 72 vset.bits.size)
     vset.refs
+
+/-- The restricted wallet v1 (`restricted-wallet-code.fc`) in the masterchain, on the configuration
+`cfg` of a version (`get`: the cells of `tools/txoracle/contracts.txt`, `mk`: a case of `realCases`).
+Configuration parameter -13 is absent, 2000 s before the case, at its time, 1000 s after it (the
+wallet is restricted while it is absent or after now) or a cell of 16 bits. -/
+def restricted1Cases (get : String → Except String Cell) (cfg : Cell) (mk : String → Cell → Cell → TxCase) :
+    Except String (Array TxCase) := do
+  let code ← get "restricted1.code"
+  let addr := (← get "restricted1.addr").bits
+  let dNew ← get "restricted1.data.new"
+  let dStarted ← get "restricted1.data"
+  let msgs (ns : List String) := ns.mapM fun n => return (n, ← get s!"restricted1.msg.{n}")
+  let acc (d : Cell) := mkAccount (-1) addr (.active code d) 10000000000 1700000000 0 1000
+  let p13 (c : Cell) := withParam cfg (2 ^ 32 - 13) c
+  let u32 (t : Nat) := (({} : W).uint t 32).cell
+  let mut out : Array TxCase := #[]
+  for (cname, c) in [("absent", cfg), ("past", p13 (u32 (1700000200 - 2000))), ("now", p13 (u32 1700000200)),
+      ("future", p13 (u32 (1700000200 + 1000))), ("short", p13 (({} : W).uint 7 16).cell)] do
+    for (n, m) in ← msgs ["four", "elector", "elector-basechain", "basechain"] do
+      out := out.push { mk s!"restricted1/{cname}/{n}" (acc dStarted) m with config := c }
+  for (n, m) in ← msgs ["too-much", "none", "seqno", "expired", "bad-signature", "init-noinit"] do
+    out := out.push (mk s!"restricted1/{n}" (acc dStarted) m)
+  for (n, m) in ← msgs ["init", "init-noinit", "four"] do
+    out := out.push (mk s!"restricted1/new/{n}" (acc dNew) m)
+  let init ← get "restricted1.msg.init"
+  out := out.push (mk "restricted1/new/init/uninit" (mkAccount (-1) addr .uninit 10000000000 1700000000 0 1000) init)
+  out := out.push (mk "restricted1/new/init/none" (mkAccount (-1) addr .none 0 0 0 0) init)
+  out := out.push (mk "restricted1/internal" (acc dStarted) (intMsg (-1) addr 100000000 true none (natToBits 0 32)))
+  return out
 
 /-- The transactions of the real contracts at each version of `versions` (`contracts`: the cells of
 `loadContracts`; a missing one is an error). -/
@@ -214,6 +250,7 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     for (dname, d, c) in [("started", dStarted, cfg), ("from-config", dFromCfg, cfg), ("from-config-set", dFromCfg, cfgStart)] do
       for (n, m) in rwmsgs do
         out := out.push { mk s!"restricted3/{dname}/{n}" (rwAcc d) m with config := c }
+    out := out ++ (← restricted1Cases get cfg mk)
     for (st, m, v, bal, d, body) in pcRun do
       let acc := mkAccount 0 pcAddr (.active pcCode d) bal 1700000000 0 1000
       let msg := match v with
