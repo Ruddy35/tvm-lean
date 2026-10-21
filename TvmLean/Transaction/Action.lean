@@ -39,6 +39,7 @@ def Reader.msgAddress : Reader BitString := do
 /-- `CommonMsgInfoRelaxed` of an outbound message, validated. -/
 inductive RelaxedInfo where
   | int (ihrDisabled bounce bounced : Bool) (src dest : BitString) (value : Currencies) (extraFlags fwdFee : Nat)
+      (extraFlagsCanonical fwdFeeCanonical : Bool)
   | ext (src dest : BitString)
 
 def Reader.relaxedInfo : Reader RelaxedInfo := do
@@ -50,11 +51,11 @@ def Reader.relaxedInfo : Reader RelaxedInfo := do
     let dest ← Reader.msgAddressInt
     let value ← Reader.currencies
     if !validExtraCurrencies value.extra then Reader.fail
-    let extraFlags ← Reader.grams
-    let fwdFee ← Reader.grams
+    let (extraFlags, extraFlagsCanonical) ← Reader.gramsC
+    let (fwdFee, fwdFeeCanonical) ← Reader.gramsC
     let _ ← Reader.uint 64
     let _ ← Reader.uint 32
-    return .int ihr bounce bounced src dest value extraFlags fwdFee
+    return .int ihr bounce bounced src dest value extraFlags fwdFee extraFlagsCanonical fwdFeeCanonical
   else
     if !(← Reader.bool) then Reader.fail
     let src ← Reader.msgAddress
@@ -369,10 +370,10 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
     else redoing := 2
   if redoing ≥ 2 && (body.bitsRemaining + body.refsRemaining > 1) && !(body.readBits 1)[0]! then
     body := Slice.ofCell (Cell.mkOrdinary #[true] #[(body.advanceBits 1).toCellRemaining])
-  let (ext, ihrDisabled0, bounce, src0, dest0, value, extraFlags, fwdFee0) :=
+  let (ext, ihrDisabled0, bounce, src0, dest0, value, extraFlags, fwdFee0, efOk, ffOk) :=
     match msg.info with
-    | .int ihr b _ src dest v ef ff => (false, ihr, b, src, dest, v, ef, ff)
-    | .ext src dest => (true, true, false, src, dest, ({ grams := 0 } : Currencies), 0, 0)
+    | .int ihr b _ src dest v ef ff efOk ffOk => (false, ihr, b, src, dest, v, ef, ff, efOk, ffOk)
+    | .ext src dest => (true, true, false, src, dest, ({ grams := 0 } : Currencies), 0, 0, true, true)
   if ext && mode >>> 2 != 0 then return (-1, t, ap)
   -- `t_CurrencyCollection.validate_csr(info.value)`: `block::tlb` amounts, positive extra currencies
   if !ext && !value.valid then return (-1, t, ap)
@@ -381,10 +382,14 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
   let mut ihrDisabled := ihrDisabled0
   if !ext then
     if t.gv < 8 then
+      -- `t_Grams.as_integer` of `block::tlb` (transaction.cpp:2769-2773): a forwarding or IHR fee
+      -- with a leading zero byte is no amount, the action is invalid
+      if !ffOk || !efOk then return (-1, t, ap)
       fwdFee := fwdFee0
       ihrFee := if t.gv ≥ 12 then 0 else extraFlags
     if t.gv ≥ 11 then ihrDisabled := true
-    if t.gv ≥ 12 && extraFlags &&& 3 != extraFlags then
+    -- `extra_flags` (2778-2783): a leading zero byte makes it null, as bits outside 0 and 1 do
+    if t.gv ≥ 12 && (!efOk || extraFlags &&& 3 != extraFlags) then
       return skip ap 45
   let some src := t.checkReplaceSrcAddr src0
     | return if t.gv ≥ 13 then skip ap 35 else (35, t, ap)
