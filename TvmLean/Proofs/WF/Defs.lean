@@ -174,6 +174,27 @@ theorem back_of_forall {α} {P : α → Prop} {a : Array α} (h : ∀ v ∈ a, P
     P (a.back hs) :=
   h _ (Array.back_mem hs)
 
+theorem mem_of_mem_pop {α} {a : Array α} {v : α} (h : v ∈ a.pop) : v ∈ a :=
+  forall_mem_pop (P := (· ∈ a)) (fun _ h => h) v h
+
+theorem mem_of_mem_extract {α} {a : Array α} {v : α} {i j : Nat} (h : v ∈ a.extract i j) : v ∈ a :=
+  forall_mem_extract (P := (· ∈ a)) (fun _ h => h) i j v h
+
+theorem mem_of_mem_take {α} {a : Array α} {v : α} {i : Nat} (h : v ∈ a.take i) : v ∈ a :=
+  forall_mem_take (P := (· ∈ a)) (fun _ h => h) i v h
+
+theorem mem_or_eq_of_mem_set! {α} {a : Array α} {v x : α} {i : Nat} (h : v ∈ a.set! i x) :
+    v ∈ a ∨ v = x := by
+  rw [Array.set!_eq_setIfInBounds] at h; exact Array.mem_or_eq_of_mem_setIfInBounds h
+
+theorem getElem!_mem_or_default {α} [Inhabited α] (a : Array α) (i : Nat) :
+    a[i]! ∈ a ∨ a[i]! = default := by
+  rw [Array.getElem!_eq_getD]
+  unfold Array.getD
+  split
+  · exact .inl (Array.getElem_mem _)
+  · exact .inr rfl
+
 end WF
 
 /-! ## Cells -/
