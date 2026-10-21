@@ -44,6 +44,20 @@ def blsMultiexpL (n : Nat) : Nat :=
   -- `2^(l+1) ≤ n` implies `l < n`, so bounding the counter by `n` does not change the result.
   countWhile n (fun l => decide ((1 <<< (l + 1)) ≤ n)) 4
 
+/-- The loop of the original definition (e1f334f), `l := 4; while 2^(l+1) ≤ n do l := l + 1`, as its
+defining equation (without the bound `l < n` of `countWhile`, which the condition implies). -/
+theorem blsMultiexpL_loop (n l : Nat) :
+    countWhile n (fun l => decide ((1 <<< (l + 1)) ≤ n)) l =
+      if (1 <<< (l + 1)) ≤ n then countWhile n (fun l => decide ((1 <<< (l + 1)) ≤ n)) (l + 1) else l := by
+  rw [countWhile_eq]
+  by_cases hp : (1 <<< (l + 1)) ≤ n
+  · have hl : l < n := by
+      have := Nat.lt_two_pow_self (n := l + 1)
+      rw [Nat.one_shiftLeft] at hp
+      omega
+    simp [hl, hp]
+  · simp [hp]
+
 def blsCalculateMultiexpGas (n : Nat) (base coef1 coef2 : Int) : Int :=
   let l : Nat := blsMultiexpL n
   base + (Int.ofNat n * coef1) + ((Int.ofNat n * coef2) / Int.ofNat l)

@@ -150,7 +150,10 @@ fuzz на нескольких версиях; новые случаи орак�
 | `Cell/Cell.lean` | `Cell.beq`, `computeLevelInfo?` — структурная взаимная рекурсия | частично; **не доказана** неподвижная точка |
 | `Instr/Codepage/Cp0.lean` | `takeRefsInv` вместо четырёх циклов декодера (`PUSHCONT`, `PUSHSLICE` r2, `PUSHSLICE_REFS`, `STSLICECONST`) | **доказано** равенство исходному циклу (`takeRefsInv_eq_orig`) |
 | `Exec/Dict/Ext.lean`, `Exec/Misc.lean`, `Value/Value.lean`, `Cont/Continuation.lean` | `partial` → тотальные с доказанным завершением | исходник `partial` не имеет логического содержания; проверено тестами |
-| `Exec/Crypto/HashExt.lean`, `Exec/Msg/SendMsg.lean`, `Exec/Arith/Ext.lean`, `Exec/Crypto/Ext.lean` | циклы с явной границей | **не доказано**; проверено тестами |
+| `Exec/Crypto/HashExt.lean` | цикл `while off < size` по 32-байтным кускам дайджеста → `hashExtChunks` (структурная рекурсия по числу кусков) | **доказано**: удовлетворяет уравнению исходного цикла (`hashExtChunks_loop`) |
+| `Exec/Arith/Ext.lean` | `while q != 0` в `intToBigInt52Digits` → `intToBigInt52DigitsAux` с топливом `|q| + 1` | **доказано**: шаг уменьшает `|q|` (`bigint52_step_lt`), топлива больше `|q|` хватает и результат от него не зависит (`intToBigInt52DigitsAux_fuel`), исходное уравнение (`intToBigInt52DigitsAux_loop`) |
+| `Exec/Crypto/Ext.lean` | `while 2^(l+1) ≤ n` в `blsMultiexpL` → `countWhile n` | **доказано**: граница `l < n` следует из условия, исходное уравнение без неё (`blsMultiexpL_loop`) |
+| `Exec/Msg/SendMsg.lean` | обход ячеек сообщения | не рефакторинг: переписан по C++ (`VmStorageStat::add_storage`, раздел 1.2), вполне обоснованная рекурсия `VM.countMsgCells` с доказанным завершением (`termination_by`) |
 
 ## 3. Инфраструктура
 

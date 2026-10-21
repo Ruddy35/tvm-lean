@@ -32,6 +32,59 @@ private def intToBigInt52DigitsAux (q : Int) (out : Array Int) : Nat → Array I
       else
         out
 
+/-- The digit of one step of the loop: `q mod 2^52`, taken in `[-2^51, 2^51)`. -/
+private def bigint52Digit (q : Int) : Int :=
+  let r : Int := Int.emod q bigintBase
+  if decide (r >= bigintHalf) then r - bigintBase else r
+
+private theorem intToBigInt52DigitsAux_succ (q : Int) (out : Array Int) (fuel : Nat) :
+    intToBigInt52DigitsAux q out (fuel + 1) =
+      if q != 0 then intToBigInt52DigitsAux ((q - bigint52Digit q) / bigintBase) (out.push (bigint52Digit q)) fuel
+      else out := rfl
+
+/-- One step of the loop strictly decreases `|q|`. -/
+private theorem bigint52_step_lt (q : Int) (hq : q ≠ 0) :
+    ((q - bigint52Digit q) / bigintBase).natAbs < q.natAbs := by
+  have hb : bigintBase = 4503599627370496 := by decide
+  have hh : bigintHalf = 2251799813685248 := by decide
+  have hm : ∀ x : Int, Int.emod x 4503599627370496 = x % 4503599627370496 := fun _ => rfl
+  simp only [bigint52Digit, hb, hh, hm]
+  by_cases h : q % 4503599627370496 ≥ 2251799813685248
+  · simp only [h, decide_true, if_true]; omega
+  · simp only [h, decide_false, if_false, Bool.false_eq_true]; omega
+
+/-- Any fuel above `|q|` gives the same digits. -/
+private theorem intToBigInt52DigitsAux_fuel (q : Int) (out : Array Int) (f g : Nat)
+    (hf : q.natAbs < f) (hg : q.natAbs < g) :
+    intToBigInt52DigitsAux q out f = intToBigInt52DigitsAux q out g := by
+  induction f generalizing q out g with
+  | zero => omega
+  | succ f ih =>
+    cases g with
+    | zero => omega
+    | succ g =>
+      rw [intToBigInt52DigitsAux_succ, intToBigInt52DigitsAux_succ]
+      by_cases hq : q = 0
+      · simp [hq]
+      · have := bigint52_step_lt q hq
+        simp only [bne_iff_ne, ne_eq, hq, not_false_eq_true, if_true]
+        exact ih _ _ _ (by omega) (by omega)
+
+/-- The original `while q != 0` loop of `intToBigInt52Digits` (e1f334f), as its defining equation:
+`intToBigInt52DigitsAux q out (|q| + 1)` satisfies it. -/
+private theorem intToBigInt52DigitsAux_loop (q : Int) (out : Array Int) :
+    intToBigInt52DigitsAux q out (q.natAbs + 1) =
+      if q != 0 then
+        intToBigInt52DigitsAux ((q - bigint52Digit q) / bigintBase) (out.push (bigint52Digit q))
+          (((q - bigint52Digit q) / bigintBase).natAbs + 1)
+      else out := by
+  rw [intToBigInt52DigitsAux_succ]
+  by_cases hq : q = 0
+  · simp [hq]
+  · have := bigint52_step_lt q hq
+    simp only [bne_iff_ne, ne_eq, hq, not_false_eq_true, if_true]
+    exact intToBigInt52DigitsAux_fuel _ _ _ _ (by omega) (by omega)
+
 private def intToBigInt52Digits (n : Int) : Array Int :=
   if n == 0 then
     #[0]

@@ -2,6 +2,31 @@ import TvmLean.Semantics.Exec.Common
 
 namespace TvmLean
 
+/-- The integers of the 32-byte chunks of a digest longer than 32 bytes (`exec_hash_ext`, tonops.cpp),
+`k` chunks from byte `off` on, appended to `res`. -/
+def hashExtChunks (digest : ByteArray) : Nat → Nat → Array Value → Array Value
+  | 0, _, res => res
+  | k + 1, off, res =>
+      let len := Nat.min 32 (digest.size - off)
+      let n := byteArrayToNatBE (digest.extract off (off + len))
+      hashExtChunks digest k (off + 32) (res.push (.int (.num (Int.ofNat n))))
+
+/-- The loop of the original definition (e1f334f), `while off < digest.size do res := res.push chunk;
+off := off + 32`, as its defining equation: `hashExtChunks` with `⌈(size - off) / 32⌉` chunks
+satisfies it. -/
+theorem hashExtChunks_loop (digest : ByteArray) (off : Nat) (res : Array Value) :
+    hashExtChunks digest ((digest.size - off + 31) / 32) off res =
+      if off < digest.size then
+        hashExtChunks digest ((digest.size - (off + 32) + 31) / 32) (off + 32)
+          (res.push (.int (.num (Int.ofNat (byteArrayToNatBE
+            (digest.extract off (off + Nat.min 32 (digest.size - off))))))))
+      else res := by
+  by_cases h : off < digest.size
+  · have hk : (digest.size - off + 31) / 32 = (digest.size - (off + 32) + 31) / 32 + 1 := by omega
+    rw [hk, if_pos h]; rfl
+  · have hk : (digest.size - off + 31) / 32 = 0 := by omega
+    rw [hk, if_neg h]; rfl
+
 set_option maxHeartbeats 1000000 in
 def execInstrCryptoHashExt (i : Instr) (next : VM Unit) : VM Unit := do
   match i with
@@ -103,15 +128,9 @@ def execInstrCryptoHashExt (i : Instr) (next : VM Unit) : VM Unit := do
           let n := byteArrayToNatBE digest
           VM.pushIntQuiet (.num (Int.ofNat n)) false
         else
-          let mut res : Array Value := #[]
-          -- the loop visits off = 0, 32, 64, ... while off < size: ⌈size / 32⌉ chunks
-          for i in [0:(digest.size + 31) / 32] do
-            let off : Nat := 32 * i
-            let len := Nat.min 32 (digest.size - off)
-            let chunk := digest.extract off (off + len)
-            let n := byteArrayToNatBE chunk
-            res := res.push (.int (.num (Int.ofNat n)))
-          VM.push (.tuple res)
+          -- the original loop visits off = 0, 32, 64, ... while off < size: ⌈size / 32⌉ chunks
+          -- (`hashExtChunks_loop`)
+          VM.push (.tuple (hashExtChunks digest ((digest.size - 0 + 31) / 32) 0 #[]))
   | _ => next
 
 end TvmLean
