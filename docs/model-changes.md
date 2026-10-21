@@ -121,6 +121,22 @@ fuzz на нескольких версиях; новые случаи орак�
 | `Model/Cell/Primitives.lean` (`dictDeleteAuxWithLoads`), `Exec/Dict/Ext.lean` (`pfxLookupDeleteWithCells`) | **ошибка исходной модели:** удаление, после которого у развилки остаются оба ребёнка, пишет метку развилки заново (`dictLabelEncode`, как `append_dict_label`), а не копирует биты старой ячейки: метка могла быть записана другим своим кодом (`parse_label` читает любой), узел словаря — ячейкой-библиотекой. `DICT*DEL*`, `DICT*REMMIN/MAX*`, `DICT*SETGETOPTREF` с `null`, `PFXDICTDEL`; в транзакции — `clamp` валют резерва и удаление `CHANGELIB` | `dict_lookup_delete`, `pfx_dict_lookup_delete` (`dict.cpp:1165, 975`), `append_dict_label` (`dict.cpp:565`) |
 | `Exec/Dict/Ext.lean` (`PFXDICTSET`/`ADD`/`REPLACE`, `PFXDICTDEL`, `PFXDICTGET*`, `PFXDICTSWITCH`, ошибка `SUBDICT*GET`) | **ошибка исходной модели:** ячейка-библиотека в префиксном словаре (корень или узел) загружается как корень своей библиотеки (`VM.cellResolver`), а не `cell_und`; при ошибке `SUBDICT*GET` списываются узлы и за ячейкой-библиотекой | `LabelParser` (`dict.cpp:264`) → `load_cell_slice_ref`; `load_cell_slice_impl` (`cells/CellSlice.cpp:1107-1120`) |
 
+### 1.6. Найдено по покрытию `transaction.cpp` (фаза 5, 2026-10-21)
+
+Случаи `Tests/Tx/Coverage.lean` на непокрытые ветви первого замера (`docs/coverage/README.md`); каждое
+исправление — коммит со случаями и мутацией (без него случаи расходятся с эмулятором).
+
+| Файл | Что изменено | Основание в C++ |
+|---|---|---|
+| `Transaction/Action.lean` (`parseRelaxedMsg`, `actionSendMsg`) | библиотека `StateInit` исходящего сообщения проверяется при самом действии, а не при проверке списка (там `library:(Maybe ^Cell)`): действия до него исполняются, с версии 13 режим 2 его пропускает | `validate_message_relaxed_libs` (transaction.cpp:2704-2707), 2169 |
+| `Transaction/Action.lean` (`actionSendMsg`) | `fwd_fee` и `extra_flags` исходящего сообщения с ведущим нулевым байтом (`block::tlb::t_Grams`): до версии 8 действие неверно, с версии 12 — код 45 | transaction.cpp:2766-2783 |
+| `Transaction/Action.lean` (`actionSendMsg`) | заголовок исходящего сообщения больше 1023 бит (после переписывания сумм и адресов) — фаза действий не удаётся, эмулятор отказывает (раньше модель давала 39) | `csr_pack` под `ERRCODE_FAIL_ACTION_PHASE` (3026), 2229-2230 |
+| `Transaction/Run.lean` (`Tx.msgBalanceValid`), `Action.lean`, `Emulate.lean` | у tick-tock `msg_balance_remaining` не задан: режим 64 до версии 10 — 37 со штрафом; с версии 10 и с режимом 65 C++ разыменовывает пустое число (модель: «не поддержано»); режимы 128 и 64 его обнуляют, с версии 14 он восстанавливается при неудаче фазы | transaction.h:388; transaction.cpp:2839-2841, 2948-2974, 3049-3055, 2247, 2276 |
+| `Transaction/Account.lean` (`mkAddr`, `withMyAddr`, `unpackAddress`), `Emulate.lean` (`accountAddrValid`) | `compute_my_addr` строит `addr_std` только для воркчейнов -128..126: anycast-счёт воркчейна 127 получает `addr_var`, и новый счёт не проходит `block::tlb::t_Account` — эмулятор отказывает; счёт без anycast сохраняет свой адрес | transaction.cpp:341-372, 3713, 3733; block-parse.cpp:83-99 |
+| `Transaction/Config.lean` (`mcGasPricesValid`, `createFeesValid`), `Emulate.lean` | параметр 20 нужен счёту любого воркчейна (`get_gas_limits_prices(true)`: не до конца ячейки, `gas_prices#dd` после `gas_flat_pfx` не принимается); параметр 14, если есть, читается точно с суммами `block::tlb` | transaction.cpp:4297-4299, 4358-4368; mc-config.cpp:776-807 |
+| `Transaction/Run.lean` (`computePhaseRun`, `payGas`) | счёт без кода (активный или `StateInit` без кода): VM не исполняется, код выхода -13 (`~fatal`), ни шагов, ни газа, `exit_arg` — верх начального стека; принятое сообщение активирует счёт и платит за газ (раньше — «не поддержано») | transaction.cpp:1934, 1995-2072; vm.cpp:84-88, 513-516 |
+| `Transaction/Action.lean` (`parseRelaxedMsg`) | тело-ссылка и `^StateInit` предложенного сообщения — экзотические ячейки: проверка списка действий их не принимает (34, с версии 8 режим 2 пропускает), раньше модель отправляла сообщение | `TLB::validate_ref_internal` (tlblib.cpp:128-148), `RefT` (tlblib.hpp:1071-1083), block-auto.cpp:4490-4494 |
+
 ## 2. Тотальность (поведение не меняется)
 
 Цель — чтобы все определения модели были тотальными и вычислимыми ядром Lean, без `partial` и без
@@ -151,7 +167,7 @@ fuzz на нескольких версиях; новые случаи орак�
 ## 4. Транзакции (фаза 5, начата 2026-10-20)
 
 `TvmLean/Transaction/` — обычная транзакция по `crypto/block/transaction.cpp` в порядке эмулятора
-транзакций (`emulator/transaction-emulator.cpp`): конфигурация (параметры 0, 5, 8, 12, 18, 20/21,
+транзакций (`emulator/transaction-emulator.cpp`): конфигурация (параметры 0, 5, 8, 12, 14, 18, 20/21,
 24/25, 31, 43, 44, 45), счёт (`Account::unpack`, `init_new`), входящее сообщение, фазы хранения,
 кредита, исполнения (газ, причины пропуска, развёртывание и разморозка по `StateInit`, `c7` всех
 версий, предкомпилированный код), действий (`SENDRAWMSG`, `RAWRESERVE`, `SETCODE`, `CHANGELIB`,
@@ -224,8 +240,9 @@ VM фазы исполнения строится функциями `computePha
    (`libraryChainBound`, 1024) и библиотека внутри коллекции библиотек до версии 4 (C++ следовал
    бы ей) не воспроизводятся.
 4. Криптография — на Lean (раздел 1.4); внешних функций нет.
-5. Фазы транзакции (раздел 4): split/merge (нет оракула); больше случаев
-   (особые счета параметра 31, anycast, библиотеки в коде).
-6. Покрытие ветвей C++ при сверке (`gcov`): замер есть (`docs/coverage/README.md`), идёт закрытие непокрытых ветвей.
+5. Фазы транзакции (раздел 4): split/merge (нет оракула).
+6. Покрытие ветвей C++ при сверке (`gcov`): замер кода исполнения и `transaction.cpp` есть
+   (`docs/coverage/README.md`), непокрытое разобрано; повторить замер `transaction.cpp` со случаями
+   `Tests/Tx/Coverage.lean`.
 7. Поле `savedC0` обычного продолжения (`Continuation.ordinary`) больше не читается семантикой и
    всегда `quit 0`: удалить (механическая правка ~400 мест).
