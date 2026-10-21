@@ -76,8 +76,8 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
 
 Done: Stack, Arith, Cell, CellOp (`wf_cells` of `Cells.lean`: `wf_vc` with the lemmas on the
 cells, slices and builders instructions build), Exception (`Continuation.WF.defineC0`,
-`Continuation.WF.defineC2`). Left: Cont, Flow (with `RUNVM`, which runs a child VM with
-`execInstr`: `VmState.WF.runWith` applies), Tuple, TonEnv, Crypto, Msg, Misc, Debug, Dict. The VM operations of those families without a specification yet: `VM.call`,
+`Continuation.WF.defineC2`), Debug. Left: Cont, Flow (with `RUNVM`, which runs a child VM with
+`execInstr`: `VmState.WF.runWith` applies), Tuple, TonEnv, Crypto, Msg, Misc, Dict. The VM operations of those families without a specification yet: `VM.call`,
 `VM.callComputeStacks`, `VM.extractCc` (mvcgen unfolds them; their conditions need the
 continuation lemmas of `Monad.lean`), the dictionary functions (`Library.lean` has the lookup; the
 setters build cells), the cell serialization of messages and actions.
