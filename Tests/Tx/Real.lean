@@ -1,4 +1,5 @@
 import Tests.Tx.Gen
+import TvmLean.Proofs.Contracts.Wallet3Code
 
 /-!
 # Transactions of real contracts
@@ -7,7 +8,8 @@ The code the reference compiles from FunC (`crypto/smartcont/auto/*.fif`), with 
 external messages signed with a fixed key, made by `tools/txoracle/contracts.fif` (its output is
 `tools/txoracle/contracts.txt`, one `name base64-BOC` per line):
 
-- wallet v3 (`wallet3-code.fc`): transfers with the modes 3, 1, 128, 160, 2 and 0 (the last two for
+- wallet v3 (`wallet3-code.fc`; the code is the cell literal `TvmLean.Contracts.wallet3Code`, checked
+  equal to `wallet3.code`): transfers with the modes 3, 1, 128, 160, 2 and 0 (the last two for
   more than the balance), an expired message, a wrong seqno, subwallet and signature, a message
   without an order; deployment by an external message with the `StateInit`, to an uninitialized and
   to an absent account; an internal message;
@@ -236,7 +238,11 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     match contracts.lookup n with
     | some c => .ok c
     | none => .error s!"no cell {n} in tools/txoracle/contracts.txt"
-  let w3 := (← get "wallet3.code", ← get "wallet3.data", (← get "wallet3.addr").bits)
+  -- the cell literal of `TvmLean/Proofs/Contracts/Wallet3Code.lean` is the code of contracts.txt; the
+  -- wallet's cases run the literal
+  unless (← get "wallet3.code") == TvmLean.Contracts.wallet3Code do
+    throw "wallet3.code of tools/txoracle/contracts.txt is not TvmLean.Contracts.wallet3Code"
+  let w3 := (TvmLean.Contracts.wallet3Code, ← get "wallet3.data", (← get "wallet3.addr").bits)
   let hl := (← get "highload2.code", ← get "highload2.data", (← get "highload2.addr").bits)
   let hlSeen ← get "highload2.data.seen"
   let el := (← get "elector.code", ← get "elector.data")

@@ -35,6 +35,18 @@ Outputs:
 
 - `docs/progress/instructions_full.csv`
 
+## Cell literals for proofs (BOC to Lean)
+
+```sh
+python3 tools/boc2lean/boc2lean.py --module TvmLean.Proofs.Contracts.Wallet3Code \
+  --out TvmLean/Proofs/Contracts/Wallet3Code.lean wallet3Code=list:tools/txoracle/contracts.txt#wallet3.code
+```
+
+Turns any BOC (a file, base64, hex, or an entry of `tools/txoracle/contracts.txt`) into a Lean module
+with `def <name> : Cell` as nested cell literals, the BOC, its representation hash and a `#guard` that
+the project's BOC reader reads the BOC as the literal (`--kernel-hash`: also a kernel-checked theorem
+on the hash). The script's docstring has the details.
+
 ## Oracle parity sweeps (Lean vs Fift runvmx)
 
 Run per-instruction parity in parallel (all instructions by default):
