@@ -446,6 +446,12 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
         if t.gv < 10 then reqExtra := ap.remainingExtra
         mode := mode - (mode &&& 1)
       else if mode &&& 0x40 != 0 then
+        -- no inbound message (tick-tock): before version 10 `req += msg_balance_remaining` invalidates
+        -- the value, which then fails (transaction.cpp:2953-2965); from version 10 (2951), and with
+        -- mode 1 (2974), C++ dereferences the null grams and aborts
+        if !t.msgBalanceValid then
+          if t.gv ≥ 10 || mode &&& 1 != 0 then throw "mode 64 without an inbound message: C++ aborts"
+          return skip (collectFine ap) 37
         req := req + t.msgBalanceRemaining
         -- before version 10 `req += msg_balance_remaining` adds the extra currencies too (an invalid sum
         -- fails below like a negative one)
@@ -483,7 +489,7 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
         if ap.totMsgBits + bits + newBits > sl.maxTotalMsgBits || ap.totMsgCells + cells + 1 > sl.maxTotalMsgCells then
           return skip (collectFine ap) 47
       if mode &&& 0xc0 != 0 then
-        t := { t with msgBalanceRemaining := 0, msgExtra := if t.gv ≥ 10 then t.msgExtra else none }
+        t := { t with msgBalanceRemaining := 0, msgExtra := if t.gv ≥ 10 then t.msgExtra else none, msgBalanceValid := true }
       ap := { ap with remainingBalance := ap.remainingBalance - brutto.toNat, remainingExtra := newExtra,
                       totMsgBits := ap.totMsgBits + bits + newBits }
       feesTotal := fwdFee + ihrFee
@@ -524,7 +530,7 @@ def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := 
   let mut ap : ActionPhase :=
     { actionListHash := bytesToBits list0.hashBytes, remainingBalance := t.balance, remainingExtra := t.balanceExtra,
       endLt := t.endLt }
-  let (msgBalanceBefore, msgExtraBefore) := (t.msgBalanceRemaining, t.msgExtra)
+  let (msgBalanceBefore, msgExtraBefore, msgValidBefore) := (t.msgBalanceRemaining, t.msgExtra, t.msgBalanceValid)
   let (oldCode, oldData, oldLibrary) := (t.newCode, t.newData, t.newLibrary)
   -- the list, from the last action
   let mut nodes : Array Cell := #[]
@@ -601,7 +607,8 @@ def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := 
               t := { t with newCode := oldCode, newData := oldData, newLibrary := oldLibrary }
               ap := { ap with resultCode := 50, stateExceedsLimits := true }
           | some true => pure ()
-          if t.gv ≥ 14 then t := { t with msgBalanceRemaining := msgBalanceBefore, msgExtra := msgExtraBefore }
+          if t.gv ≥ 14 then
+            t := { t with msgBalanceRemaining := msgBalanceBefore, msgExtra := msgExtraBefore, msgBalanceValid := msgValidBefore }
           if t.gv ≥ 4 then
             let fine := Nat.min (ap.actionFine + ap.failActionFine) t.balance
             ap := { ap with actionFine := fine, totalActionFees := fine }
@@ -617,7 +624,8 @@ def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := 
   | some false =>
       t := { t with newCode := oldCode, newData := oldData, newLibrary := oldLibrary }
       ap := { ap with resultCode := 50, stateExceedsLimits := true }
-      if t.gv ≥ 14 then t := { t with msgBalanceRemaining := msgBalanceBefore, msgExtra := msgExtraBefore }
+      if t.gv ≥ 14 then
+        t := { t with msgBalanceRemaining := msgBalanceBefore, msgExtra := msgExtraBefore, msgBalanceValid := msgValidBefore }
       if t.gv ≥ 10 then
         t := { t with endLt := t.startLt + 1 }
         ap := { ap with endLt := t.startLt + 1 }

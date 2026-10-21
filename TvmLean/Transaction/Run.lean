@@ -118,6 +118,9 @@ structure Tx where
   /-- `original_balance` became invalid: below zero grams before version 9 -/
   originalInvalid : Bool := false
   msgBalanceRemaining : Nat
+  /-- `msg_balance_remaining.is_valid()`: a tick-tock transaction has no inbound message and leaves it
+  default-constructed (null grams, transaction.h:388) until mode 128 or 64 sets it to zero -/
+  msgBalanceValid : Bool := true
   msgExtra : Option Cell := none
   duePayment : Nat
   lastPaid : Nat
