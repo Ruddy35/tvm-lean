@@ -10,14 +10,23 @@ the instruction makes (`haveBits`, `haveRefs`, `canExtendBy`) and the sizes of w
 (`intToBitsTwos_size`, `leBytesToBitString_size_le`, ...). `Builder.finalizeCopy_WF`: a cell
 `ENDXC` finalizes, ordinary or special, is well-formed (a special one is returned only when its
 level information computes; `Except.forIn_list_inv` is the invariant of its loop). `wf_cells` is
-`wf_vc` with them.
+`wf_vc` with them (`wf_cells [h₁, h₂]` with more).
 
-Two tools for the handlers: `VM.spec_mono`, the rule of consequence, to bind the steps of a handler
-by hand where `mvcgen` must not look (a hash), and `VM.monadLift_except_spec`, the specification of
-a value of `Except` lifted into the VM.
+Dictionary lookups and message addresses: `dictLookupWithCells_WF` (the value the lookup that
+records its cells finds in a well-formed dictionary is a well-formed slice),
+`Slice.skipMessageAddr_WF`, `Slice.parseMessageAddr_WF` (C++ `skip_message_addr`,
+`parse_message_addr`), with `Slice.takeBitsAsNatCellUnd_wfspec` for `mvcgen` in `Except`.
+
+Tools for the handlers: `VM.spec_mono`, the rule of consequence, to bind the steps of a handler
+by hand where `mvcgen` must not look (a hash); `VM.monadLift_except_spec`, the specification of a
+value of `Except` lifted into the VM; `generalize_opaque x := t`, which makes a function `t` (a
+hash, `IntVal.num`, a dictionary lookup) a variable in the goal so that neither `mvcgen` nor the
+kernel computes with it.
 -/
 
 open Std.Do
+
+set_option mvcgen.warning false
 
 namespace TvmLean
 
@@ -236,17 +245,134 @@ theorem Slice.takeBitsAsNatCellUnd_WF {s : Slice} {n v : Nat} {s' : Slice} (hs :
 @[simp] theorem Instr.wf_cellExt_stRef2Const (c d : Cell) :
     (Instr.cellExt (.stRef2Const c d)).WF ↔ c.WF ∧ d.WF := Iff.rfl
 
-/-- `wf_vc` with the lemmas on the cells, slices and builders instructions build. -/
-macro "wf_cells" : tactic => `(tactic|
-  wf_vc [→ intToBitsTwos_size, Slice.readBits_size, Cell.mkOrdinary_readBits_WF,
-    Cell.mkOrdinary_extract_WF, Cell.mkOrdinary_extract2_WF, Slice.incRefPos_WF,
-    Builder.storeBits_WF_of, Builder.pushRef_WF_of, Builder.append_WF, Builder.appendCell_WF,
-    Builder.empty_WF, Builder.finalize_WF, Slice.toCellRemaining_WF, Slice.advanceBits_WF',
-    Slice.ofCell_WF_iff, Slice.WF.ref!, Cell.WF.ref!, natToBits_size, Instr.wf_stSliceConst,
-    Instr.wf_sdBeginsConst, Instr.wf_pushSliceConst, Instr.wf_pushRef,
-    Instr.wf_cellExt_stRefConst, Instr.wf_cellExt_stRef2Const, Slice.prefixCell_WF, Slice.addPos_WF,
-    Slice.addBitPos_WF, Slice.advanceBits_countLeading_WF, Builder.pushRef2_WF_of,
-    → Builder.finalizeCopy_WF, Builder.storeBits_WF_le, leBytesToBitString_size_le,
-    → Slice.takeBitsAsNatCellUnd_WF])
+/-- `wf_vc` with the lemmas on the cells, slices and builders instructions build; `wf_cells [h₁, h₂]`
+gives it more lemmas. -/
+syntax "wf_cells" (" [" Lean.Parser.Tactic.grindParam,* "]")? : tactic
+
+macro_rules
+  | `(tactic| wf_cells) => `(tactic| wf_cells [])
+  | `(tactic| wf_cells [$ts,*]) => `(tactic|
+    wf_vc [→ intToBitsTwos_size, Slice.readBits_size, Cell.mkOrdinary_readBits_WF,
+      Cell.mkOrdinary_extract_WF, Cell.mkOrdinary_extract2_WF, Slice.incRefPos_WF,
+      Builder.storeBits_WF_of, Builder.pushRef_WF_of, Builder.append_WF, Builder.appendCell_WF,
+      Builder.empty_WF, Builder.finalize_WF, Slice.toCellRemaining_WF, Slice.advanceBits_WF',
+      Slice.ofCell_WF_iff, Slice.WF.ref!, Cell.WF.ref!, natToBits_size, Instr.wf_stSliceConst,
+      Instr.wf_sdBeginsConst, Instr.wf_pushSliceConst, Instr.wf_pushRef,
+      Instr.wf_cellExt_stRefConst, Instr.wf_cellExt_stRef2Const, Slice.prefixCell_WF,
+      Slice.addPos_WF, Slice.addBitPos_WF, Slice.advanceBits_countLeading_WF,
+      Builder.pushRef2_WF_of, → Builder.finalizeCopy_WF, Builder.storeBits_WF_le,
+      leBytesToBitString_size_le, → Slice.takeBitsAsNatCellUnd_WF, $ts,*])
+
+/-! ## Dictionary lookups and message addresses -/
+
+/-- A value the lookup that records its cells (`dictLookupWithCells`, for gas) finds in a
+well-formed dictionary is a well-formed slice. -/
+theorem dictLookupAuxWithCellsF_WF {resolve : Cell → Except Excno Cell} (hr : ResolverWF resolve) :
+    ∀ (f : Nat) (cell : Cell) (key : BitString) (pos remaining : Nat) (s : Slice)
+      (cells : Array Cell), cell.WF →
+      dictLookupAuxWithCellsF resolve f cell key pos remaining = .ok (some s, cells) → s.WF := by
+  intro f
+  induction f with
+  | zero => intro cell key pos remaining s cells _ h; simp [dictLookupAuxWithCellsF] at h
+  | succ f ih =>
+    intro cell key pos remaining s cells hc h
+    simp only [dictLookupAuxWithCellsF, dictLookupWithCellsStep] at h
+    cases hl : parseDictLabel cell remaining resolve with
+    | error e => simp [hl, bind, Except.bind] at h
+    | ok lbl =>
+      obtain ⟨hlw, hlb⟩ := parseDictLabel_WF hr hc hl
+      simp only [hl, bind, Except.bind] at h
+      cases hv : dictValidateNodeExt lbl remaining with
+      | error e => simp [hv] at h
+      | ok rem0 =>
+        simp only [hv] at h
+        by_cases hm : dictLabelMatches lbl key pos = true
+        · simp only [hm, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at h
+          by_cases h0 : rem0 = 0
+          · simp only [h0, ↓reduceIte, pure, Except.pure, Except.ok.injEq, Prod.mk.injEq,
+              Option.some.injEq] at h
+            rw [← h.1]
+            exact Slice.advanceBits_WF hlw hlb
+          · simp only [h0, ↓reduceIte] at h
+            by_cases hk : pos + lbl.len ≥ key.size
+            · simp [hk, pure, Except.pure] at h
+            · simp only [hk, ↓reduceDIte] at h
+              repeat' split at h
+              all_goals first
+                | (simp at h; done)
+                | (rename_i p hp
+                   simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at h
+                   exact ih _ key _ _ s p.2 (hlw.ref! _) (by rw [hp, ← h.1]))
+        · simp [hm, pure, Except.pure] at h
+
+theorem dictLookupWithCells_WF {resolve : Cell → Except Excno Cell} (hr : ResolverWF resolve)
+    {root : Option Cell} (hroot : ∀ c, root = some c → c.WF) {key : BitString} {s : Slice}
+    {cells : Array Cell} (h : dictLookupWithCells root key resolve = .ok (some s, cells)) : s.WF := by
+  unfold dictLookupWithCells at h
+  split at h
+  · simp [pure, Except.pure] at h
+  · exact dictLookupAuxWithCellsF_WF hr _ _ _ _ _ s cells (hroot _ rfl) h
+
+/-- `Slice.takeBitsAsNatCellUnd` in the `Except` monad, for `mvcgen`: the rest of a well-formed
+slice is well-formed. -/
+theorem Slice.takeBitsAsNatCellUnd_wfspec (s : Slice) (n : Nat) (hs : s.WF) :
+    ⦃⌜True⌝⦄ s.takeBitsAsNatCellUnd n ⦃post⟨fun r => ⌜r.2.WF⌝, fun _ => ⌜True⌝⟩⦄ :=
+  Except.triple_of fun ⟨_, _⟩ h => Slice.takeBitsAsNatCellUnd_WF hs h
+
+/-- C++ `skip_message_addr`: the rest of a well-formed slice is well-formed. -/
+theorem Slice.skipMessageAddr_WF {s s' : Slice} {gv : Nat} (hs : s.WF)
+    (h : s.skipMessageAddr gv = .ok s') : s'.WF := by
+  refine Except.of_triple (P := Slice.WF) ?_ h
+  mvcgen [Slice.skipMessageAddr, Slice.skipMaybeAnycast, Slice.takeAnycastDepth,
+    Slice.takeBitsAsNatCellUnd_wfspec]
+  all_goals wf_cells
+
+/-- C++ `parse_message_addr`: the parts of an address (integers and slices of new cells) and the
+rest of a well-formed slice are well-formed. -/
+theorem Slice.parseMessageAddr_WF {s : Slice} {gv : Nat} (hs : s.WF) {t : Array Value}
+    {s' : Slice} (h : s.parseMessageAddr gv = .ok (t, s')) : (∀ v ∈ t, v.WF) ∧ s'.WF := by
+  refine Except.of_triple (P := fun r : Array Value × Slice => (∀ v ∈ r.1, v.WF) ∧ r.2.WF) ?_ h
+  mvcgen [Slice.parseMessageAddr, Slice.parseMaybeAnycast, Slice.takeAnycastDepth,
+    Slice.takeBitsAsNatCellUnd_wfspec]
+  all_goals wf_cells [List.not_mem_nil]
+
+/-! ## Values `mvcgen` and the kernel must not compute -/
+
+theorem WF.forall_inst {α : Sort u} {P : α → Prop} (h : ∀ x, P x) (a : α) : P a := h a
+
+open Lean Elab Tactic Meta in
+/-- `generalize_opaque x := t at h₁ h₂`: replaces `t` (a constant such as `IntVal.num` or a hash
+function) by a new variable `x` in the goal and in the hypotheses `hᵢ`, like `generalize`, but so
+that the proof stays abstract over `x`: it is `WF.forall_inst (fun x => proof) t`, not the proof
+with `t` substituted back. With `generalize`, the kernel checks the proof with `t` in place and may
+compute with it (a hash; an integer `Int.ofNat n` that `VM.pushIntQuiet` compares with `2 ^ 256`:
+`(kernel) deep recursion detected`); with `generalize_opaque` neither `mvcgen` nor the kernel can.
+Does nothing if `t` does not occur. -/
+syntax (name := generalizeOpaque) "generalize_opaque " ident " := " term
+  (" at" (ppSpace colGt ident)+)? : tactic
+
+open Lean Elab Tactic Meta in
+elab_rules : tactic
+  | `(tactic| generalize_opaque $x:ident := $t:term $[at $hs:ident*]?) => do
+    let hs := hs.getD #[]
+    let fvars ← withMainContext <| hs.mapM fun h => getFVarId h
+    let (_, g) ← (← getMainGoal).revert fvars (preserveOrder := true)
+    setGoals [g]
+    withMainContext do
+      let e ← Tactic.elabTerm t none
+      let e ← instantiateMVars e
+      let ty ← inferType e
+      let tgt ← instantiateMVars (← g.getType)
+      let abst ← kabstract tgt e
+      if !abst.hasLooseBVars then
+        let (_, g') ← g.introNP fvars.size
+        replaceMainGoal [g']
+        return
+      let P := Lean.mkLambda x.getId .default ty abst
+      let ng ← mkFreshExprSyntheticOpaqueMVar (Lean.mkForall x.getId .default ty abst) (← g.getTag)
+      g.assign (← mkAppOptM ``WF.forall_inst #[ty, P, ng, e])
+      let (_, ng) ← ng.mvarId!.intro x.getId
+      let (_, ng) ← ng.introNP fvars.size
+      replaceMainGoal [ng]
 
 end TvmLean

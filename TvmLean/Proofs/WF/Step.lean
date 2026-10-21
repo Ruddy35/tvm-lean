@@ -57,6 +57,22 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
      `VM.pushIntQuiet` range-checks: `mvcgen`, and then the kernel, would compute it; bind the steps
      by hand (`Triple.bind`, `VM.spec_mono` of `Cells.lean`), `generalize` the hash or the integer,
      and close with the specifications (`execCellOpChashI_WF`, `HASHBU` in `execInstrCellExt_WF`);
+     or, after unfolding the handler, `generalize_opaque h := sha256Digest` (`Cells.lean`): the
+     function itself becomes a variable, under binders too, and the proof stays abstract over it
+     (with `generalize` the kernel checks the proof with the function substituted back);
+   * an integer pushed by `VM.pushIntQuiet` that is `Int.ofNat` of something (`Int.ofNat n`,
+     `Int.ofNat a * Int.ofNat b`): when `mvcgen` applies the specification of the step before, it
+     tries the postcondition against the code after by unfolding, and compares `n` with `2 ^ 256`
+     through `Nat.ble` (`maximum recursion depth`; with `set_option maxRecDepth`, a stack overflow;
+     after `generalize`, `(kernel) deep recursion detected`): `generalize_opaque num := IntVal.num`
+     first (`Exec/TonEnv.lean`);
+   * a `match` on a value bound by `let x ← pure e` (the join point after `let x ← match ... with
+     | ... => pure ...` or `let x ← if c then pure a else throw e`): `mvcgen` (Lean 4.24) simplifies
+     the discriminant and then splits on the proof in place of the program, which leaves
+     `wp⟦Eq.mpr ...⟧` unsolved and a `(kernel) application type mismatch`; `simp only [pure_bind]`
+     before `mvcgen` removes the `pure` (`SETRAND`, `GETEXTRABALANCE`);
+   * a local function (`let f := fun ...` used several times, as `chargeLoads` of
+     `GETEXTRABALANCE`): `mvcgen` leaves its calls; `simp only [pure_bind]` inlines it too;
    * a join point taking a pair or an `Except` and matching on it (the code after a `match` that
      binds several values): `mvcgen` leaves `wp⟦jp ...⟧`; name it with `extract_lets`, prove
      `∀ p, ⦃...⦄ jp p ⦃...⦄` by `cases p`, `simp only [jp]` and `mvcgen`, `clear_value` it, and
@@ -82,10 +98,12 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
 Done: Stack, Arith, Cell, CellOp (`wf_cells` of `Cells.lean`: `wf_vc` with the lemmas on the
 cells, slices and builders instructions build), Exception (`Continuation.WF.defineC0`,
 `Continuation.WF.defineC2`), Debug, Tuple, Misc (`VM.forIn_range_WF`: a loop in the VM monad
-whose body `mvcgen` cannot take). Left: Cont, Flow (with `RUNVM`, which runs a child VM with
-`execInstr`: `VmState.WF.runWith` applies), TonEnv, Crypto, Msg, Dict. The VM operations of those families without a specification yet: `VM.call`,
-`VM.callComputeStacks`, `VM.extractCc` (mvcgen unfolds them; their conditions need the
-continuation lemmas of `Monad.lean`), the dictionary functions (`Library.lean` has the lookup; the
+whose body `mvcgen` cannot take), TonEnv (`dictLookupWithCells_WF`, `Slice.skipMessageAddr_WF`,
+`Slice.parseMessageAddr_WF` of `Cells.lean`). Left: Cont, Flow (with `RUNVM`, which runs a child
+VM with `execInstr`: `VmState.WF.runWith` applies), Crypto, Msg, Dict. The VM operations of those
+families without a specification yet: `VM.call`, `VM.callComputeStacks`, `VM.extractCc` (mvcgen
+unfolds them; their conditions need the continuation lemmas of `Monad.lean`), the dictionary
+functions (`Library.lean` has the lookup, `Cells.lean` the lookup that records its cells; the
 setters build cells), the cell serialization of messages and actions.
 -/
 
