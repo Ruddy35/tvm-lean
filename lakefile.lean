@@ -37,7 +37,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.WF.Cells, `TvmLean.Proofs.WF.Exec.Cell, `TvmLean.Proofs.WF.Exec.CellOp,
     `TvmLean.Proofs.WF.Calls, `TvmLean.Proofs.WF.Exec.Cont, `TvmLean.Proofs.WF.JoinPoints,
     `TvmLean.Proofs.WF.Exec.Flow, `TvmLean.Proofs.WF.Exec.Msg,
-    `TvmLean.Proofs.WF.Exec.Exception, `TvmLean.Proofs.WF.Exec.Debug,
+    `TvmLean.Proofs.WF.Exec.Exception, `TvmLean.Proofs.WF.Exec.Debug, `TvmLean.Proofs.WF.Exec.Tuple,
     `TvmLean.Proofs.Fast.Twin, `TvmLean.Proofs.Fast.Bits, `TvmLean.Proofs.Fast.Sha256,
     `TvmLean.Proofs.Fast.Sha512, `TvmLean.Proofs.Fast.Hash, `TvmLean.Proofs.Fast.Dispatch,
     `TvmLean.Proofs.Fast.Run, `TvmLean.Proofs.Fast.Checkpoint, `TvmLean.Proofs.Fast.Wallet3]
