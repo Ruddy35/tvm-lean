@@ -45,7 +45,12 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
   value) signed by A, by B, by both, with a wrong channel and more than the value, again by A; close
   messages (external) signed by A or B with the other's promise, without a promise, by both; timeouts
   before and after expiry; the payout with and without enough balance; an unknown operation, a
-  simple transfer and an empty body.
+  simple transfer and an empty body;
+- highload wallet v1 (`highload-wallet-code.fc`, `new-highload-wallet.fif`): the first message of
+  `new-highload-wallet.fif` (also deploying it, to an uninitialized and an absent account), two and
+  five orders, an order at a key of 2^15 or more (negative for `idict_get_next?`, not sent), no
+  orders, a wrong seqno, subwallet and signature, an expired message and one with bits after the
+  orders; an internal message.
 -/
 
 namespace Tests.Tx
@@ -89,6 +94,9 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     "bad-signature", "no-order"].mapM fun n => return (n, ← get s!"wallet3.msg.{n}")
   let w3deploy ← ["deploy", "deploy-transfer"].mapM fun n => return (n, ← get s!"wallet3.msg.{n}")
   let hlmsgs ← ["two", "five", "none", "expired", "bad-signature"].mapM fun n => return (n, ← get s!"highload2.msg.{n}")
+  let hl1 := (← get "highload1.code", ← get "highload1.data", (← get "highload1.addr").bits)
+  let hl1msgs ← ["init", "two", "five", "negative-key", "none", "expired", "seqno", "subwallet", "bad-signature",
+    "trailing"].mapM fun n => return (n, ← get s!"highload1.msg.{n}")
   let dns := (← get "dns.code", ← get "dns.data", (← get "dns.addr").bits)
   let dnsmsgs ← ["set", "multi", "root-null", "root-clear", "set-key", "bad-op", "bad-name", "set-code", "expired",
     "wrong-id", "bad-signature"].mapM fun n => return (n, ← get s!"dns.msg.{n}")
@@ -155,6 +163,15 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     for (dname, d) in [("fresh", data), ("seen", hlSeen)] do
       for (n, m) in hlmsgs do
         out := out.push (mk s!"highload2/{n}/{dname}" (mkAccount 0 addr (.active code d) 1000000000 1700000000 0 1000) m)
+    let (code, data, addr) := hl1
+    for (bname, bal) in [("rich", 1000000000), ("poor", 2000000)] do
+      for (n, m) in hl1msgs do
+        out := out.push (mk s!"highload1/{n}/{bname}" (mkAccount 0 addr (.active code data) bal 1700000000 0 1000) m)
+    for (n, m) in hl1msgs.filter (·.1 == "init") do
+      out := out.push (mk s!"highload1/{n}/uninit" (mkAccount 0 addr .uninit 1000000000 1700000000 0 1000) m)
+      out := out.push (mk s!"highload1/{n}/none" (mkAccount 0 addr .none 0 0 0 0) m)
+    out := out.push (mk "highload1/internal" (mkAccount 0 addr (.active code data) 1000000000 1700000000 0 1000)
+      (intMsg 0 addr 100000000 true none (natToBits 0 32)))
     let (code, data, addr) := dns
     for (bname, bal) in [("rich", 1000000000), ("poor", 3000000)] do
       for (n, m) in dnsmsgs do

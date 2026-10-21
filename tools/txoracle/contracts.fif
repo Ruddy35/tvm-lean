@@ -312,3 +312,34 @@ pcclose-nosig true true pcwrap "pchan.body.close-both" put
 <b 0x37fe7810 32 u, b> false false pcwrap "pchan.body.payout" put
 <b 7 32 u, b> "pchan.body.unknown" put
 <b 0 32 u, b> "pchan.body.transfer" put
+
+// --- highload wallet v1 (highload-wallet-code.fc, new-highload-wallet.fif): seqno subwallet_id
+// public_key; a message is signature subwallet_id valid_until seqno orders (HashmapE 16 (mode
+// ^msg)), sent in the order of the signed keys from 0 (idict_get_next? from -1: an order at a key
+// of 2^15 or more, negative, is not sent)
+"auto/highload-wallet-code.fif" include constant hl1code
+7 constant hl1sub
+<b 0 32 u, hl1sub 32 i, pub B, b> constant hl1data
+<b b{0011} s, hl1code ref, hl1data ref, null dict, b> constant hl1init
+hl1init hashu constant hl1addr
+hl1code "highload1.code" put
+hl1data "highload1.data" put
+<b hl1addr 256 u, b> "highload1.addr" put
+// ( sub valid_until seqno -- ext-msg ) with the orders of `orders`
+{ <b 3 roll 32 i, rot 32 u, swap 32 u, orders @ dict, b> hl1addr swap signed-ext } : hl1ext
+// the message of new-highload-wallet.fif (valid_until -1, seqno 0, no orders) with the StateInit
+hl1addr hl1init <b hl1sub 32 i, -1 32 i, 0 32 u, false 1 i, b> signed-ext-init "highload1.msg.init" put
+no-orders 3 100000000 transfer 0 order 1 200000000 transfer 1 order
+hl1sub 1800000000 0 hl1ext "highload1.msg.two" put
+no-orders 3 100000000 transfer 0 order 1 200000000 transfer 1 order 128 0 transfer 2 order
+  2 1000 transfer 7 order 0 5000000000000 transfer 9 order
+hl1sub 1800000000 0 hl1ext "highload1.msg.five" put
+no-orders 3 100000000 transfer 0 order 3 200000000 transfer 40000 order 3 300000000 transfer 32767 order
+hl1sub 1800000000 0 hl1ext "highload1.msg.negative-key" put
+no-orders hl1sub 1800000000 0 hl1ext "highload1.msg.none" put
+no-orders 3 100000000 transfer 0 order
+hl1sub NOW 0 hl1ext "highload1.msg.expired" put
+hl1sub 1800000000 5 hl1ext "highload1.msg.seqno" put
+8 1800000000 0 hl1ext "highload1.msg.subwallet" put
+pk-other key ! hl1sub 1800000000 0 hl1ext "highload1.msg.bad-signature" put pk key !
+hl1addr <b hl1sub 32 i, 1800000000 32 u, 0 32 u, orders @ dict, 5 8 u, b> signed-ext "highload1.msg.trailing" put
