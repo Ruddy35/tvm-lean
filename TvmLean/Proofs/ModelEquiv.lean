@@ -419,6 +419,18 @@ def levelBody (rec : Cell → Except String CellLevelInfo) (c : Cell) : Except S
 
   return { ty, levelMask, effectiveLevel, depths, hashes }
 
+/-- The loop that took the references of an inline cell in the original decoder (`PUSHCONT`,
+`PUSHSLICE` r2, `PUSHSLICE_REFS`, `STSLICECONST` in `Instr/Codepage/Cp0.lean`), verbatim up to the
+names of its variables; the decoder starts it with `acc = #[]`. -/
+def takeRefsLoop (n : Nat) (s : Slice) (acc : Array Cell) : Except Excno (Array Cell × Slice) := do
+  let mut rest := s
+  let mut contRefs : Array Cell := acc
+  for _ in [0:n] do
+    let (c, rest') ← rest.takeRefInv
+    contRefs := contRefs.push c
+    rest := rest'
+  return (contRefs, rest)
+
 end TvmLean.Orig
 
 namespace TvmLean
@@ -473,6 +485,28 @@ theorem dictLabelMatches_eq_orig : @dictLabelMatches = @Orig.dictLabelMatches :=
   funext lbl key pos
   simp [dictLabelMatches, Orig.dictLabelMatches, Std.Range.forIn_eq_forIn_range', Std.Range.size, allBelow_eq_all, forIn_flag, bool_beq_decide]
   rfl
+
+/-- The loop of the original decoder over any `n` indices (it does not use them) is `Slice.takeRefsInv n`. -/
+theorem forIn_takeRefInv (n k : Nat) (s : Slice) (acc : Array Cell) :
+    (do
+      let r ← forIn (m := Except Excno) (List.range' k n) (⟨acc, s⟩ : MProd (Array Cell) Slice) fun _ r => do
+        let d ← r.snd.takeRefInv
+        pure PUnit.unit
+        pure (ForInStep.yield ⟨r.fst.push d.fst, d.snd⟩)
+      pure (r.fst, r.snd)) = Slice.takeRefsInv n s acc := by
+  induction n generalizing k s acc with
+  | zero => rfl
+  | succ n ih =>
+    rw [List.range'_succ, List.forIn_cons, Slice.takeRefsInv]
+    cases h : s.takeRefInv with
+    | error e => rfl
+    | ok d => exact ih (k + 1) d.snd (acc.push d.fst)
+
+theorem takeRefsInv_eq_orig (n : Nat) (s : Slice) (acc : Array Cell) :
+    Slice.takeRefsInv n s acc = Orig.takeRefsLoop n s acc := by
+  unfold Orig.takeRefsLoop
+  simp only [Std.Range.forIn_eq_forIn_range', Std.Range.size, Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one]
+  exact (forIn_takeRefInv n 0 s acc).symm
 
 /-! ## 2. Originals that are `partial`: the current function satisfies the original defining equation -/
 

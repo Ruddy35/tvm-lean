@@ -148,7 +148,7 @@ fuzz на нескольких версиях; новые случаи орак�
 | `Cell/Primitives.lean` | поиск в словаре — структурная рекурсия | **доказаны** исходные уравнения (`*_eq`, `*_fuel`) |
 | `Cell/Primitives.lean` | `dictLabelMatches` через `allBelow` | **доказано** равенство исходному |
 | `Cell/Cell.lean` | `Cell.beq`, `computeLevelInfo?` — структурная взаимная рекурсия | частично; **не доказана** неподвижная точка |
-| `Instr/Codepage/Cp0.lean` | `takeRefsInv` вместо четырёх циклов в декодере `PUSHCONT` | **не доказано** |
+| `Instr/Codepage/Cp0.lean` | `takeRefsInv` вместо четырёх циклов декодера (`PUSHCONT`, `PUSHSLICE` r2, `PUSHSLICE_REFS`, `STSLICECONST`) | **доказано** равенство исходному циклу (`takeRefsInv_eq_orig`) |
 | `Exec/Dict/Ext.lean`, `Exec/Misc.lean`, `Value/Value.lean`, `Cont/Continuation.lean` | `partial` → тотальные с доказанным завершением | исходник `partial` не имеет логического содержания; проверено тестами |
 | `Exec/Crypto/HashExt.lean`, `Exec/Msg/SendMsg.lean`, `Exec/Arith/Ext.lean`, `Exec/Crypto/Ext.lean` | циклы с явной границей | **не доказано**; проверено тестами |
 

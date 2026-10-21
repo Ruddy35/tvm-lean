@@ -24,8 +24,9 @@ def Slice.takeRefInv (s : Slice) : Except Excno (Cell × Slice) := do
     throw .invOpcode
 
 /-- Take `n` references from a slice, accumulating them (structural recursion, so the kernel
-can evaluate it). Same as the loop
-`for _ in [0:n] do let (c, rest') ← rest.takeRefInv; acc := acc.push c; rest := rest'`. -/
+can evaluate it). Equal to the loop of the original decoder
+`for _ in [0:n] do let (c, rest') ← rest.takeRefInv; acc := acc.push c; rest := rest'`
+(`takeRefsInv_eq_orig`, `Proofs/ModelEquiv.lean`). -/
 def Slice.takeRefsInv : Nat → Slice → Array Cell → Except Excno (Array Cell × Slice)
   | 0, s, acc => .ok (acc, s)
   | n + 1, s, acc => do
