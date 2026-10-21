@@ -20,13 +20,13 @@ lean_lib TvmLeanTransaction where
   roots := #[`TvmLean.Transaction]
 
 -- Machine-checked facts about the model itself: refactored definitions agree with the original
--- ones, decidable equality, the compute-phase wrapper.
+-- ones, decidable equality, the compute-phase wrapper; running code on symbolic states (Proofs/Exec).
 lean_lib TvmLeanProofs where
   roots := #[`TvmLean.Proofs.ModelEquiv, `TvmLean.Proofs.DecEq, `TvmLean.Proofs.CellWF,
     `TvmLean.Semantics.Contract, `TvmLean.Proofs.Contracts.CellLiteral,
     `TvmLean.Proofs.Contracts.Wallet3Code, `TvmLean.Proofs.Contracts.Bits, `TvmLean.Proofs.Contracts.Spec,
     `TvmLean.Proofs.Contracts.Wallet3Spec, `TvmLean.Proofs.Contracts.Wallet3Msgs,
-    `TvmLean.Proofs.Contracts.Wallet3Kernel, `TvmLean.Proofs.Exec.Step]
+    `TvmLean.Proofs.Contracts.Wallet3Kernel, `TvmLean.Proofs.Exec.Step, `TvmLean.Proofs.Exec.Eval]
 
 lean_lib TvmLeanValidation where
   roots := #[`TvmLean.Validation]
