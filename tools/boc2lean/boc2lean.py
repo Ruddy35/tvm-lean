@@ -22,8 +22,10 @@ cell of the BOC:
   environment);
 * with `--kernel-hash`, `theorem <name>_hash : <name>.hashBytes = <name>Hash := by decide +kernel`:
   the model's hash (`Cell.hashBytes`, SHA-256 in Lean) of the literal is the hash computed here,
-  checked by kernel evaluation (no `native_decide`, no axiom). Off by default: the kernel evaluates
-  the model's SHA-256 slowly (some seconds per cell; wallet v3's 8 cells take about 100 s).
+  checked by kernel evaluation (no `native_decide`, no axiom). Off by default: the kernel spends
+  4-6 s per SHA-256 block and reads a cell's bits in time and memory quadratic in its length
+  (14 s for 320 bits; wallet v3's 8 cells, one of 600 bits, take about 100 s and more than 8 GB;
+  TvmLean/Proofs/Contracts/Wallet3Kernel.lean has the measurements).
 
 Usage:
 
