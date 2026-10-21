@@ -26,7 +26,7 @@ fi
 export PATH=$L/bin:$T/venv/bin:$PATH
 git -C "$TON_SRC" submodule update --init --recursive --depth 1
 cmake -S "$TON_SRC" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-  -DCMAKE_C_FLAGS="--coverage -O0" -DCMAKE_CXX_FLAGS="--coverage -O0" -DCMAKE_EXE_LINKER_FLAGS="--coverage" \
+  -DCMAKE_C_FLAGS="--coverage -O0" -DCMAKE_CXX_FLAGS="--coverage -O0" -DCMAKE_EXE_LINKER_FLAGS="--coverage" -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
   -DTON_USE_JEMALLOC=OFF
 ninja -C "$BUILD" -j"$(nproc)" fift
 "$BUILD/crypto/fift" -V
