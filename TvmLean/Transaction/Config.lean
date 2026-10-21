@@ -181,6 +181,33 @@ def gasPrices (cfg : Config) (mc : Bool) : Option GasPrices := do
   | some g => some g
   | none => Reader.runExact (body 0 0) c
 
+/-- `Config::get_gas_limits_prices(true)` (`do_get_gas_limits_prices`, mc-config.cpp:776-807), which
+`fetch_config_params` requires for an account of any workchain (transaction.cpp:4297-4298): parameter
+20 read without requiring the end of the cell, `gas_prices_ext#de` after `gas_flat_pfx#d1` (a
+`gas_prices#dd` there is not read: the fallback reads the cell from its start), else `de` or `dd`. -/
+def mcGasPricesValid (cfg : Config) : Bool :=
+  match cfg.param 20 with
+  | none => false
+  | some c =>
+      let tagged (t n : Nat) : Reader Unit := do
+        if (← Reader.uint 8) != t then Reader.fail
+        let _ ← Reader.bits (64 * n)
+      let flat : Reader Unit := do
+        if (← Reader.uint 8) != 0xd1 then Reader.fail
+        let _ ← Reader.bits 128
+        tagged 0xde 7
+      (Reader.run flat c).isSome || (Reader.run (tagged 0xde 7) c).isSome || (Reader.run (tagged 0xdd 6) c).isSome
+
+/-- Parameter 14 (`block_grams_created#6b masterchain_block_fee:Grams basechain_block_fee:Grams`), as
+`fetch_config_params` reads it (transaction.cpp:4358-4368): absent, or read exactly with amounts
+`block::tlb::t_Grams` accepts (no leading zero byte). The transaction does not use the fees. -/
+def createFeesValid (cfg : Config) : Bool :=
+  match cfg.param 14 with
+  | none => true
+  | some c => (Reader.runExact (do
+      if (← Reader.uint 8) != 0x6b then Reader.fail
+      return (← Reader.gramsStrict, ← Reader.gramsStrict)) c).isSome
+
 /-- `MsgForwardPrices` of parameter 24 (masterchain) or 25 (`tlb::unpack_cell`, exact). -/
 def msgPrices (cfg : Config) (mc : Bool) : Option MsgPrices := do
   let c ← cfg.param (if mc then 24 else 25)

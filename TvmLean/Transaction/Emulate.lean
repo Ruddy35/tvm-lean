@@ -24,8 +24,10 @@ def newTx (cfg : Config) (shardAccount inMsg : Cell) (kind : TxKind) (wc : Int) 
   let some sl := cfg.sizeLimits | throw "size limits"
   let mc := wc == -1
   let some gas := cfg.gasPrices mc | throw "gas prices"
+  if !cfg.mcGasPricesValid then throw "masterchain gas prices"
   let some fwd := cfg.msgPrices mc | throw "msg prices"
   let some _ := cfg.msgPrices (!mc) | throw "msg prices"
+  if !cfg.createFeesValid then throw "block create fees"
   -- the Transaction constructor
   let startLt := Nat.max lt account.lastTransEndLt
   let t : Tx :=
