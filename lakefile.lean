@@ -26,7 +26,9 @@ lean_lib TvmLeanProofs where
     `TvmLean.Semantics.Contract, `TvmLean.Proofs.Contracts.CellLiteral,
     `TvmLean.Proofs.Contracts.Wallet3Code, `TvmLean.Proofs.Contracts.Bits, `TvmLean.Proofs.Contracts.Spec,
     `TvmLean.Proofs.Contracts.Wallet3Spec, `TvmLean.Proofs.Contracts.Wallet3Msgs,
-    `TvmLean.Proofs.Contracts.Wallet3Kernel, `TvmLean.Proofs.Exec.Step, `TvmLean.Proofs.Exec.Eval]
+    `TvmLean.Proofs.Contracts.Wallet3Kernel, `TvmLean.Proofs.Exec.Step, `TvmLean.Proofs.Exec.Eval,
+    `TvmLean.Proofs.Exec.Spec.Stack, `TvmLean.Proofs.Exec.Spec.Arith, `TvmLean.Proofs.Exec.Spec.Flow,
+    `TvmLean.Proofs.Exec.Spec.Cell, `TvmLean.Proofs.Exec.Spec.TonEnv]
 
 lean_lib TvmLeanValidation where
   roots := #[`TvmLean.Validation]
