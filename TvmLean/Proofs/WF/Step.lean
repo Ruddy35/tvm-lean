@@ -99,8 +99,9 @@ Done: Stack, Arith, Cell, CellOp (`wf_cells` of `Cells.lean`: `wf_vc` with the l
 cells, slices and builders instructions build), Exception (`Continuation.WF.defineC0`,
 `Continuation.WF.defineC2`), Debug, Tuple, Misc (`VM.forIn_range_WF`: a loop in the VM monad
 whose body `mvcgen` cannot take), TonEnv (`dictLookupWithCells_WF`, `Slice.skipMessageAddr_WF`,
-`Slice.parseMessageAddr_WF` of `Cells.lean`). Left: Cont, Flow (with `RUNVM`, which runs a child
-VM with `execInstr`: `VmState.WF.runWith` applies), Crypto, Msg, Dict. The VM operations of those
+`Slice.parseMessageAddr_WF` of `Cells.lean`), Crypto (the hashes and curve operations
+generalized; the sizes of the BLS12-381 points). Left: Cont, Flow (with `RUNVM`, which runs a child
+VM with `execInstr`: `VmState.WF.runWith` applies), Msg, Dict. The VM operations of those
 families without a specification yet: `VM.call`, `VM.callComputeStacks`, `VM.extractCc` (mvcgen
 unfolds them; their conditions need the continuation lemmas of `Monad.lean`), the dictionary
 functions (`Library.lean` has the lookup, `Cells.lean` the lookup that records its cells; the
