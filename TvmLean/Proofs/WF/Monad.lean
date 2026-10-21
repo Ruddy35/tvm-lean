@@ -1,3 +1,4 @@
+import Lean
 import TvmLean.Proofs.WF.Library
 import Std.Tactic.Do
 
@@ -24,8 +25,9 @@ it back as a statement about `m.run`.
 * Registers and exceptions: `VmState.getCtr` (a well-formed value), `setCtr` (of a well-formed
   value), `throwException(Arg)`, `tryCommit`, `ret`, `retAlt`, `jumpTo`, `callTo(WithFrame)`;
   `VM.throwToHandler`, `unimplementedInstr`, `getUnpackedConfigTuple`, `getMsgPrices`,
-  `getGasPrices`, `execNullSwapIf`; continuations' `forceCdata`, `defineCtr`
+  `getGasPrices`, `execNullSwapIf`, `generateRandu256`; continuations' `forceCdata`, `defineCtr`
   (`OrdCregs.defineFromValue`).
+* Jumps: `VM.jump` (to a well-formed continuation), `ret`, `retAlt`, `pushCode`.
 * `throw` needs nothing: `mvcgen` knows it, and the invariant asks the same of an exception.
 
 `wf_vc` closes the verification conditions `mvcgen` leaves (see its docstring).
@@ -178,25 +180,45 @@ theorem VmState.wf_congr {st st' : VmState} (hs : st'.stack = st.stack) (hr : st
 theorem Value.getElem!_WF {a : Array Value} (h : ∀ v ∈ a, v.WF) (i : Nat) : (a[i]!).WF :=
   WF.getElem!_of_forall h Value.default_WF i
 
-/-- Closes a verification condition `mvcgen` leaves about well-formed states: removes the state
+/-- Clears the local functions `mvcgen` leaves in a verification condition (the join points of the
+program, `let`s of function type): the condition is about states and values, and unfolding them
+(`zetaDelta`) would only copy code into it. -/
+elab "clear_local_functions" : tactic => do
+  let g ← Lean.Elab.Tactic.getMainGoal
+  g.withContext do
+    let mut fvars := #[]
+    for d in (← Lean.getLCtx) do
+      if d.isImplementationDetail then continue
+      if d.isLet && (← Lean.instantiateMVars d.type).isForall then
+        fvars := fvars.push d.fvarId
+    Lean.Elab.Tactic.replaceMainGoal [← g.tryClearMany fvars]
+
+/-- Closes a verification condition `mvcgen` leaves about well-formed states: clears the join
+points, substitutes the equations of variables (a matched continuation, ...), removes the state
 changes that keep the invariant (gas, counters), splits `VmState.WF` and `Regs.WF` into their
 fields and closes the goal from the hypotheses with `grind`, which knows the membership lemmas of
-arrays and the inversions of `Value.WF`; `wf_vc [h₁, h₂]` gives it more lemmas. -/
+arrays and the inversions of `Value.WF` and `Continuation.WF`; `wf_vc [h₁, h₂]` gives it more
+lemmas. -/
 syntax "wf_vc" (" [" Lean.Parser.Tactic.grindParam,* "]")? : tactic
 
 macro_rules
   | `(tactic| wf_vc) => `(tactic| wf_vc [])
   | `(tactic| wf_vc [$ts,*]) => `(tactic|
-    ((try simp (config := { zetaDelta := true }) only [VmState.consumeGas_WF,
+    ((try clear_local_functions)
+     (try subst_vars)
+     (try simp (config := { zetaDelta := true }) only [VmState.consumeGas_WF,
         VmState.consumeTupleGas_WF, VmState.consumeStackGas_WF, VmState.registerChkSgnCall_WF,
         VmState.registerCellLoad_WF, VmState.registerLibraryLoad_WF, VmState.registerCellLoads_WF,
-        VmState.admitLibrary_WF] at *)
+        VmState.admitLibrary_WF, VmState.consumeGas, VmState.consumeStackGas,
+        VmState.consumeTupleGas] at *)
      (try simp only [VmState.wf_iff, Regs.wf_iff] at *)
      grind [→ WF.mem_of_mem_pop, → WF.mem_of_mem_extract, → WF.mem_of_mem_take,
        → WF.mem_or_eq_of_mem_set!, → Array.mem_of_getElem?, WF.getElem!_mem_or_default,
        Array.back_mem, Value.default_WF,
        Cell.default_WF, Value.wf_int, Value.wf_cell, Value.wf_slice, Value.wf_builder, Value.wf_tuple,
-       Value.wf_cont, Value.wf_null, Value.wf_nullCell, $ts,*]))
+       Value.wf_cont, Value.wf_null, Value.wf_nullCell, Continuation.wf_ordinary,
+       Continuation.wf_envelope, Continuation.wf_quit, OrdCdata.wf_iff, OrdCdata.empty_WF,
+       OrdCregs.empty_WF, $ts,*]))
 
 /-! ## The stack -/
 
@@ -507,6 +529,38 @@ theorem Continuation.WF.defineCtr {k k' : Continuation} (h : k.WF) {idx : Nat} {
   mvcgen [VM.execNullSwapIf] invariants
   · post⟨fun _ st => ⌜st.WF⌝, fun _ st => ⌜st.WF⌝⟩
   · post⟨fun _ st => ⌜st.WF⌝, fun _ st => ⌜st.WF⌝⟩
+  all_goals wf_vc
+
+set_option maxHeartbeats 4000000 in
+@[spec] theorem VM.generateRandu256_spec :
+    ⦃fun st => ⌜st.WF⌝⦄ VM.generateRandu256 ⦃post⟨fun _ st => ⌜st.WF⌝, fun _ st => ⌜st.WF⌝⟩⦄ := by
+  mvcgen [VM.generateRandu256]
+  all_goals wf_vc [tupleExtendSetIndex_WF]
+
+/-! ## Jumps (VM monad) -/
+
+set_option maxHeartbeats 4000000 in
+/-- C++ `VmState::jump` with `adjust_jump_cont`: the stack becomes a part of itself and of the
+closure's stack. -/
+@[spec] theorem VM.jump_spec (cont : Continuation) (passArgs : Int) :
+    ⦃fun st => ⌜st.WF ∧ cont.WF⌝⦄ VM.jump cont passArgs
+      ⦃post⟨fun _ st => ⌜st.WF⌝, fun _ st => ⌜st.WF⌝⟩⦄ := by
+  mvcgen [VM.jump]
+  all_goals wf_vc
+
+@[spec] theorem VM.ret_spec (passArgs : Int) :
+    ⦃fun st => ⌜st.WF⌝⦄ VM.ret passArgs ⦃post⟨fun _ st => ⌜st.WF⌝, fun _ st => ⌜st.WF⌝⟩⦄ := by
+  mvcgen [VM.ret]
+  all_goals wf_vc
+
+@[spec] theorem VM.retAlt_spec (passArgs : Int) :
+    ⦃fun st => ⌜st.WF⌝⦄ VM.retAlt passArgs ⦃post⟨fun _ st => ⌜st.WF⌝, fun _ st => ⌜st.WF⌝⟩⦄ := by
+  mvcgen [VM.retAlt]
+  all_goals wf_vc
+
+@[spec] theorem VM.pushCode_spec :
+    ⦃fun st => ⌜st.WF⌝⦄ VM.pushCode ⦃post⟨fun _ st => ⌜st.WF⌝, fun _ st => ⌜st.WF⌝⟩⦄ := by
+  mvcgen [VM.pushCode]
   all_goals wf_vc
 
 end TvmLean
