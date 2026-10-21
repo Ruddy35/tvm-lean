@@ -50,7 +50,11 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
   `new-highload-wallet.fif` (also deploying it, to an uninitialized and an absent account), two and
   five orders, an order at a key of 2^15 or more (negative for `idict_get_next?`, not sent), no
   orders, a wrong seqno, subwallet and signature, an expired message and one with bits after the
-  orders; an internal message.
+  orders; an internal message;
+- the simple wallet ext (`simple-wallet-ext-code.fc`, a message signature seqno [mode ^msg]):
+  transfers with the modes 3 and 128 and for more than the balance, no order, two references or
+  more bits after the order (`end_parse` failing after `accept_message`), a wrong seqno and
+  signature; deployment with its `StateInit` and a transfer; an internal message.
 -/
 
 namespace Tests.Tx
@@ -104,7 +108,10 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     return (← get s!"{pfx}.code", ← get s!"{pfx}.data", (← get s!"{pfx}.addr").bits,
       ← msgs.mapM fun n => return (n, ← get s!"{pfx}.msg.{n}"))
   let wallets ← [("simple-wallet", ["ok", "none", "seqno", "bad-signature"]),
-    ("wallet2", ["four", "none", "expired", "seqno", "bad-signature"])].mapM fun (p, ms) => return (p, ← simple p ms)
+    ("wallet2", ["four", "none", "expired", "seqno", "bad-signature"]),
+    ("simple-wallet-ext", ["ok", "all", "too-much", "none", "two", "trailing", "seqno", "bad-signature"])].mapM
+    fun (p, ms) => return (p, ← simple p ms)
+  let swxDeploy ← get "simple-wallet-ext.msg.deploy"
   let pow := (← get "pow.code", ← get "pow.data.easy", ← get "pow.data.hard", (← get "pow.addr").bits)
   let powmsgs ← ["mine", "mine-wrong-seed", "mine-expired", "rescale", "rescale-early", "transfer"].mapM fun n =>
     return (n, ← get s!"pow.msg.{n}")
@@ -182,6 +189,11 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
       for (bname, bal) in [("rich", 1000000000), ("poor", 2000000)] do
         for (n, m) in msgs do
           out := out.push (mk s!"{p}/{n}/{bname}" (mkAccount 0 addr (.active code data) bal 1700000000 0 1000) m)
+      if p == "simple-wallet-ext" then
+        out := out.push (mk s!"{p}/deploy/uninit" (mkAccount 0 addr .uninit 1000000000 1700000000 0 1000) swxDeploy)
+        out := out.push (mk s!"{p}/deploy/none" (mkAccount 0 addr .none 0 0 0 0) swxDeploy)
+        out := out.push (mk s!"{p}/internal" (mkAccount 0 addr (.active code data) 1000000000 1700000000 0 1000)
+          (intMsg 0 addr 100000000 true none (natToBits 0 32)))
     let (code, easy, hard, addr) := pow
     for (dname, data) in [("easy", easy), ("hard", hard)] do
       for (n, m) in powmsgs do

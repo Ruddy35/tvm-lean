@@ -343,3 +343,22 @@ hl1sub 1800000000 5 hl1ext "highload1.msg.seqno" put
 8 1800000000 0 hl1ext "highload1.msg.subwallet" put
 pk-other key ! hl1sub 1800000000 0 hl1ext "highload1.msg.bad-signature" put pk key !
 hl1addr <b hl1sub 32 i, 1800000000 32 u, 0 32 u, orders @ dict, 5 8 u, b> signed-ext "highload1.msg.trailing" put
+
+// --- simple wallet ext (simple-wallet-ext-code.fc): seqno public_key; a message is signature seqno
+// [mode ^msg] (do_verify_message); after ACCEPT it sends the message of the first reference, and
+// ENDS fails on a second reference or on more bits
+"auto/simple-wallet-ext-code.fif" include constant swxcode
+<b 0 32 u, pub B, b> constant swxdata
+swxcode swxdata addr-of constant swxaddr
+swxcode "simple-wallet-ext.code" put  swxdata "simple-wallet-ext.data" put  <b swxaddr 256 u, b> "simple-wallet-ext.addr" put
+{ swxaddr swap signed-ext } : swxext
+<b 0 32 u, 3 8 u, 500000000 transfer ref, b> swxext "simple-wallet-ext.msg.ok" put
+<b 0 32 u, 128 8 u, 0 transfer ref, b> swxext "simple-wallet-ext.msg.all" put
+<b 0 32 u, 0 8 u, 5000000000000 transfer ref, b> swxext "simple-wallet-ext.msg.too-much" put
+<b 0 32 u, b> swxext "simple-wallet-ext.msg.none" put
+<b 0 32 u, 3 8 u, 500000000 transfer ref, 3 8 u, 100000000 transfer ref, b> swxext "simple-wallet-ext.msg.two" put
+<b 0 32 u, 3 8 u, 500000000 transfer ref, 1 1 u, b> swxext "simple-wallet-ext.msg.trailing" put
+<b 3 32 u, 3 8 u, 500000000 transfer ref, b> swxext "simple-wallet-ext.msg.seqno" put
+pk-other key ! <b 0 32 u, 3 8 u, 500000000 transfer ref, b> swxext "simple-wallet-ext.msg.bad-signature" put pk key !
+// the StateInit of the wallet (create_init_state) with a transfer, to deploy it
+swxaddr <b b{0011} s, swxcode ref, swxdata ref, null dict, b> <b 0 32 u, 3 8 u, 500000000 transfer ref, b> signed-ext-init "simple-wallet-ext.msg.deploy" put
