@@ -69,7 +69,19 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
   before, at the case's time, of 16 bits), so that the schedule keeps 0.9, 0.8, 0.1, 0 or nothing;
   the same with the 16-bit schedule of `new-restricted-wallet2.fif`, which the wallet's 32-bit lookup
   cannot read (exit codes 10 and 9); no order, a wrong seqno and signature, expired; an internal
-  message.
+  message;
+- the automatic DNS (`dns-auto-code.fc`, `new-auto-dns.fif`, `auto-dns.fif`; `dnsAutoCases`):
+  registrations of a new name (with enough value and with less than 2^30 nanograms plus the price,
+  from the owner and another account), an existing one, an expired one, subdomains of an owned name
+  (by its owner and another account) and of one without an owner, the name in a reference; invalid
+  names (empty, without the zero byte, in a reference of 12 bits, of 17 bytes or with a reference),
+  four and five zero bytes; categories with a malformed owner record, of more than 100 cells, absent;
+  no expiry; names whose stored owner record is malformed; prolong and update (always `notf`);
+  housekeeping due, recent and disabled, the gc operation for all, one and no steps; the control
+  operations ChPr and CDel (domains left, none, only expired ones) from the owner and another
+  account, Take, an unknown control operation; an unknown operation with and without a query id, an
+  answer, a comment, a short and an empty body, a bounced message; external messages before and
+  after the initialization, the message of `new-auto-dns.fif` with its `StateInit`.
 -/
 
 namespace Tests.Tx
@@ -160,6 +172,61 @@ def restricted2Cases (get : String → Except String Cell) (cfg : Cell) (mk : St
   out := out.push (mk "restricted2/new/init/uninit" (mkAccount (-1) addr .uninit 1000000000 1700000000 0 1000) init)
   out := out.push (mk "restricted2/new/init/none" (mkAccount (-1) addr .none 0 0 0 0) init)
   out := out.push (mk "restricted2/internal" (acc (← data "started")) (intMsg (-1) addr 100000000 true none (natToBits 0 32)))
+  return out
+
+/-- The automatic DNS (`dns-auto-code.fc`) with 5 Gram (`get`, `mk` as for `restricted1Cases`).
+Internal messages with 2 Gram (or 1.1, less than 2^30 nanograms plus the price) from 0:2222..22, the
+owner of the contract and of the names test, old and older, or from 0:4444..44, the owner of other,
+to the states of `contracts.fif`: names registered with housekeeping
+due, the same with housekeeping 10 s before, disabled (stdperiod 0), after the initialization
+message, only expired names, as `new-auto-dns.fif` makes it. External messages, accepted only while
+last_housekeeping is 0. In the lookup loop of `recv_internal`, `cell cat_table = val~load_ref()`
+declares a new variable (`auto/dns-auto-code.fif`: LDREF, DICTUGETREF, the result dropped), so the
+outer `cat_table` is null after it: registering an existing name replaces it, prolong and update
+answer `notf` (0xee6f7466); the cases take the branches that remain. -/
+def dnsAutoCases (get : String → Except String Cell) (mk : String → Cell → Cell → TxCase) :
+    Except String (Array TxCase) := do
+  let code ← get "dnsauto.code"
+  let addr := (← get "dnsauto.addr").bits
+  let data (n : String) := get s!"dnsauto.data.{n}"
+  let acc (d : Cell) := mkAccount 0 addr (.active code d) 5000000000 1700000000 0 1000
+  let owner : Int × BitString := (0, natToBits 0x2222222222222222222222222222222222222222222222222222222222222222 256)
+  let other : Int × BitString := (0, natToBits 0x4444444444444444444444444444444444444444444444444444444444444444 256)
+  -- (state, bodies, from 0:4444..44, with 1.1 Gram)
+  let groups : List (String × List String × Bool × Bool) :=
+    [("registered", ["reg-new", "reg-test", "reg-old", "reg-sub", "reg-free-sub", "reg-ref", "reg-empty", "reg-no-zero",
+        "reg-ref-bits", "reg-ref-long", "reg-ref-refs", "reg-four-zeros", "reg-five-zeros", "reg-bad-owner",
+        "reg-bad-owner-tag", "reg-big", "reg-no-data", "reg-no-expiry", "reg-bad2", "reg-bad3-sub", "prolong-test",
+        "prolong-old", "prolong-missing", "update-test", "update-missing", "gc-all", "gc-one", "gc-zero", "unknown",
+        "unknown-no-qid", "answer", "comment", "short", "chpr", "cdel", "take", "ctl-unknown"], false, false),
+     ("registered", ["reg-new", "reg-sub"], false, true),
+     ("registered", ["reg-new", "reg-test", "reg-sub", "update-test", "chpr", "cdel"], true, false),
+     ("recent", ["reg-new", "gc-all"], false, false),
+     ("disabled", ["reg-new", "gc-all", "chpr"], false, false),
+     ("init", ["reg-new", "cdel", "gc-all", "unknown"], false, false),
+     ("new", ["reg-new"], false, false),
+     ("expired", ["cdel", "reg-old", "gc-all"], false, false)]
+  let mut out : Array TxCase := #[]
+  for (dname, bodies, fromOther, poor) in groups do
+    let d ← data dname
+    for n in bodies do
+      let b ← get s!"dnsauto.body.{n}"
+      let name := s!"dnsauto/{dname}/{n}" ++ (if fromOther then "/other" else "") ++ (if poor then "/poor" else "")
+      out := out.push (mk name (acc d) (intMsg 0 addr (if poor then 1100000000 else 2000000000) true none b.bits
+        (bodyRefs := b.refs) (src := if fromOther then other else owner)))
+  let reg ← data "registered"
+  out := out.push (mk "dnsauto/registered/empty" (acc reg) (intMsg 0 addr 2000000000 true none #[]))
+  let regNew ← get "dnsauto.body.reg-new"
+  out := out.push (mk "dnsauto/registered/reg-new/bounced" (acc reg)
+    (intMsg 0 addr 2000000000 false none regNew.bits (bodyRefs := regNew.refs) (bounced := true)))
+  -- the message of new-auto-dns.fif, with the StateInit
+  let init ← get "dnsauto.msg.init"
+  out := out.push (mk "dnsauto/ext/init/new" (acc (← data "new")) init)
+  out := out.push (mk "dnsauto/ext/init/uninit" (mkAccount 0 addr .uninit 1000000000 1700000000 0 1000) init)
+  out := out.push (mk "dnsauto/ext/init/none" (mkAccount 0 addr .none 0 0 0 0) init)
+  for dname in ["new", "init", "registered"] do
+    out := out.push (mk s!"dnsauto/ext/{dname}" (acc (← data dname)) (extMsg 0 addr none #[]))
+  out := out.push (mk "dnsauto/ext/new/body" (acc (← data "new")) (extMsg 0 addr none (natToBits 0x1234 64)))
   return out
 
 /-- The transactions of the real contracts at each version of `versions` (`contracts`: the cells of
@@ -295,6 +362,7 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
         out := out.push { mk s!"restricted3/{dname}/{n}" (rwAcc d) m with config := c }
     out := out ++ (← restricted1Cases get cfg mk)
     out := out ++ (← restricted2Cases get cfg mk)
+    out := out ++ (← dnsAutoCases get mk)
     for (st, m, v, bal, d, body) in pcRun do
       let acc := mkAccount 0 pcAddr (.active pcCode d) bal 1700000000 0 1000
       let msg := match v with

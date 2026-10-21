@@ -447,3 +447,109 @@ dictnew
 <b 4 32 u, 1800000000 32 u, 3 8 u, 50000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.seqno" put
 <b 1 32 u, NOW 32 u, 3 8 u, 50000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.expired" put
 pk-other key ! <b 1 32 u, 1800000000 32 u, 3 8 u, 50000000 0 dest transfer-to ref, b> rw2ext "restricted2.msg.bad-signature" put pk key !
+
+// --- automatic DNS (dns-auto-code.fc, new-auto-dns.fif, auto-dns.fif): data ^ctl (the owner's
+// workchain:8 and address:256, contract id:32) domains (HashmapE 224: string_hash of a name ending
+// with a zero byte >> 32 -> expires_at:32 ^categories) gc (HashmapE 256: expires_at << 224 + key ->
+// empty) stdperiod:30 ppr ppc ppb (Grams) next_housekeeping:32 last_housekeeping:32; categories
+// (HashmapE 256 ^record) has the domain's owner at 0. The owner of the contract and of the domains
+// is 0:2222..22 (the source of the cases' internal messages), another one 0:4444..44. An internal
+// message is op:32 query_id:64 then the name (Maybe ^name, or a 6-bit length and the name inline,
+// as auto-dns.fif writes it with `7 i,`), ^categories (not for prolong) and expires_at:32; the
+// control operations (op >> 24 = 0x43) ChPr and CDel; gc: op query_id max_steps:int32
+"auto/dns-auto-code.fif" include constant dacode
+<b 0 8 i, dest 256 u, 0 32 i, b> constant dactl
+1000000 constant dastd   // stdperiod, s
+// ( dd gc stdperiod nhk lhk -- data ): ppr 0.1, ppc 0.001, ppb 0.000001 Gram
+{ <b dactl ref, 5 roll dict, 4 roll dict, 3 roll 30 u, 100000000 Gram, 1000000 Gram, 1000 Gram, rot 32 u, swap 32 u, b>
+} : dadata
+null null dastd 0 0 dadata constant dadata0   // as new-auto-dns.fif makes it
+<b b{0011} s, dacode ref, dadata0 ref, null dict, b> constant dainit
+dainit hashu constant daaddr
+dacode "dnsauto.code" put  dadata0 "dnsauto.data.new" put  <b daaddr 256 u, b> "dnsauto.addr" put
+// the message of new-auto-dns.fif (no body) with the StateInit
+<b b{1000100} s, 0 daaddr addr, b{000010} s, dainit <s s, b{0} s, b> "dnsauto.msg.init" put
+{ $>B B{00} B+ } : z$      // ( S -- B ): the name S and a zero byte
+{ Bhashu 32 >> } : dkey    // ( B -- key ): its key in the domains
+{ <b x{9fd3} s, -rot Addr, 0 8 u, b> } : smc-rec   // ( wc addr -- record ): dns_smc_address, as auto-dns.fif
+// ( owner|null -- categories ): category 1 an ADNL address, category 0 the owner (unless null)
+{ dictnew <b <b x{ad01} s, 0x55 256 u, 0 8 u, b> ref, 1 rot 256 b>udict! drop
+  swap dup null? { drop } { <b swap ref, 0 rot 256 b>udict! drop } cond
+} : cats
+variable dd  variable gc
+// ( B expires_at categories -- ): the name B in the domains, and its gc entry
+{ rot dkey <b 3 pick 32 u, rot ref, over dd @ 224 b>udict! drop dd !
+  swap 224 << or <b swap gc @ 256 b>udict! drop gc !
+} : dom+
+{ 224 << swap dkey or <b swap gc @ 256 b>udict! drop gc ! } : gc+   // ( B expires_at -- ): a gc entry only
+0 dest smc-rec constant own
+0 other smc-rec constant own2
+// test, free (no owner), other (0:4444..44), bad2 and bad3 (owner records of 24 bits and with the
+// tag 9fd2) expire in 500000 s, old and older expired 100 and 300 s ago; gc entries of test 200 s ago
+// (as if left by a prolongation) and of a name not in the domains 250 s ago; housekeeping due (next
+// 300 s ago, last 1000 s ago), recent (last 10 s ago), the contract disabled (stdperiod 0)
+null dd ! null gc !
+"test" z$ NOW 500000 + own cats dom+
+"free" z$ NOW 500000 + null cats dom+
+"other" z$ NOW 500000 + own2 cats dom+
+"bad2" z$ NOW 500000 + <b x{9fd3} s, 0 8 u, b> cats dom+
+"bad3" z$ NOW 500000 + <b x{9fd2} s, b{100} s, 0 8 i, dest 256 u, 0 8 u, b> cats dom+
+"old" z$ NOW 100 - own cats dom+
+"older" z$ NOW 300 - own cats dom+
+"test" z$ NOW 200 - gc+
+"gone" z$ NOW 250 - gc+
+dd @ gc @ dastd NOW 300 - NOW 1000 - dadata "dnsauto.data.registered" put
+dd @ gc @ dastd NOW 300 - NOW 10 - dadata "dnsauto.data.recent" put
+dd @ gc @ 0 NOW 300 - NOW 1000 - dadata "dnsauto.data.disabled" put
+// after the initialization message (next housekeeping 2^32 - 1), and only expired names
+null null dastd 0xffffffff NOW 1000 - dadata "dnsauto.data.init" put
+null dd ! null gc !
+"old" z$ NOW 100 - own cats dom+
+"older" z$ NOW 300 - own cats dom+
+dd @ gc @ dastd NOW 300 - NOW 1000 - dadata "dnsauto.data.expired" put
+0x72656764 constant regd  0x70726f6c constant prol  0x75706464 constant updd  0x676f6763 constant gogc
+NOW 1000000 + constant daexp
+{ <b swap 32 u, 1 64 u, } : daop                     // ( op -- b ): op and query_id 1
+{ swap over Blen 7 u, swap B, } : dom,                // ( b B -- b' ): the name inline
+{ <b swap B, b> swap 1 1 u, swap ref, } : domref,     // ( b B -- b' ): the name in a reference
+{ rot daop rot dom, swap ref, daexp 32 u, b> } : dabody   // ( op B categories -- body )
+{ prol daop swap dom, daexp 32 u, b> } : daprol       // ( B -- body ): prolong
+regd "new" z$ own cats dabody "dnsauto.body.reg-new" put
+regd "test" z$ own cats dabody "dnsauto.body.reg-test" put
+regd "old" z$ own cats dabody "dnsauto.body.reg-old" put
+regd "test" z$ "sub" z$ B+ own cats dabody "dnsauto.body.reg-sub" put
+regd "free" z$ "x" z$ B+ own2 cats dabody "dnsauto.body.reg-free-sub" put
+regd daop "ref" z$ domref, own cats ref, daexp 32 u, b> "dnsauto.body.reg-ref" put
+regd daop 0 7 u, own cats ref, daexp 32 u, b> "dnsauto.body.reg-empty" put
+regd "abc" $>B own cats dabody "dnsauto.body.reg-no-zero" put
+regd daop <b 0x616 12 u, b> swap 1 1 u, swap ref, own cats ref, daexp 32 u, b> "dnsauto.body.reg-ref-bits" put
+regd daop "abcdefghijklmnop" z$ domref, own cats ref, daexp 32 u, b> "dnsauto.body.reg-ref-long" put
+regd daop <b "r" z$ B, <b b> ref, b> swap 1 1 u, swap ref, own cats ref, daexp 32 u, b> "dnsauto.body.reg-ref-refs" put
+regd "a" z$ "b" z$ B+ "c" z$ B+ "d" z$ B+ own cats dabody "dnsauto.body.reg-four-zeros" put
+regd "a" z$ "b" z$ B+ "c" z$ B+ "d" z$ B+ "e" z$ B+ own cats dabody "dnsauto.body.reg-five-zeros" put
+regd "bad" z$ <b x{9fd3} s, 0 8 u, b> cats dabody "dnsauto.body.reg-bad-owner" put
+regd "bad" z$ <b x{9fd2} s, b{100} s, 0 8 i, dest 256 u, 0 8 u, b> cats dabody "dnsauto.body.reg-bad-owner-tag" put
+// categories of 103 cells (compute_data_size counts at most 100)
+<b <b b> { <b swap ref, b> } 101 times ref, 1 dictnew 256 b>udict! drop constant big-cats
+regd "big" z$ big-cats dabody "dnsauto.body.reg-big" put
+regd daop "nodata" z$ dom, b> "dnsauto.body.reg-no-data" put
+regd daop "noexp" z$ dom, own cats ref, b> "dnsauto.body.reg-no-expiry" put
+regd "bad2" z$ own cats dabody "dnsauto.body.reg-bad2" put
+regd "bad3" z$ "x" z$ B+ own cats dabody "dnsauto.body.reg-bad3-sub" put
+"test" z$ daprol "dnsauto.body.prolong-test" put
+"old" z$ daprol "dnsauto.body.prolong-old" put
+"nothere" z$ daprol "dnsauto.body.prolong-missing" put
+updd "test" z$ own2 cats dabody "dnsauto.body.update-test" put
+updd "nothere" z$ own cats dabody "dnsauto.body.update-missing" put
+<b gogc 32 u, 1 64 u, -1 32 i, b> "dnsauto.body.gc-all" put
+<b gogc 32 u, 1 64 u, 1 32 i, b> "dnsauto.body.gc-one" put
+<b gogc 32 u, 1 64 u, 0 32 i, b> "dnsauto.body.gc-zero" put
+<b 0x12345678 32 u, 1 64 u, b> "dnsauto.body.unknown" put
+<b 0x12345678 32 u, b> "dnsauto.body.unknown-no-qid" put
+<b 0x80000001 32 u, 1 64 u, b> "dnsauto.body.answer" put
+<b 0 32 u, "hi" $, b> "dnsauto.body.comment" put
+<b 0x1234 16 u, b> "dnsauto.body.short" put
+<b 0x43685072 32 u, 1 64 u, 2000000 32 u, 200000000 Gram, 2000000 Gram, 2000 Gram, b> "dnsauto.body.chpr" put
+<b 0x4344656c 32 u, 1 64 u, b> "dnsauto.body.cdel" put
+<b 0x54616b65 32 u, 1 64 u, 100000000 Gram, b> "dnsauto.body.take" put
+<b 0x43000001 32 u, 1 64 u, b> "dnsauto.body.ctl-unknown" put
