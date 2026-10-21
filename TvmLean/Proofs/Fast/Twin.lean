@@ -102,59 +102,73 @@ structure TwinState where
 
 abbrev TwinM := StateT TwinState MetaM
 
+/-- The walk of `freezeTypes`: pops a constant, marks the constants of its type as frozen (unless it
+is a theorem) and pushes those of its type, of its value (unless it is a theorem) and its
+constructors; at most `fuel` steps. -/
+def freezeLoop (env : Environment) : Nat → List Name → NameSet → NameSet → Except String NameSet
+  | 0, _, _, _ => .error "fast twin: the closure of the roots is too large"
+  | _, [], _, frozen => .ok frozen
+  | fuel + 1, n :: rest, seen, frozen =>
+    if seen.contains n then freezeLoop env fuel rest seen frozen
+    else
+      let seen := seen.insert n
+      match env.find? n with
+      | none => freezeLoop env fuel rest seen frozen
+      | some ci =>
+        let isThm := ci matches .thmInfo _
+        let tyCs := ci.type.getUsedConstants
+        let frozen := if isThm then frozen else tyCs.foldl (fun f c => f.insert c) frozen
+        let push (st : List Name) (cs : Array Name) : List Name :=
+          cs.foldl (fun st c => if seen.contains c then st else c :: st) st
+        let stack := push rest tyCs
+        let stack := match ci.value? (allowOpaque := false) with
+          | some v => if isThm then stack else push stack v.getUsedConstants
+          | none => stack
+        let stack := match ci with
+          | .inductInfo iv => push stack iv.ctors.toArray
+          | _ => stack
+        freezeLoop env fuel stack seen frozen
+
 /-- Marks as frozen the constants occurring in the types of the definitions, inductive types and
 constructors reachable from `roots` (through values and types). -/
-partial def freezeTypes (roots : Array Name) : TwinM Unit := do
-  let env ← getEnv
-  let mut seen : NameSet := {}
-  let mut stack := roots.toList
-  let mut frozen := (← get).frozen
-  while true do
-    match stack with
-    | [] => break
-    | n :: rest =>
-      stack := rest
-      if seen.contains n then continue
-      seen := seen.insert n
-      let some ci := env.find? n | continue
-      unless ci matches .thmInfo _ do
-        for c in ci.type.getUsedConstants do
-          frozen := frozen.insert c
-      for c in ci.type.getUsedConstants do
-        unless seen.contains c do stack := c :: stack
-      if let some v := ci.value? (allowOpaque := false) then
-        unless ci matches .thmInfo _ do
-          for c in v.getUsedConstants do
-            unless seen.contains c do stack := c :: stack
-      if let .inductInfo iv := ci then
-        for c in iv.ctors do
-          unless seen.contains c do stack := c :: stack
-  modify fun s => { s with frozen }
+def freezeTypes (roots : Array Name) : TwinM Unit := do
+  match freezeLoop (← getEnv) 100000000 roots.toList {} (← get).frozen with
+  | .ok frozen => modify fun s => { s with frozen }
+  | .error msg => throwError msg
 
 /-- Whether `n` needs a twin: it is replaced, or it is a definition whose value, or a theorem whose
-statement, mentions a constant that needs one; never a frozen constant. -/
-partial def needs (n : Name) : TwinM Bool := do
-  if let some b := (← get).needs.find? n then return b
-  let env ← getEnv
-  if hasRepl env n then
-    modify fun s => { s with needs := s.needs.insert n true }
-    return true
-  if (← get).frozen.contains n then
+statement, mentions a constant that needs one; never a frozen constant. `fuel` bounds the depth of
+the dependencies followed. -/
+def needsF : Nat → Name → TwinM Bool
+  | 0, n => throwError "fast twin: the dependencies of {n} are nested too deeply"
+  | fuel + 1, n => do
+    if let some b := (← get).needs.find? n then return b
+    let env ← getEnv
+    if hasRepl env n then
+      modify fun s => { s with needs := s.needs.insert n true }
+      return true
+    if (← get).frozen.contains n then
+      modify fun s => { s with needs := s.needs.insert n false }
+      return false
     modify fun s => { s with needs := s.needs.insert n false }
-    return false
-  modify fun s => { s with needs := s.needs.insert n false }
-  let some ci := env.find? n | return false
-  let deps : Array Name := match ci with
-    | .defnInfo d => d.value.getUsedConstants
-    | .thmInfo t => t.type.getUsedConstants
-    | _ => #[]
-  let mut r := false
-  for d in deps do
-    if ← needs d then
-      r := true
-      break
-  modify fun s => { s with needs := s.needs.insert n r }
-  return r
+    let some ci := env.find? n | return false
+    let deps : Array Name := match ci with
+      | .defnInfo d => d.value.getUsedConstants
+      | .thmInfo t => t.type.getUsedConstants
+      | _ => #[]
+    let mut r := false
+    for d in deps do
+      if ← needsF fuel d then
+        r := true
+        break
+    modify fun s => { s with needs := s.needs.insert n r }
+    return r
+
+/-- The depth of dependencies `needs` and `ensureTwin` follow at most. -/
+def twinFuel : Nat := 100000
+
+/-- `needsF` with `twinFuel`. -/
+def needs (n : Name) : TwinM Bool := needsF twinFuel n
 
 /-- The occurrences `.const n ls` in `e` that have a replacement. -/
 def replOccs (e : Expr) : MetaM (Array Expr) := do
@@ -249,7 +263,7 @@ def mkTwinEq (e : Expr) : MetaM (Expr × Expr) := do
 
 /-- Whether the fast form `f` of a replaced constant needs a twin itself (it calls constants that are
 replaced or have twins). -/
-partial def fastNeedsTwin (f : Name) : TwinM Bool := do
+def fastNeedsTwin (f : Name) : TwinM Bool := do
   let env ← getEnv
   if env.contains (twinName f) then return false
   let some (.defnInfo d) := env.find? f | return false
@@ -259,43 +273,49 @@ partial def fastNeedsTwin (f : Name) : TwinM Bool := do
 
 /-- Makes the twin of `n` (and of what it needs first), if it needs one. For a replaced constant
 whose fast form `f` needs a twin: the twin of `f`, and `twin n := twin f` with
-`@n = @twin n` from `@n = @f` and `@f = @twin f`. -/
-partial def ensureTwin (n : Name) : TwinM Unit := do
-  let env ← getEnv
-  if env.contains (twinName n) then return
-  if let some (f, t) := (fastReplExt.getState env).find? n then
-    if f != n && (← fastNeedsTwin f) then
-      ensureTwin f
-      let ci ← getConstInfo n
-      let us := ci.levelParams.map mkLevelParam
-      let tci ← getConstInfo t
-      let some (_, _, rhs) := tci.type.eq? | return
-      let fT := rhs.instantiateLevelParams tci.levelParams us
-      let some (fT', some fEq) := lookupRepl (← getEnv) f fT.constLevels! | return
-      let dv : DefinitionVal :=
-        { name := twinName n, levelParams := ci.levelParams, type := ci.type, value := fT', hints := .abbrev,
-          safety := .safe }
-      addDecl (.defnDecl dv)
+`@n = @twin n` from `@n = @f` and `@f = @twin f`. `fuel` bounds the depth of the dependencies
+followed. -/
+def ensureTwinF : Nat → Name → TwinM Unit
+  | 0, n => throwError "fast twin: the dependencies of {n} are nested too deeply"
+  | fuel + 1, n => do
+    let env ← getEnv
+    if env.contains (twinName n) then return
+    if let some (f, t) := (fastReplExt.getState env).find? n then
+      if f != n && (← fastNeedsTwin f) then
+        ensureTwinF fuel f
+        let ci ← getConstInfo n
+        let us := ci.levelParams.map mkLevelParam
+        let tci ← getConstInfo t
+        let some (_, _, rhs) := tci.type.eq? | return
+        let fT := rhs.instantiateLevelParams tci.levelParams us
+        let some (fT', some fEq) := lookupRepl (← getEnv) f fT.constLevels! | return
+        let dv : DefinitionVal :=
+          { name := twinName n, levelParams := ci.levelParams, type := ci.type, value := fT', hints := .abbrev,
+            safety := .safe }
+        addDecl (.defnDecl dv)
+        let ty ← mkEq (mkConst n us) (mkConst (twinName n) us)
+        let pf ← mkEqTrans (mkConst t us) fEq
+        addDecl <| .thmDecl { name := twinEqName n, levelParams := ci.levelParams, type := ty, value := pf }
+      return
+    unless ← needs n do return
+    let ci ← getConstInfo n
+    let us := ci.levelParams.map mkLevelParam
+    match ci with
+    | .defnInfo d =>
+      for c in d.value.getUsedConstants do ensureTwinF fuel c
+      let (v', pf) ← mkTwinEq d.value
+      addDecl <| .defnDecl { d with name := twinName n, value := v', all := [twinName n] }
       let ty ← mkEq (mkConst n us) (mkConst (twinName n) us)
-      let pf ← mkEqTrans (mkConst t us) fEq
-      addDecl <| .thmDecl { name := twinEqName n, levelParams := ci.levelParams, type := ty, value := pf }
-    return
-  unless ← needs n do return
-  let ci ← getConstInfo n
-  let us := ci.levelParams.map mkLevelParam
-  match ci with
-  | .defnInfo d =>
-    for c in d.value.getUsedConstants do ensureTwin c
-    let (v', pf) ← mkTwinEq d.value
-    addDecl <| .defnDecl { d with name := twinName n, value := v', all := [twinName n] }
-    let ty ← mkEq (mkConst n us) (mkConst (twinName n) us)
-    addDecl <| .thmDecl { name := twinEqName n, levelParams := d.levelParams, type := ty, value := pf }
-  | .thmInfo t =>
-    for c in t.type.getUsedConstants do ensureTwin c
-    let (T', pf) ← mkTwinEq t.type
-    let v := mkApp4 (mkConst ``Eq.mp [levelZero]) t.type T' pf (mkConst n us)
-    addDecl <| .thmDecl { name := twinName n, levelParams := t.levelParams, type := T', value := v }
-  | _ => throwError "fast twin: {n} is neither a definition nor a theorem"
+      addDecl <| .thmDecl { name := twinEqName n, levelParams := d.levelParams, type := ty, value := pf }
+    | .thmInfo t =>
+      for c in t.type.getUsedConstants do ensureTwinF fuel c
+      let (T', pf) ← mkTwinEq t.type
+      let v := mkApp4 (mkConst ``Eq.mp [levelZero]) t.type T' pf (mkConst n us)
+      addDecl <| .thmDecl { name := twinName n, levelParams := t.levelParams, type := T', value := v }
+    | _ => throwError "fast twin: {n} is neither a definition nor a theorem"
+
+/-- `ensureTwinF` with `twinFuel`. -/
+def ensureTwin (n : Name) : TwinM Unit := ensureTwinF twinFuel n
 
 /-- Makes the twins of `roots` and of all they need. -/
 def twinsOf (roots : Array Name) : MetaM Unit := do

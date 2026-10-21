@@ -32,15 +32,20 @@ structure DispCtx where
   resLvl : Level
   counter : IO.Ref Nat
 
-/-- Unfolds the chain at the head of `e` and reduces matches, as far as it goes. -/
-partial def unfoldChain (chain : Name → Bool) (e : Expr) (fuel : Nat := 100000) : MetaM Expr := do
-  let e ← whnfCore e
-  if fuel == 0 then return e
-  if let .const n _ := e.getAppFn then
-    if chain n then
-      if let some e' ← unfoldDefinition? e then
-        return ← unfoldChain chain e' (fuel - 1)
-  return e
+/-- Unfolds the chain at the head of `e` and reduces matches, as far as it goes (at most `fuel`
+unfoldings). -/
+def unfoldChain (chain : Name → Bool) : Nat → Expr → MetaM Expr
+  | 0, e => whnfCore e
+  | fuel + 1, e => do
+    let e ← whnfCore e
+    if let .const n _ := e.getAppFn then
+      if chain n then
+        if let some e' ← unfoldDefinition? e then
+          return ← unfoldChain chain fuel e'
+    return e
+
+/-- The most unfoldings and case splits of a flattening along one path. -/
+def dispatchFuel : Nat := 100000
 
 /-- `e` with every application of a chain function inside it unfolded as far as it goes (the
 continuation of a handler that reads the state before it matches the instruction). -/
@@ -48,30 +53,13 @@ def unfoldChainInside (chain : Name → Bool) (e : Expr) : MetaM Expr :=
   Meta.transform e (pre := fun t => do
     if let .const n _ := t.getAppFn then
       if chain n then
-        let t' ← unfoldChain chain t
+        let t' ← unfoldChain chain dispatchFuel t
         if t' != t then return .visit t'
     return .continue)
 
-/-- The value and the proof of the case tree of `e` (`≡ f arg` in the local context `vars`): the
-value (definitionally `f arg`) and a proof of `f arg = fFast arg`. -/
-partial def dispatchTree (ctx : DispCtx) (e arg : Expr) (vars : Array Expr) (fuel : Nat := 100000) :
-    MetaM (Expr × Expr) := do
-  let e ← whnfCore e
-  if fuel != 0 then
-    if let .const n _ := e.getAppFn then
-      if ctx.chain n then
-        if let some e' ← unfoldDefinition? e then
-          return ← dispatchTree ctx e' arg vars (fuel - 1)
-      if let some info ← getMatcherInfo? n then
-        let args := e.getAppArgs
-        for d in args[info.getFirstDiscrPos:info.getFirstDiscrPos + info.numDiscrs] do
-          let d ← whnfCore d
-          if d.isFVar && vars.contains d then
-            let ty ← whnf (← inferType d)
-            if let .const ind lvls := ty.getAppFn then
-              if ctx.splitOn ind then
-                return ← split ctx e arg vars d ind lvls ty.getAppArgs fuel
-  -- a leaf: the lemma `∀ vars, f arg = e`, by `rfl`
+/-- A leaf of the case tree: the lemma `∀ vars, f arg = e` by `rfl` (checked by the kernel when it is
+added), the value `e` and the lemma applied to `vars`. -/
+def dispatchLeaf (ctx : DispCtx) (e arg : Expr) (vars : Array Expr) : MetaM (Expr × Expr) := do
   let e ← unfoldChainInside ctx.chain e
   let k ← ctx.counter.modifyGet fun k => (k, k + 1)
   let lemmaName := ctx.fFast ++ Name.mkSimple s!"eq_{k}"
@@ -80,32 +68,53 @@ partial def dispatchTree (ctx : DispCtx) (e arg : Expr) (vars : Array Expr) (fue
   let pf ← mkLambdaFVars vars (mkApp2 (mkConst ``Eq.refl [ctx.resLvl]) ctx.resTy lhs)
   addDecl <| .thmDecl { name := lemmaName, levelParams := [], type := stmt, value := pf }
   return (e, mkAppN (mkConst lemmaName) vars)
-where
-  split (ctx : DispCtx) (e arg : Expr) (vars : Array Expr) (d : Expr) (ind : Name) (lvls : List Level)
-      (tyArgs : Array Expr) (fuel : Nat) : MetaM (Expr × Expr) := do
-    let ival ← getConstInfoInduct ind
-    let params := tyArgs[:ival.numParams].toArray
-    let dTy ← inferType d
-    let mut vMinors := #[]
-    let mut pMinors := #[]
-    for c in ival.ctors do
-      let cty ← instantiateForall (← inferType (mkConst c lvls)) params
-      let (vm, pm) ← forallTelescope cty fun ys _ => do
-        let ca := mkAppN (mkAppN (mkConst c lvls) params) ys
-        let vars' := (vars.filter (· != d)) ++ ys
-        let (v, p) ← dispatchTree ctx (e.replaceFVar d ca) (arg.replaceFVar d ca) vars' (fuel - 1)
-        return (← mkLambdaFVars ys v, ← mkLambdaFVars ys p)
-      vMinors := vMinors.push vm
-      pMinors := pMinors.push pm
-    -- the value: `ind.casesOn (motive := fun _ => resTy) d minors`
-    let vMotive ← withLocalDeclD `z dTy fun z => mkLambdaFVars #[z] ctx.resTy
-    let v := mkAppN (mkConst (Name.mkStr ind "casesOn") (ctx.resLvl :: lvls))
-      (params ++ #[vMotive, d] ++ vMinors)
-    -- the proof: motive `fun z => f arg[z] = fFast arg[z]`
-    let pMotive ← mkLambdaFVars #[d] (mkApp3 (mkConst ``Eq [ctx.resLvl]) ctx.resTy (mkApp (mkConst ctx.f) arg)
-      (mkApp (mkConst ctx.fFast) arg))
-    let p := mkAppN (mkConst (Name.mkStr ind "casesOn") (levelZero :: lvls)) (params ++ #[pMotive, d] ++ pMinors)
-    return (v, p)
+
+/-- The value and the proof of the case tree of `e` (`≡ f arg` in the local context `vars`): the
+value (definitionally `f arg`) and a proof of `f arg = fFast arg`. The functions of the chain are
+unfolded and their matches reduced; on a match stuck on a local of a type to split on, one branch per
+constructor of the type. At most `fuel` unfoldings and splits along a path, then a leaf. -/
+def dispatchTree (ctx : DispCtx) : Nat → Expr → Expr → Array Expr → MetaM (Expr × Expr)
+  | 0, e, arg, vars => do dispatchLeaf ctx (← whnfCore e) arg vars
+  | fuel + 1, e, arg, vars => do
+    let e ← whnfCore e
+    if let .const n _ := e.getAppFn then
+      if ctx.chain n then
+        if let some e' ← unfoldDefinition? e then
+          return ← dispatchTree ctx fuel e' arg vars
+      if let some info ← getMatcherInfo? n then
+        let args := e.getAppArgs
+        for d in args[info.getFirstDiscrPos:info.getFirstDiscrPos + info.numDiscrs] do
+          let d ← whnfCore d
+          if d.isFVar && vars.contains d then
+            let ty ← whnf (← inferType d)
+            if let .const ind lvls := ty.getAppFn then
+              if ctx.splitOn ind then
+                -- one branch per constructor of `ind`
+                let ival ← getConstInfoInduct ind
+                let params := ty.getAppArgs[:ival.numParams].toArray
+                let dTy ← inferType d
+                let mut vMinors := #[]
+                let mut pMinors := #[]
+                for c in ival.ctors do
+                  let cty ← instantiateForall (← inferType (mkConst c lvls)) params
+                  let (vm, pm) ← forallTelescope cty fun ys _ => do
+                    let ca := mkAppN (mkAppN (mkConst c lvls) params) ys
+                    let vars' := (vars.filter (· != d)) ++ ys
+                    let (v, p) ← dispatchTree ctx fuel (e.replaceFVar d ca) (arg.replaceFVar d ca) vars'
+                    return (← mkLambdaFVars ys v, ← mkLambdaFVars ys p)
+                  vMinors := vMinors.push vm
+                  pMinors := pMinors.push pm
+                -- the value: `ind.casesOn (motive := fun _ => resTy) d minors`
+                let vMotive ← withLocalDeclD `z dTy fun z => mkLambdaFVars #[z] ctx.resTy
+                let v := mkAppN (mkConst (Name.mkStr ind "casesOn") (ctx.resLvl :: lvls))
+                  (params ++ #[vMotive, d] ++ vMinors)
+                -- the proof: motive `fun z => f arg[z] = fFast arg[z]`
+                let pMotive ← mkLambdaFVars #[d] (mkApp3 (mkConst ``Eq [ctx.resLvl]) ctx.resTy
+                  (mkApp (mkConst ctx.f) arg) (mkApp (mkConst ctx.fFast) arg))
+                let p := mkAppN (mkConst (Name.mkStr ind "casesOn") (levelZero :: lvls))
+                  (params ++ #[pMotive, d] ++ pMinors)
+                return (v, p)
+    dispatchLeaf ctx e arg vars
 
 /-- `fast_dispatch f`: flattens the dispatch chain `f` (see the module docstring). -/
 elab "fast_dispatch " id:ident : command => liftTermElabM do
@@ -127,7 +136,7 @@ elab "fast_dispatch " id:ident : command => liftTermElabM do
     let i := xs[0]!
     let resLvl ← getLevel resTy
     let ctx : DispCtx := { f, fFast, chain, splitOn, resTy, resLvl, counter := ← IO.mkRef 0 }
-    let (v, p) ← dispatchTree ctx (mkApp (mkConst f) i) i #[i]
+    let (v, p) ← dispatchTree ctx dispatchFuel (mkApp (mkConst f) i) i #[i]
     let value ← mkLambdaFVars #[i] v
     let dv : DefinitionVal :=
       { name := fFast, levelParams := [], type := fci.type, value := value, hints := .regular 0, safety := .safe }
