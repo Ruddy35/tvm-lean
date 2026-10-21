@@ -29,7 +29,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Contracts.Wallet3Kernel, `TvmLean.Proofs.Exec.Step, `TvmLean.Proofs.Exec.Eval,
     `TvmLean.Proofs.Exec.Spec.Stack, `TvmLean.Proofs.Exec.Spec.Arith, `TvmLean.Proofs.Exec.Spec.Flow,
     `TvmLean.Proofs.Exec.Spec.Cell, `TvmLean.Proofs.Exec.Spec.TonEnv, `TvmLean.Proofs.Exec.Run,
-    `TvmLean.Proofs.Exec.Tactic]
+    `TvmLean.Proofs.Exec.Tactic, `TvmLean.Proofs.Exec.Pilot.AddOne, `TvmLean.Proofs.Exec.Pilot.Wallet3]
 
 lean_lib TvmLeanValidation where
   roots := #[`TvmLean.Validation]
