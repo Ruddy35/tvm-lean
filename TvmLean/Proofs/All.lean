@@ -103,6 +103,7 @@ import TvmLean.Proofs.Exec.Closure
 import TvmLean.Proofs.Exec.Pilot.Closure
 import TvmLean.Proofs.Exec.LoopInv
 import TvmLean.Proofs.Exec.Pilot.LoopInv
+import TvmLean.Proofs.Tx.NoSetCode
 
 /-!
 # All proof modules together

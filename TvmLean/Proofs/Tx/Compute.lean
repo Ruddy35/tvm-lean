@@ -43,6 +43,14 @@ def vmFinal (st : VmState) : VmState :=
   | .halt _ stF => stF
   | .continue stF => stF
 
+/-- The state the run of the compute phase ends in (`vmFinal`) is that of the run. -/
+theorem vmFinal_eq (st : VmState) :
+    vmFinal st = (VmState.runWith execInstr (st.gas.stepBound + 16) st).state := by
+  unfold vmFinal
+  rw [show VmState.runWith execInstr (st.gas.stepBound + 16) st = VmState.run (st.gas.stepBound + 16) st
+    from rfl]
+  cases VmState.run (st.gas.stepBound + 16) st <;> rfl
+
 /-- An ordinary code cell is run as it is. -/
 theorem convertCodeCell_ordinary (code : Cell) (gv : Nat) (libs : Array Cell) (h : code.special = false) :
     convertCodeCell code gv libs = code := by

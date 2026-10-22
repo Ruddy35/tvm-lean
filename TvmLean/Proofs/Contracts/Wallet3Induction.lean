@@ -1,5 +1,5 @@
 import TvmLean.Proofs.Tx.Example
-import TvmLean.Proofs.Exec.Spec.Msg
+import TvmLean.Proofs.Tx.NoSetCode
 import TvmLean.Proofs.Contracts.Wallet3Run.External
 import TvmLean.Proofs.Contracts.Wallet3Run.ExternalOld
 import TvmLean.Proofs.Contracts.Wallet3Run.Other
@@ -24,82 +24,13 @@ without `SETCODE`. That comes from the runs of `TvmLean/Proofs/Contracts/Wallet3
 * an external message (selector -1, `Run.external_le`, `Run.external_lt` for global versions from 4
   and below 4): the committed data is the stored data with the seqno increased by one (as 32 bits),
   the action list is made of `SENDRAWMSG` actions (`SendList`), none of which reads as `SETCODE`
-  (`SendList.noSetCode`);
+  (`SendList.noSetCode`, TvmLean/Proofs/Tx/NoSetCode.lean);
 * an internal message (selector 0, `Run.internal`): the data and the empty action list;
 * tick-tock (selector -2, `Run.tickTock`): no commit.
 
 `reachable_from_empty`: the same from an address without an account (`noAccount`), when the account
 may be deployed only with a `StateInit` of wallet v3 with the key and subwallet (`Deploys`).
 -/
-
-namespace TvmLean.Tx
-
-/-! ## Action lists of `SENDRAWMSG` actions have no `SETCODE` -/
-
-/-- The action list `c5` has no `SETCODE` action. -/
-def NoSetCode (c5 : Cell) : Prop := ∀ c, ¬ActionIn c5 (.setCode c)
-
-/-- The nodes of the list with a `SENDRAWMSG` action added (`TvmLean.OutAction.sendMsg`): after the
-first, the nodes of the list before. -/
-theorem actionNode_sendMsg_succ (m : Nat) (prev msg : Cell) :
-    ∀ i, actionNode (TvmLean.OutAction.sendMsg m prev msg) (i + 1) = actionNode prev i
-  | 0 => rfl
-  | i + 1 => by rw [actionNode_succ, actionNode_sendMsg_succ m prev msg i, ← actionNode_succ]
-
-private theorem extract_append_32 (a b : BitString) (h : a.size = 32) : (a ++ b).extract 0 32 = a := by
-  rw [Array.extract_append]
-  simp [h]
-
-/-- The tag of a `SENDRAWMSG` action (`action_send_msg#0ec3c86d`), read after its first reference. -/
-theorem uint32_sendMsg (m : Nat) (prev msg : Cell) :
-    Reader.uint 32 { cell := TvmLean.OutAction.sendMsg m prev msg, bitPos := 0, refPos := 1 } =
-      some (0x0ec3c86d, { cell := TvmLean.OutAction.sendMsg m prev msg, bitPos := 32, refPos := 1 }) := by
-  have h1 : (natToBits 0x0ec3c86d 32 ++ natToBits m 8).extract 0 (0 + 32) = natToBits 0x0ec3c86d 32 :=
-    extract_append_32 _ _ (natToBits_size _ _)
-  have h2 : bitsToNat (natToBits 0x0ec3c86d 32) = 0x0ec3c86d := by decide
-  simp only [Reader.uint, bind, StateT.bind, pure, StateT.pure]
-  simp only [Reader.bits, Slice.haveBits, Slice.readBits, Slice.advanceBits, TvmLean.OutAction.sendMsg,
-    Cell.mkOrdinary, h1]
-  simp [h2]
-
-/-- A node that `SENDRAWMSG` adds never parses as `SETCODE` (`parseOutAction`: its tag is that of
-`action_send_msg`). -/
-theorem parseOutAction_sendMsg (m : Nat) (prev msg c : Cell) :
-    parseOutAction (TvmLean.OutAction.sendMsg m prev msg) ≠ some (.setCode c) := by
-  intro h
-  unfold parseOutAction at h
-  simp only [Slice.ofCell] at h
-  simp only [uint32_sendMsg] at h
-  simp [TvmLean.OutAction.sendMsg, Cell.mkOrdinary, Slice.haveRefs, Option.bind_eq_some_iff] at h
-
-/-- The empty action list has no action. -/
-theorem noSetCode_empty : NoSetCode Cell.empty := by
-  rintro c ⟨i, hi, _⟩
-  exact hi 0 (Nat.zero_le _) ⟨rfl, rfl⟩
-
-/-- A `SENDRAWMSG` action added to a list without `SETCODE` leaves a list without `SETCODE`. -/
-theorem noSetCode_sendMsg {prev : Cell} (h : NoSetCode prev) (m : Nat) (msg : Cell) :
-    NoSetCode (TvmLean.OutAction.sendMsg m prev msg) := by
-  rintro c ⟨i, hi, hp⟩
-  cases i with
-  | zero => exact parseOutAction_sendMsg m prev msg c hp
-  | succ k =>
-    rw [actionNode_sendMsg_succ] at hp
-    refine h c ⟨k, fun j hj => ?_, hp⟩
-    have := hi (j + 1) (by omega)
-    rwa [actionNode_sendMsg_succ] at this
-
-end TvmLean.Tx
-
-namespace TvmLean
-
-/-- **An action list of `SENDRAWMSG` actions has no `SETCODE`.** -/
-theorem SendList.noSetCode {c5 : Cell} (h : SendList c5) : Tx.NoSetCode c5 := by
-  induction h with
-  | empty => exact Tx.noSetCode_empty
-  | send m msg _ ih => exact Tx.noSetCode_sendMsg ih m msg
-
-end TvmLean
 
 namespace TvmLean.Contracts.Wallet3
 
@@ -120,13 +51,6 @@ def AccountInv (key sub : Nat) (code data : Option Cell) : Prop :=
 theorem encode_seqno_mod (d : Data) (s : Nat) :
     Data.encode { d with seqno := s } = Data.encode { d with seqno := s % 2 ^ 32 } := by
   simp only [Data.encode, natToBits_mod]
-
-/-- The state the run of the compute phase ends in (`vmFinal`) is that of the run. -/
-theorem vmFinal_eq (st : VmState) :
-    vmFinal st = (VmState.runWith execInstr (st.gas.stepBound + 16) st).state := by
-  unfold vmFinal
-  rw [VmState.run_eq]
-  cases VmState.runWith execInstr (st.gas.stepBound + 16) st <;> rfl
 
 /-- **Every committed run of wallet v3 keeps the invariant** (the obligation of
 `Reachable.code_fixed`): from data `Stored key sub`, a run of the compute phase that commits
