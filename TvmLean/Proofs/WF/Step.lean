@@ -16,7 +16,8 @@ of gas, and the reruns of a step that refuses libraries (`max_library_loads`).
 
 `execInstr_WF`: `execInstr` keeps states well-formed if each of its 14 family handlers does
 (`FamilyWF`: the handler keeps them when its fallback `next` does); `VmState.WF.step` and
-`VmState.WF.run` then hold for the VM itself. The families proved are in `TvmLean/Proofs/WF/Exec/`.
+`VmState.WF.run` then hold for the VM itself. The families are proved in `TvmLean/Proofs/WF/Exec/`
+and put together in `TvmLean/Proofs/WF/All.lean`.
 
 ## How to discharge a family
 
@@ -95,17 +96,16 @@ per file under `Exec/X/`, each `match i with | <its instructions> => <its code> 
    ```
    and pass it to `execInstr_WF`.
 
-Done: Stack, Arith, Cell, CellOp (`wf_cells` of `Cells.lean`: `wf_vc` with the lemmas on the
-cells, slices and builders instructions build), Exception (`Continuation.WF.defineC0`,
-`Continuation.WF.defineC2`), Debug, Tuple, Misc (`VM.forIn_range_WF`: a loop in the VM monad
-whose body `mvcgen` cannot take), TonEnv (`dictLookupWithCells_WF`, `Slice.skipMessageAddr_WF`,
-`Slice.parseMessageAddr_WF` of `Cells.lean`), Crypto (the hashes and curve operations
-generalized; the sizes of the BLS12-381 points). Left: Cont, Flow (with `RUNVM`, which runs a child
-VM with `execInstr`: `VmState.WF.runWith` applies), Msg, Dict. The VM operations of those
-families without a specification yet: `VM.call`, `VM.callComputeStacks`, `VM.extractCc` (mvcgen
-unfolds them; their conditions need the continuation lemmas of `Monad.lean`), the dictionary
-functions (`Library.lean` has the lookup, `Cells.lean` the lookup that records its cells; the
-setters build cells), the cell serialization of messages and actions.
+All 14 families are done (`TvmLean/Proofs/WF/Exec/`): Stack, Arith, Cell, CellOp (`wf_cells` of
+`Cells.lean`: `wf_vc` with the lemmas on the cells, slices and builders instructions build), Cont,
+Flow (with `RUNVM`, whose child runs `execInstrNested`: `VmState.WF.runWith` applies), Msg,
+Exception (`Continuation.WF.defineC0`, `Continuation.WF.defineC2`), Debug, Tuple, Misc
+(`VM.forIn_range_WF`: a loop in the VM monad whose body `mvcgen` cannot take), TonEnv
+(`dictLookupWithCells_WF`, `Slice.skipMessageAddr_WF`, `Slice.parseMessageAddr_WF` of
+`Cells.lean`), Crypto (the hashes and curve operations generalized; the sizes of the BLS12-381
+points), Dict (the dictionary primitives of `DictPrims.lean`). `TvmLean/Proofs/WF/All.lean`
+discharges the hypotheses of `execInstr_WF`: `VmState.WF.step'` and `VmState.WF.run'` hold with
+none left.
 -/
 
 open Std.Do

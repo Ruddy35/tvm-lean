@@ -11,8 +11,9 @@ import TvmLean.Proofs.WF.Exec.Msg
 
 `execInstrFlow_WF`: every handler of `execInstrFlow` (`TvmLean/Semantics/Exec/Flow/`) keeps
 `VmState.WF`, so the family does, given the obligations of the families a `RUNVM` child runs that
-are not proved yet (Tuple, TonEnv, Crypto, Misc, Debug, Exception, Dict); the Stack, Cont, Cell,
-Arith, CellOp and Msg families are used through their theorems.
+this module does not import (Tuple, TonEnv, Crypto, Misc, Debug, Exception, Dict; discharged in
+`TvmLean/Proofs/WF/All.lean`); the Stack, Cont, Cell, Arith, CellOp and Msg families are used
+through their theorems.
 
 * The 46 handlers other than `RUNVM` (`execInstrFlowChildNoRunvm_WF`, the Flow family of a child
   VM): `mvcgen` and `wf_cont` (`Calls.lean`), with the specifications of `VM.call`, `VM.jump`,
@@ -737,8 +738,8 @@ theorem execInstrFlowChildNoRunvm_WF : FamilyWF execInstrFlowChildNoRunvm := by
     execInstrFlowDrop2_WF i _ hi <|
     hnext
 
-/-- The instructions of a VM without `RUNVM` keep states well-formed, given the families not
-proved yet. -/
+/-- The instructions of a VM without `RUNVM` keep states well-formed, given the families this
+module does not import. -/
 theorem execInstrChildNoRunvm_WF (hTuple : FamilyWF execInstrTuple)
     (hTonEnv : FamilyWF execInstrTonEnv) (hCrypto : FamilyWF execInstrCrypto)
     (hMisc : FamilyWF execInstrMisc) (hDebug : FamilyWF execInstrDebug)
@@ -783,8 +784,8 @@ theorem execInstrFlowRunvm_WF (hTuple : FamilyWF execInstrTuple)
     (execInstrNested_WF hTuple hTonEnv hCrypto hMisc hDebug hException hDict depth) i next hi
     hnext
 
-/-- The Flow family keeps states well-formed, given the families a `RUNVM` child runs that are not
-proved yet. -/
+/-- The Flow family keeps states well-formed, given the families a `RUNVM` child runs that this
+module does not import. -/
 theorem execInstrFlow_WF (hTuple : FamilyWF execInstrTuple)
     (hTonEnv : FamilyWF execInstrTonEnv) (hCrypto : FamilyWF execInstrCrypto)
     (hMisc : FamilyWF execInstrMisc) (hDebug : FamilyWF execInstrDebug)
