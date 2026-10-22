@@ -1082,6 +1082,22 @@ elab "tx_subst_records" : tactic => do
       break
   replaceMainGoal [g]
 
+/-- `tx_compact tac`: prove the goal with `tac`, which must close it, the proof put in an auxiliary
+theorem (the proof of the enclosing theorem stays small: see `vcgClose`). -/
+elab "tx_compact " tac:tacticSeq : tactic => do
+  let g ← getMainGoal
+  let p ← g.withContext do mkFreshExprSyntheticOpaqueMVar (← g.getType) (← g.getTag)
+  let saved ← getGoals
+  setGoals [p.mvarId!]
+  evalTactic tac
+  let rem ← getUnsolvedGoals
+  setGoals saved
+  if !rem.isEmpty then throwError "tx_compact: goals left"
+  let v ← instantiateMVars p
+  let aux ← g.withContext do mkAuxTheorem (← instantiateMVars (← g.getType)) v
+  g.assign aux
+  replaceMainGoal (saved.filter (· != g))
+
 /-- `tx_prep [f₁, ...] [d₁, ...]`: prepare a goal of a path for `grind`: `tx_inline_fns`,
 `tx_abstract [f₁, ...]` (the fields of the records that matter), `tx_clear_values` and
 `tx_unfold [d₁, ...]` (the definitions of the statement). -/
