@@ -47,6 +47,34 @@ with `def <name> : Cell` as nested cell literals, the BOC, its representation ha
 the project's BOC reader reads the BOC as the literal (`--kernel-hash`: also a kernel-checked theorem
 on the hash). The script's docstring has the details.
 
+## Invariants of a contract over all transactions
+
+```sh
+tools/contract-check/contract-check list:tools/txoracle/contracts.txt#wallet3.code \
+  tools/contract-check/examples/wallet3.lean --name Wallet3
+```
+
+From a contract's code (a BOC: a file, or any source of `tools/boc2lean`) and a file with the
+invariant of its data (`Inv.lean`: a predicate on the data cell, the definitions it needs, and the
+lines `-- contract-check: invariant/params/hints`), generates a Lean module that states, for every
+shard account reachable by transactions (any messages, times, configurations, libraries,
+tick-tock; from start states and deployments that satisfy the invariant, the theorem's
+hypotheses), that the account keeps the code and data satisfying the invariant
+(`TvmLean.Tx.Reachable.code_fixed`), and proves its obligation with no proof about the contract:
+the code runs symbolically from every state the compute phase may start it from (an external
+message, an internal message, tick-tock; global version from 4 and below; any gas, `c7`,
+libraries, loaded cells), every path to its end (`ran_case`, TvmLean/Proofs/Check/Tactic.lean).
+It checks the module (`lake env lean`, under `--wrap`, e.g. a memory cap) and prints `PROVED` with
+the axioms of the theorem, or `NOT PROVED` with every path where the invariant is not shown: the
+kind of transaction, the code position (cell, bit, instruction), the exit code, the path condition
+and the goal left. `--only runs_ext,...` checks some kinds of transaction only, `--cut N` sets
+how often a path is cut into auxiliary theorems.
+
+`tools/contract-check/examples/` has the invariants of wallet v3, wallet v2 and the simple wallet
+(the code and the key never change), and a false one of wallet v3 (the seqno is always 0: `NOT
+PROVED`, the path of an accepted external message). The modules TvmLean/Proofs/Check/Contracts/*.lean
+were generated from them (`--out` there). The script's docstring has the details.
+
 ## Oracle parity sweeps (Lean vs Fift runvmx)
 
 Run per-instruction parity in parallel (all instructions by default):
