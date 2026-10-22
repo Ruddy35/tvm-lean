@@ -10,8 +10,8 @@ taken from the stack is an integer `n`, range_chk if it is negative or above the
 instruction (C++ `pop_smallint_range`). The flags of an instruction (prefetch, quiet, signed) are
 any; the proofs take their cases and decide the conditions on them first (`cell_pre`).
 
-* `SBITS`, `SREFS`, `SBITREFS`, `SEMPTY`, `SDEMPTY`, `SREMPTY`, `SDEQ`, `SDCNTLEAD0`,
-  `SDCNTLEAD1`, `SDCNTTRAIL0`, `SDCNTTRAIL1`, `BBITS`, `BREFS`, `BREMBITS`;
+* `SBITREFS` (`SBITS` and `SREFS` are in `Spec/Cell.lean`), `SEMPTY`, `SDEMPTY`, `SREMPTY`,
+  `SDEQ`, `SDCNTLEAD0`, `SDCNTLEAD1`, `SDCNTTRAIL0`, `SDCNTTRAIL1`, `BBITS`, `BREFS`, `BREMBITS`;
 * `SCUTFIRST`, `SSKIPFIRST`, `SCUTLAST`, `SSKIPLAST`;
 * `LDSLICE`, `PLDSLICE`, `LDSLICEX`, `PLDSLICEX` and their quiet forms, `LDIX`, `LDUX`, `PLDIX`,
   `PLDUX` and their quiet forms;
@@ -61,17 +61,8 @@ local macro "cell_pre" : tactic =>
 
 /-! ## Slices and builders: sizes and tests -/
 
-/-- `SBITS` (C++ `exec_slice_bits_refs`, mode 1): the number of bits left in a slice. -/
-@[vm_spec] theorem sbits (st : VmState) (s : Stack) (sl : Slice) (hs : st.stack = s.push (.slice sl)) :
-    ExceptT.run (execInstr .sbits) st = (.ok (), { st with stack := s.push (.int (.num sl.bitsRemaining)) }) := by
-  vm_simp [hs]
-
-/-- `SREFS` (C++ `exec_slice_bits_refs`, mode 2): the number of references left. -/
-@[vm_spec] theorem srefs (st : VmState) (s : Stack) (sl : Slice) (hs : st.stack = s.push (.slice sl)) :
-    ExceptT.run (execInstr .srefs) st = (.ok (), { st with stack := s.push (.int (.num sl.refsRemaining)) }) := by
-  vm_simp [hs]
-
-/-- `SBITREFS` (C++ `exec_slice_bits_refs`, mode 3): both. -/
+/-- `SBITREFS` (C++ `exec_slice_bits_refs`, mode 3): the numbers of bits and of references left in
+a slice (`SBITS` and `SREFS` are `Spec.sbits`, `Spec.srefs` of `Spec/Cell.lean`). -/
 @[vm_spec] theorem sbitrefs (st : VmState) (s : Stack) (sl : Slice) (hs : st.stack = s.push (.slice sl)) :
     ExceptT.run (execInstr .sbitrefs) st =
       (.ok (), { st with stack := (s.push (.int (.num sl.bitsRemaining))).push (.int (.num sl.refsRemaining)) }) := by
@@ -216,9 +207,11 @@ and `r` references, as a new slice. -/
 /-! ## Loading from slices -/
 
 /-- `LDSLICE b`, `PLDSLICE b` and their quiet forms (C++ `exec_load_slice_fixed`,
-`exec_load_slice_fixed2`): the first `b` bits of the slice as a new slice, then (unless prefetching) the rest, then (if quiet) -1; if the
-slice is shorter, cell_und, or (quiet) the slice back (unless prefetching) and 0. -/
-@[vm_spec] theorem loadSliceFixed (st : VmState) (s : Stack) (sl : Slice) (prefetch quiet : Bool) (b : Nat)
+`exec_load_slice_fixed2`), for any flags (the forms that are not quiet are `Spec.loadSliceFixed` of
+`Spec/Cell.lean`): the first `b` bits of the slice as a new slice, then (unless prefetching) the
+rest, then (if quiet) -1; if the slice is shorter, cell_und, or (quiet) the slice back (unless
+prefetching) and 0. -/
+@[vm_spec] theorem loadSliceFixed_any (st : VmState) (s : Stack) (sl : Slice) (prefetch quiet : Bool) (b : Nat)
     (hs : st.stack = s.push (.slice sl)) :
     ExceptT.run (execInstr (.loadSliceFixed prefetch quiet b)) st =
       if sl.haveBits b then
@@ -230,7 +223,7 @@ slice is shorter, cell_und, or (quiet) the slice back (unless prefetching) and 0
       else (.error .cellUnd, { st with stack := s }) := by
   cases prefetch <;> cases quiet <;> cell_pre <;> vm_simp [hs]
 
-/-- `LDSLICEX`, `PLDSLICEX` and their quiet forms (C++ `exec_load_slice`): as `loadSliceFixed`,
+/-- `LDSLICEX`, `PLDSLICEX` and their quiet forms (C++ `exec_load_slice`): as `loadSliceFixed_any`,
 the width `n` on top, `0 ≤ n ≤ 1023` (range_chk). -/
 @[vm_spec] theorem loadSliceX (st : VmState) (s : Stack) (sl : Slice) (prefetch quiet : Bool) (n : Int)
     (hs : st.stack = (s.push (.slice sl)).push (.int (.num n))) :
