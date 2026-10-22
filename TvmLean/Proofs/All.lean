@@ -106,6 +106,9 @@ import TvmLean.Proofs.Exec.Pilot.LoopInv
 import TvmLean.Proofs.Tx.NoSetCode
 import TvmLean.Proofs.Exec.IteInst
 import TvmLean.Proofs.Check.Tactic
+import TvmLean.Proofs.Check.Contracts.Wallet3
+import TvmLean.Proofs.Check.Contracts.Wallet2
+import TvmLean.Proofs.Check.Contracts.SimpleWallet
 
 /-!
 # All proof modules together
