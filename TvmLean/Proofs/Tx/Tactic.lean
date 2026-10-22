@@ -28,6 +28,13 @@ namespace TvmLean.Proofs.TxTac
 
 /-! ## Rewriting steps (definitional) -/
 
+/-- Whether the join point mode `keepJps` keeps a join point with `arity` arguments carrying
+state: 0 inlines all of them, 1 keeps those with state, 2 keeps all of them, 3 keeps those with state
+(2 and 3 also leave the local definitions of functions and the branches of record `let`s alone, see
+`reduceTarget` and `vcgStep`). -/
+def keepsJp (keepJps arity : Nat) : Bool :=
+  keepJps == 2 || ((keepJps == 1 || keepJps == 3) && arity ≥ 1)
+
 /-- Whether `e` is a constructor application. -/
 def isCtorApp (e : Expr) : MetaM Bool := do
   match e.consumeMData.getAppFn with
@@ -60,28 +67,44 @@ def applyCont (k a : Expr) : MetaM Expr := do
 
 /-- Reduce the monadic glue of `do` notation in `e`: `bind`, `pure` and `<$>` of `Option`,
 `Except ε` and `Id` on constructors (for `Id` always), `Id.run`, projections of constructor
-applications. Join points (`let __do_jp := v; b`) and local definitions of functions are inlined. -/
-def reduceExpr (e : Expr) (keepJps : Bool := false) : MetaM Expr := do
+applications. Join points (`let __do_jp := v; b`) and local definitions of functions are inlined;
+with `keepJps` 1 the join points that carry state are kept, with 2 all of them, and the value of a
+kept join point is left as it is (it is reduced where it is proved: reducing it inside the whole
+term makes the kernel compare the whole term again). `depth` bounds the nesting of kept join
+points. -/
+def reduceExpr (e : Expr) (keepJps : Nat := 0) (phase : Nat := 0) (depth : Nat := 256) :
+    MetaM Expr := do
+  match depth with
+  | 0 => return e
+  | depth + 1 =>
   let lctx ← getLCtx
+  let inline := phase != 2
   let e ← Meta.transform e
     (pre := fun e => do
       match e with
       | .mdata _ b => return .visit b
       | .letE n t v b _ =>
         if n.eraseMacroScopes.toString.startsWith "__do_jp" then
-          if keepJps && jpArity t ≥ 1 then return .continue
-          return .visit (b.instantiate1 v)
-        else if t.isForall then
+          if keepsJp keepJps (jpArity t) then
+            let e' ← withLetDecl n t v fun x => do
+              mkLetFVars #[x] (← reduceExpr (b.instantiate1 x) keepJps phase depth) (usedLetOnly := false)
+            return .done e'
+          if inline then return .visit (b.instantiate1 v) else return .continue
+        else if inline && t.isForall then
           return .visit (b.instantiate1 v)
         else return .continue
       | .fvar id =>
         match lctx.find? id with
         | some d =>
-          if d.isLet && d.type.isForall then return .visit d.value else return .continue
+          -- a local definition of a function, but not a kept join point
+          if d.userName.eraseMacroScopes.toString.startsWith "__do_jp" && keepsJp keepJps (jpArity d.type) then
+            return .continue
+          if inline && d.isLet && d.type.isForall then return .visit d.value else return .continue
         | none => return .continue
       | _ => return .continue)
     (post := fun e => do
       let e := e.headBeta
+      if phase == 1 then return .continue
       -- float `let`s out of the values of `let`s and out of projections
       if let .letE n t (.letE m u w c _) b _ := e then
         return .visit (.letE m u w (.letE n (t.liftLooseBVars 0 1) c (b.liftLooseBVars 1 1) false) false)
@@ -391,16 +414,29 @@ def Kind.lemma (k : Kind) (opt exc pure : Name) : Name :=
   | .exc => exc
   | .pure => pure
 
+/-- Replace the target of `g` by `t'`, definitionally equal to it, without a type annotation in
+the proof (the kernel compares the two where the proof is used): an annotation would put a copy of
+the whole remaining program in the proof at each step. -/
+def replaceTarget (g : MVarId) (t' : Expr) : MetaM MVarId := g.withContext do
+  let g' ← mkFreshExprSyntheticOpaqueMVar t' (← g.getTag)
+  g.assign g'
+  return g'.mvarId!
+
 /-- Replace the goal's target by `reduceExpr` of it. -/
-def reduceTarget (g : MVarId) (keepJps : Bool := false) : MetaM (Option MVarId) := g.withContext do
+def reduceTarget (g : MVarId) (keepJps : Nat := 0) : MetaM (Option MVarId) := g.withContext do
   let t ← instantiateMVars (← g.getType)
-  let t' ← reduceExpr t keepJps
+  -- keeping all join points, the local definitions of functions are not inlined either (they stay
+  -- local definitions, inlined in the goals of the paths by `tx_inline_fns`): inlining them in the
+  -- whole term makes the kernel's check of the step blow up
+  let t' ← reduceExpr t keepJps (if keepJps ≥ 2 then 2 else 0)
   if t' == t then return none
-  return some (← g.replaceTargetDefEq t')
+  return some (← replaceTarget g t')
 
 /-- Apply `lemma` to `g` and introduce `n` binders in each new goal. -/
 def applyIntro (g : MVarId) (lemma : Name) (n : Nat) : MetaM (List MVarId) := g.withContext do
-  let gs ← g.apply (← mkConstWithFreshMVarLevels lemma)
+  -- the instances are those of the goal (synthesizing them again and comparing can evaluate their
+  -- arguments)
+  let gs ← g.apply (← mkConstWithFreshMVarLevels lemma) { synthAssignedInstances := false }
   let mut out := []
   for g' in gs do
     if ← g'.isAssigned then continue
@@ -413,12 +449,39 @@ def applyIntro (g : MVarId) (lemma : Name) (n : Nat) : MetaM (List MVarId) := g.
       out := out ++ [g']
   return out
 
+/-- On a goal `OK? R (if c then a else b)` (`dite` if `isDite`), the rule `OK?_ite` / `OK?_dite`
+applied by building its proof term from the pieces of the goal (no unification: unifying the rule
+with the goal can evaluate the condition), with the condition (or its negation) introduced in each
+branch. -/
+def applyIte (g : MVarId) (k : Kind) (isDite : Bool) : MetaM (List MVarId) := g.withContext do
+  let t ← instantiateMVars (← g.getType)
+  let t := t.consumeMData
+  let some (_, r, e) := spine? t | throwError "applyIte: not an OK goal"
+  let e := e.consumeMData
+  let lemma := if isDite then k.lemma ``OKo_dite ``OKe_dite ``OKp_dite else k.lemma ``OKo_ite ``OKe_ite ``OKp_ite
+  let lvls := t.getAppFn.constLevels!
+  let implicits := match k with
+    | .exc => #[t.getArg! 0, t.getArg! 1]
+    | _ => #[t.getArg! 0]
+  let pre := mkAppN (mkConst lemma lvls) (implicits ++ #[r, e.getArg! 1, e.getArg! 2, e.getArg! 3, e.getArg! 4])
+  let ty ← inferType pre
+  let .forallE _ d1 b1 _ := ty | throwError "applyIte: unexpected rule"
+  let .forallE _ d2 _ _ := b1 | throwError "applyIte: unexpected rule"
+  let m1 ← mkFreshExprSyntheticOpaqueMVar d1
+  let m2 ← mkFreshExprSyntheticOpaqueMVar d2
+  g.assign (mkApp2 pre m1 m2)
+  let (_, g1) ← m1.mvarId!.intro1P
+  let (_, g2) ← m2.mvarId!.intro1P
+  return [g1, g2]
+
 /-- Case on the `Decidable` instance `inst` in the target: each `if` with that instance is then
 decided (`reduceExpr` picks its branch) and its condition or its negation is a hypothesis. -/
 def casesTarget (g : MVarId) (inst : Expr) : MetaM (Option (List MVarId)) := g.withContext do
   let st ← saveState
   try
-    let (fvars, g) ← g.generalize #[{ expr := inst, xName? := `d }]
+    -- the occurrences of the instance up to reducible unfolding only (comparing instances of
+    -- `Decidable` at default transparency can evaluate their arguments)
+    let (fvars, g) ← withReducible <| g.generalize #[{ expr := inst, xName? := `d }]
     let subgoals ← g.cases fvars[0]!
     return some (subgoals.toList.map (·.mvarId))
   catch _ =>
@@ -442,7 +505,7 @@ def splitBranchIn (g : MVarId) (v : Expr) : MetaM (Option (List MVarId)) := g.wi
   return none
 
 /-- One step on a goal `OKo R e` / `OKe R e`: `none` if `e` is not taken apart further. -/
-def vcgStep (g : MVarId) (keepJps : Bool := false) : MetaM (Option (List MVarId)) := g.withContext do
+def vcgStep (g : MVarId) (keepJps : Nat := 0) : MetaM (Option (List MVarId)) := g.withContext do
   if let some g' ← reduceTarget g keepJps then return some [g']
   let t ← instantiateMVars (← g.getType)
   let some (k, r, e) := spine? t | return none
@@ -466,7 +529,8 @@ def vcgStep (g : MVarId) (keepJps : Bool := false) : MetaM (Option (List MVarId)
     if k != .pure then return none
   -- a join point kept (`keepJps`): stop
   if let .letE n ty _ _ _ := e then
-    if keepJps && n.eraseMacroScopes.toString.startsWith "__do_jp" && jpArity ty ≥ 1 then return none
+    if n.eraseMacroScopes.toString.startsWith "__do_jp" && keepsJp keepJps (jpArity ty) then
+      return none
   -- `let x := v; b`: split `v` if it is a branch, else introduce `x` as a local definition
   if let .letE n ty v b _ := e then
     -- a record or a tuple chosen by a branch is split (its fields matter); any other value is kept
@@ -476,17 +540,31 @@ def vcgStep (g : MVarId) (keepJps : Bool := false) : MetaM (Option (List MVarId)
       match ty'.getAppFn with
       | .const sn _ => pure (getStructureInfo? (← getEnv) sn).isSome
       | _ => pure false
-    if isStruct then
+    -- (keeping all join points, for a property every path keeps, it is not split: the rest of the
+    -- code would be run once per branch)
+    if isStruct && keepJps < 2 then
       if let some gs ← splitBranchIn g v then return some gs
+    -- keeping all join points (a long function), `x` is a variable with the equation `x = v`, not a
+    -- local definition: the proofs of the join points, put in auxiliary theorems, then quantify over
+    -- variables, not over local definitions (whose values the kernel would substitute)
+    if keepJps ≥ 2 then
+      -- (a proposition or a proof is substituted: an instance's type may depend on it)
+      if (← whnfR ty).isSort || (← isProp ty) then
+        return some [← replaceTarget g (← mkOK k r (b.instantiate1 v))]
+      let newT ← withLocalDeclD n ty fun x => do
+        withLocalDeclD `hdef (← mkEq x v) fun hx => do
+          mkForallFVars #[x, hx] (← mkOK k r (b.instantiate1 x))
+      let g' ← mkFreshExprSyntheticOpaqueMVar newT (← g.getTag)
+      g.assign (mkApp2 g' v (← mkEqRefl v))
+      let (_, g') ← g'.mvarId!.introNP 2
+      return some [g']
     let t' ← withLetDecl n ty v fun x => do
       mkLetFVars #[x] (← mkOK k r (b.instantiate1 x)) (usedLetOnly := false)
-    let g ← g.replaceTargetDefEq t'
+    let g ← replaceTarget g t'
     let (_, g) ← g.intro1P
     return some [g]
-  if e.isAppOfArity ``ite 5 then
-    return some (← applyIntro g (k.lemma ``OKo_ite ``OKe_ite ``OKp_ite) 1)
-  if e.isAppOfArity ``dite 5 then
-    return some (← applyIntro g (k.lemma ``OKo_dite ``OKe_dite ``OKp_dite) 1)
+  if e.isAppOfArity ``ite 5 then return some (← applyIte g k false)
+  if e.isAppOfArity ``dite 5 then return some (← applyIte g k true)
   if k != .pure && e.isAppOfArity ``Bind.bind 6 && !(← isCtorApp (e.getArg! 4)) then
     -- a loop: left for `OKe_forIn_range` with its invariant
     if (e.getArg! 4).consumeMData.isAppOf ``ForIn.forIn then return none
@@ -495,8 +573,11 @@ def vcgStep (g : MVarId) (keepJps : Bool := false) : MetaM (Option (List MVarId)
   if let .const mn _ := e.getAppFn then
     if let some mi ← getMatcherInfo? mn then
       if e.getAppNumArgs < mi.getFirstAltPos + mi.numAlts then return none
-      for i in [0:mi.numDiscrs] do
-        if let some gs ← splitBranchIn g (e.getArg! (mi.getFirstDiscrPos + i)) then return some gs
+      -- (keeping all join points, a `match` with one alternative, a destructuring, is not split on a
+      -- branch of its discriminant: the rest of the code would be run once per branch)
+      if keepJps < 2 || mi.numAlts > 1 then
+        for i in [0:mi.numDiscrs] do
+          if let some gs ← splitBranchIn g (e.getArg! (mi.getFirstDiscrPos + i)) then return some gs
       -- a discriminant that is a local definition becomes a variable with its equation
       for i in [0:mi.numDiscrs] do
         if let .fvar x := (e.getArg! (mi.getFirstDiscrPos + i)).consumeMData then
@@ -516,7 +597,7 @@ def vcgStep (g : MVarId) (keepJps : Bool := false) : MetaM (Option (List MVarId)
   match k with
   | .pure =>
     -- the value: the goal is `R e`
-    return some [← g.replaceTargetDefEq (r.beta #[e]).headBeta]
+    return some [← replaceTarget g (r.beta #[e]).headBeta]
   | _ =>
     -- `none` / `.error _`: nothing to show
     if e.isAppOfArity ``Option.none 1 || e.isAppOfArity ``Except.error 3 then
@@ -524,11 +605,11 @@ def vcgStep (g : MVarId) (keepJps : Bool := false) : MetaM (Option (List MVarId)
       return some []
     -- `some a` / `.ok a`: the goal is `R a`
     if e.isAppOfArity ``Option.some 2 || e.isAppOfArity ``Except.ok 3 then
-      return some [← g.replaceTargetDefEq (r.beta #[e.appArg!]).headBeta]
+      return some [← replaceTarget g (r.beta #[e.appArg!]).headBeta]
     return none
 
 /-- `vcgStep` until no step applies, at most `fuel` steps along each path. -/
-def vcgLoop (g : MVarId) (fuel : Nat) (keepJps : Bool := false) : MetaM (List MVarId) := do
+def vcgLoop (g : MVarId) (fuel : Nat) (keepJps : Nat := 0) : MetaM (List MVarId) := do
   match fuel with
   | 0 => return [g]
   | fuel + 1 =>
@@ -545,7 +626,7 @@ state (`do` blocks with `let mut`) are not inlined: the goal stops at their defi
 `tx_jp_inline` or `tx_jp_spec`. -/
 @[tactic txVcg] def evalTxVcg : Tactic := fun stx => do
   let fuel := if stx[1].getNumArgs == 0 then 100000 else stx[1][3].isNatLit?.getD 100000
-  let keepJps := stx[2].getNumArgs != 0
+  let keepJps := if stx[2].getNumArgs != 0 then 1 else 0
   let gs ← vcgLoop (← getMainGoal) fuel keepJps
   replaceMainGoal gs
 
@@ -555,6 +636,7 @@ def headJp? (g : MVarId) : MetaM (Option (Kind × Expr × Name × Expr × Expr �
   let t ← instantiateMVars (← g.getType)
   let some (k, r, e) := spine? t | return none
   let .letE n ty v b _ := e.consumeMData | return none
+  if !n.eraseMacroScopes.toString.startsWith "__do_jp" then return none
   return some (k, r, n, ty, v, b)
 
 /-- `tx_jp_inline`: inline the join point at the head of the computation (then continue with
@@ -564,18 +646,19 @@ elab "tx_jp_inline" : tactic => do
   let some (k, r, _, _, v, b) ← headJp? g | throwError "tx_jp_inline: no join point"
   let e' := b.instantiate1 v
   let t' ← g.withContext do mkOK k r e'
-  let g ← g.replaceTargetDefEq t'
-  let gs ← vcgLoop g 100000 true
+  let g ← replaceTarget g t'
+  let gs ← vcgLoop g 100000 1
   replaceMainGoal gs
 
 /-- Apply the specification rule to the join point at the head of `g` with the invariants
 `invs` (see `tx_jp_spec`): the goal for the body and the goal for the rest, arguments and
 hypotheses introduced. -/
-def jpSpec (g : MVarId) (invs : Array Expr) : MetaM (Option (MVarId × MVarId)) := do
+def jpSpec (g : MVarId) (invs : Array Expr) (all : Bool := false) : MetaM (Option (MVarId × MVarId)) := do
   let some (k, r, n, ty, v, b) ← headJp? g | return none
   g.withContext do
-    -- every argument carrying state must have an invariant
-    let covered ← forallTelescopeReducing ty fun xs _ => xs.allM fun x => do
+    -- every argument carrying state must have an invariant (with `all`, an argument without one is
+    -- free)
+    let covered ← if all then pure true else forallTelescopeReducing ty fun xs _ => xs.allM fun x => do
       let xt ← inferType x
       if xt.isAppOf ``PUnit || xt.isConstOf ``Unit then return true
       invs.anyM fun inv => do
@@ -607,22 +690,24 @@ def jpSpec (g : MVarId) (invs : Array Expr) : MetaM (Option (MVarId × MVarId)) 
     return some (g1', g2')
 
 /-- `vcgLoop` with every join point that carries state specified with the invariants `invs`. -/
-def vcgSpecLoop (g : MVarId) (invs : Array Expr) (depth : Nat := 1000) (fuel : Nat := 100000) :
-    MetaM (List MVarId) := do
+def vcgSpecLoop (g : MVarId) (invs : Array Expr) (all : Bool := false) (depth : Nat := 1000)
+    (fuel : Nat := 100000) : MetaM (List MVarId) := do
   match depth with
   | 0 => return [g]
   | depth + 1 =>
-  let gs ← vcgLoop g fuel true
+  -- with `all`, also the join points without state are kept (and specified with no invariant)
+  let gs ← vcgLoop g fuel (if all then 2 else 1)
   let mut out := []
   for g in gs do
-    match ← jpSpec g invs with
-    | some (g1, g2) => out := out ++ (← vcgSpecLoop g1 invs depth fuel) ++ (← vcgSpecLoop g2 invs depth fuel)
+    match ← jpSpec g invs all with
+    | some (g1, g2) =>
+      out := out ++ (← vcgSpecLoop g1 invs all depth fuel) ++ (← vcgSpecLoop g2 invs all depth fuel)
     | none =>
       -- a join point without invariants for its arguments is inlined
       match ← headJp? g with
       | some (k, r, _, _, v, b) =>
-        let g' ← g.withContext do g.replaceTargetDefEq (← mkOK k r (b.instantiate1 v))
-        out := out ++ (← vcgSpecLoop g' invs depth fuel)
+        let g' ← g.withContext do replaceTarget g (← mkOK k r (b.instantiate1 v))
+        out := out ++ (← vcgSpecLoop g' invs all depth fuel)
       | none => out := out ++ [g]
   return out
 
@@ -637,8 +722,8 @@ elab "tx_jp_spec" " [" invs:term,* "]" : tactic => do
     let invs ← invs.getElems.mapM fun i => Term.elabTerm i none
     invs.mapM instantiateMVars
   let some (g1, g2) ← jpSpec g invs | throwError "tx_jp_spec: no join point"
-  let gs1 ← vcgLoop g1 100000 true
-  let gs2 ← vcgLoop g2 100000 true
+  let gs1 ← vcgLoop g1 100000 1
+  let gs2 ← vcgLoop g2 100000 1
   replaceMainGoal (gs1 ++ gs2)
 
 /-- `tx_vcg_inv [inv₁, ...]`: `tx_vcg`, every join point that carries state being specified with
@@ -650,6 +735,71 @@ elab "tx_vcg_inv" " [" invs:term,* "]" : tactic => do
     let invs ← invs.getElems.mapM fun i => Term.elabTerm i none
     invs.mapM instantiateMVars
   replaceMainGoal (← vcgSpecLoop g invs)
+
+/-- `tx_vcg_inv_all [inv₁, ...]`: `tx_vcg_inv`, every join point that carries state being specified
+(none inlined): an argument of a type without an invariant is free. -/
+elab "tx_vcg_inv_all" " [" invs:term,* "]" : tactic => do
+  let g ← getMainGoal
+  let invs ← g.withContext do
+    let invs ← invs.getElems.mapM fun i => Term.elabTerm i none
+    invs.mapM instantiateMVars
+  replaceMainGoal (← vcgSpecLoop g invs (all := true))
+
+/-- Run the tactic `closer` on `g`: the goals it leaves (`g` itself if it fails). -/
+def closeWith (g : MVarId) (closer : Syntax) : TacticM (List MVarId) := do
+  let saved ← getGoals
+  let s ← saveState
+  setGoals [g]
+  let rem ← try
+      evalTactic closer
+      getUnsolvedGoals
+    catch _ =>
+      s.restore
+      pure [g]
+  setGoals saved
+  return rem
+
+/-- `vcgSpecLoop` with every join point specified (`all`), each goal of a path closed by `closer`
+as soon as it is reached, and the proof of the body of each join point, once complete, put in an
+auxiliary theorem: the proof of a long function stays small (otherwise the proof of each join
+point would contain those of all the join points it calls, and instantiating it at the end would
+take time and memory growing fast with their nesting). -/
+def vcgClose (g : MVarId) (invs : Array Expr) (closer : Syntax) (mode : Nat := 2) (depth : Nat := 1000) :
+    TacticM (List MVarId) := do
+  match depth with
+  | 0 => return [g]
+  | depth + 1 =>
+  let gs ← vcgLoop g 100000 mode
+  let mut out := []
+  for g in gs do
+    match ← jpSpec g invs true with
+    | some (g1, g2) =>
+      -- the body, on a goal standing for `g1`
+      let p ← g1.withContext do mkFreshExprSyntheticOpaqueMVar (← g1.getType) (← g1.getTag)
+      let rem ← vcgClose p.mvarId! invs closer mode depth
+      if rem.isEmpty then
+        let v ← instantiateMVars p
+        let aux ← g1.withContext do mkAuxTheorem (← instantiateMVars (← g1.getType)) v
+        g1.assign aux
+      else
+        g1.assign p
+        out := out ++ rem
+      out := out ++ (← vcgClose g2 invs closer mode depth)
+    | none => out := out ++ (← closeWith g closer)
+  return out
+
+/-- `tx_vcg_close [inv₁, ...] (tac)`: `tx_vcg_inv_all [inv₁, ...]`, closing each goal of a path with
+`tac` as soon as it is reached, and putting the proof of each join point in an auxiliary theorem
+(see `vcgClose`): for long functions. The goals `tac` does not close are left. -/
+syntax (name := txVcgClose) "tx_vcg_close" (" (" &"mode" " := " num ")")? " [" term,* "]" " (" tactic ")" : tactic
+
+@[tactic txVcgClose] def evalTxVcgClose : Tactic := fun stx => do
+  let mode := if stx[1].getNumArgs == 0 then 2 else stx[1][3].isNatLit?.getD 2
+  let g ← getMainGoal
+  let invs ← g.withContext do
+    let invs ← stx[3].getSepArgs.mapM fun i => Term.elabTerm i none
+    invs.mapM instantiateMVars
+  replaceMainGoal (← vcgClose g invs stx[6] mode)
 
 end TvmLean.Proofs.TxTac
 
@@ -819,11 +969,128 @@ elab "tx_unfold" " [" ds:ident,* "]" : tactic => do
   for d in ds.getElems do
     evalTactic (← `(tactic| try unfold $d:ident at *))
 
-/-- `tx_close [f₁, ...] [d₁, ...]`: close a goal of a path with `grind`, after `tx_abstract [f₁, ...]`
-(the fields of the records that matter), `tx_clear_values` and `tx_unfold [d₁, ...]` (the
-definitions of the statement). -/
+/-- `tx_inline_fns`: inline the local definitions of functions in the target (and reduce the
+applications of the functions inlined). -/
+elab "tx_inline_fns" : tactic => withMainContext do
+  let g ← getMainGoal
+  let lctx ← getLCtx
+  let t ← instantiateMVars (← g.getType)
+  let t' ← Meta.transform t
+    (pre := fun e => do
+      if let .fvar id := e then
+        if let some d := lctx.find? id then
+          if d.isLet && d.type.isForall then return .visit d.value
+      return .continue)
+    (post := fun e => return .continue e.headBeta)
+  if t' != t then replaceMainGoal [← g.replaceTargetDefEq t']
+
+/-- Close `g` with the rule `lemma`, whose last argument is an equation `e : l = r` closed by `rfl`
+(up to definitional unfolding) and whose argument before it, if it is a proposition, is a hypothesis
+of the context. -/
+def closeByRule (g : MVarId) (lemma : Name) : MetaM Bool := g.withContext do
+  let target ← instantiateMVars (← g.getType)
+  let tryWith (h? : Option Expr) : MetaM Bool := do
+    let s ← saveState
+    let c ← mkConstWithFreshMVarLevels lemma
+    let (xs, _, concl) ← forallMetaTelescope (← inferType c)
+    let some e := xs.back? | return false
+    let hArg? : Option Expr :=
+      if xs.size ≥ 2 then some xs[xs.size - 2]! else none
+    let ok ← do
+      if !(← isDefEq concl target) then pure false
+      else match h?, hArg? with
+        | some h, some hm =>
+          if (← isProp (← inferType hm)) && (← isDefEq (← inferType hm) (← inferType h)) then
+            hm.mvarId!.assign h; pure true
+          else pure false
+        | none, _ => pure true
+        | some _, none => pure false
+    if ok then
+      let ety ← instantiateMVars (← inferType e)
+      if let some (_, l, r) := ety.eq? then
+        if ← isDefEq l r then
+          e.mvarId!.assign (← mkEqRefl l)
+          let pf ← instantiateMVars (mkAppN c xs)
+          if !pf.hasExprMVar then
+            g.assign pf
+            return true
+    s.restore
+    return false
+  if ← tryWith none then return true
+  for d in (← getLCtx) do
+    if d.isImplementationDetail || d.isLet then continue
+    if ← tryWith (some d.toExpr) then return true
+  return false
+
+/-- `tx_frame [L₁, ...]`: close a goal that is a conjunction of equations up to definitional
+unfolding and of facts `Lᵢ` derives from a hypothesis and an equation up to definitional unfolding
+(a frame property: what a function keeps of its argument). Fails if a conjunct is left. -/
+elab "tx_frame" " [" ls:ident,* "]" : tactic => do
+  let rules ← ls.getElems.mapM fun l => realizeGlobalConstNoOverloadWithInfo l
+  let rec go (fuel : Nat) (g : MVarId) : MetaM Bool := do
+    match fuel with
+    | 0 => return false
+    | fuel + 1 =>
+    let ty ← g.withContext do instantiateMVars (← g.getType)
+    if ty.isAppOfArity ``And 2 then
+      let (a, b) ← g.withContext do
+        let a ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 0)
+        let b ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 1)
+        g.assign (← mkAppM ``And.intro #[a, b])
+        pure (a, b)
+      return (← go fuel a.mvarId!) && (← go fuel b.mvarId!)
+    if let some (_, l, r) := ty.eq? then
+      let ok ← g.withContext do
+        let s ← saveState
+        if ← isDefEq l r then
+          g.assign (← mkEqRefl l); pure true
+        else s.restore; pure false
+      if ok then return true
+    for rule in rules do
+      if ← closeByRule g rule then return true
+    return false
+  let g ← getMainGoal
+  if ← go 64 g then replaceMainGoal [] else throwError "tx_frame: no proof"
+
+/-- `tx_subst_records`: substitute the variables of a record type (a structure with at least four
+fields) or of a function type that have an equation `x = v` (as the `let`s become with
+`tx_vcg_close`). -/
+elab "tx_subst_records" : tactic => do
+  let mut g ← getMainGoal
+  for _ in [0:1000] do
+    let h? ← g.withContext do
+      for d in (← getLCtx) do
+        if d.isImplementationDetail then continue
+        let ty ← instantiateMVars d.type
+        let some (α, l, r) := ty.eq? | continue
+        if !l.isFVar && !r.isFVar then continue
+        let α ← whnfR α
+        let isRecord ← match α.getAppFn with
+          | .const sn _ =>
+            pure (match getStructureInfo? (← getEnv) sn with
+              | some si => decide (si.fieldNames.size ≥ 4)
+              | none => false)
+          | _ => pure false
+        if !(α.isForall || isRecord) then continue
+        return some d.fvarId
+      return none
+    let some h := h? | break
+    let s ← saveState
+    try g ← subst g h
+    catch _ =>
+      s.restore
+      break
+  replaceMainGoal [g]
+
+/-- `tx_prep [f₁, ...] [d₁, ...]`: prepare a goal of a path for `grind`: `tx_inline_fns`,
+`tx_abstract [f₁, ...]` (the fields of the records that matter), `tx_clear_values` and
+`tx_unfold [d₁, ...]` (the definitions of the statement). -/
+macro "tx_prep" " [" fs:term,* "]" " [" ds:ident,* "]" : tactic =>
+  `(tactic| (tx_inline_fns; tx_abstract [$fs,*]; tx_clear_values; tx_unfold [$ds,*]))
+
+/-- `tx_close [f₁, ...] [d₁, ...]`: close a goal of a path with `grind` after `tx_prep`. -/
 macro "tx_close" " [" fs:term,* "]" " [" ds:ident,* "]" : tactic =>
-  `(tactic| (tx_abstract [$fs,*]; tx_clear_values; tx_unfold [$ds,*]; (try dsimp only at *); grind))
+  `(tactic| (tx_prep [$fs,*] [$ds,*]; (try dsimp only at *); grind))
 
 end TvmLean.Proofs.TxTac
 
@@ -1013,7 +1280,8 @@ open Lean Meta Elab Tactic
 def casesInHyp (g : MVarId) (h : FVarId) (x : Expr) : MetaM (List MVarId) := g.withContext do
   let (reverted, g) ← g.revert #[h] (preserveOrder := true)
   let isDec := (← whnfR (← inferType x)).isAppOf ``Decidable
-  let (fvars, g) ← g.generalize #[{ expr := x, xName? := `r, hName? := if isDec then none else some `hx }]
+  let (fvars, g) ← withReducible <|
+    g.generalize #[{ expr := x, xName? := `r, hName? := if isDec then none else some `hx }]
   let subgoals ← g.cases fvars[0]!
   let mut out := []
   for sg in subgoals do
