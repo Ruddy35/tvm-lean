@@ -71,6 +71,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Pilot.LoopInv,
     `TvmLean.Proofs.Exec.Framed,
     `TvmLean.Proofs.Exec.FramedDict,
+    `TvmLean.Proofs.Exec.Spec.MsgAddr,
     `TvmLean.Proofs.Contracts.StorageCode,
     `TvmLean.Proofs.Contracts.StorageData,
     `TvmLean.Proofs.All,
