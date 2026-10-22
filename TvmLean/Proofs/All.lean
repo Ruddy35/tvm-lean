@@ -79,6 +79,7 @@ import TvmLean.Proofs.Exec.Spec.Loop
 import TvmLean.Proofs.Exec.Spec.Dict
 import TvmLean.Proofs.Tx.Shape
 import TvmLean.Proofs.Basic
+import TvmLean.Proofs.Contracts.Wallet3Run.Tactic
 
 /-!
 # All proof modules together
