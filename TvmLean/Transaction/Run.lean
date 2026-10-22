@@ -758,7 +758,11 @@ def W.actionPhase (w : W) (ap : ActionPhase) : W :=
   let w := (((w.uint ap.totActions 16).uint ap.specActions 16).uint ap.skippedActions 16).uint ap.msgsCreated 16
   ((w.bitStr ap.actionListHash).uint7 ap.totMsgCells).uint7 ap.totMsgBits
 
-/-- `Transaction::serialize` of an ordinary transaction, after `compute_state`. -/
+/-- `Transaction::serialize` (transaction.cpp:3746-3860) after `compute_state`: the transaction cell,
+or `none` where C++ returns `false` (the emulator then fails, transaction-emulator.cpp:70-73): a
+`Grams` field of 2^120 or more, a `VarUInteger 7` of 2^48 or more, a `VarUInteger 3` of 2^16 or more,
+an integer out of the range `store_ulong_rchk_bool` checks. The other stores cannot fail
+(`store_long_bool` keeps the low bits; the cells have at most 1023 bits and 4 references). -/
 def Tx.serialize (t : Tx) (newState : Cell) : Option Cell := do
   -- out_msgs:(HashmapE 15 ^(Message Any))
   let outDict ← t.outMsgs.size.fold (init := some (none : Option Cell)) fun i _ acc => do
@@ -766,11 +770,36 @@ def Tx.serialize (t : Tx) (newState : Cell) : Option Cell := do
     match dictSetRefWithCells root (natToBits i 15) t.outMsgs[i]! .add with
     | .ok (r, _, _, _) => some r
     | .error _ => none
+  -- `store_ulong_rchk_bool(out_msgs.size(), 15)` (3767)
   if t.outMsgs.size ≥ 2 ^ 15 then none
+  -- `total_fees.store(cb)` (3773): `Grams`
+  if t.totalFees ≥ 2 ^ 120 then none
+  -- `serialize_storage_phase` (3871, 3876): `storage_fees_collected:Grams`, `storage_fees_due:(Maybe Grams)`
+  if (t.storagePhase.map fun sp => sp.feesCollected ≥ 2 ^ 120 || sp.feesDue ≥ 2 ^ 120).getD false then none
+  -- `serialize_credit_phase` (3899): `credit:CurrencyCollection` (`due_fees_collected` is zero)
+  if (t.creditPhase.map fun c => decide (c.grams ≥ 2 ^ 120)).getD false then none
+  -- `serialize_compute_phase` (3935-3944), a phase that ran the VM: `gas_fees:Grams`, `gas_used` and
+  -- `gas_limit` `VarUInteger 7`, `gas_credit:(Maybe (VarUInteger 3))`, `vm_steps:uint32`
+  -- (`store_ulong_rchk_bool` of the step count cast to `int`, 2014: below 2^31 modulo 2^32)
+  let cp := t.computePhase
+  if cp.skipReason == 0 && (cp.gasFees ≥ 2 ^ 120 || cp.gasUsed ≥ 2 ^ 48 || cp.gasLimit ≥ 2 ^ 48 ||
+      cp.gasCredit ≥ 2 ^ 16 || cp.vmSteps % 2 ^ 32 ≥ 2 ^ 31) then none
+  -- `serialize_action_phase` (3968-3978): `total_fwd_fees` and `total_action_fees` `(Maybe Grams)`, the
+  -- counts `uint16` (`store_ulong_rchk_bool`), `tot_msg_size` `VarUInteger 7`
+  if cp.success then
+    if let some ap := t.actionPhase then
+      if ap.totalFwdFees ≥ 2 ^ 120 || ap.totalActionFees ≥ 2 ^ 120 || ap.totActions ≥ 2 ^ 16 ||
+          ap.specActions ≥ 2 ^ 16 || ap.skippedActions ≥ 2 ^ 16 || ap.msgsCreated ≥ 2 ^ 16 ||
+          ap.totMsgCells ≥ 2 ^ 48 || ap.totMsgBits ≥ 2 ^ 48 then none
+  -- `serialize_bounce_phase` (3999-4005): `msg_size` `VarUInteger 7`, the fees `t_Grams.store_long` of
+  -- a `uint64` taken as `long long` (below 2^63)
+  if t.kind == .ord then
+    if let some bp := t.bouncePhase then
+      if bp.msgCells ≥ 2 ^ 48 || bp.msgBits ≥ 2 ^ 48 || bp.fwdFees ≥ 2 ^ 63 ||
+          (bp.ok && bp.fwdFeesCollected ≥ 2 ^ 63) then none
   let msgs : W := ({} : W).maybeRef (if t.kind == .ord then some t.inMsg else none) |>.maybeRef outDict
   let update : W := ((({} : W).uint 0x72 8).bitStr (bytesToBits t.account.totalState.hashBytes)).bitStr
     (bytesToBits newState.hashBytes)
-  let cp := t.computePhase
   let act := cp.success
   let actOk := act && (t.actionPhase.map (·.success)).getD false
   let sp ← t.storagePhase

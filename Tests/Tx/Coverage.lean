@@ -648,7 +648,7 @@ not fit its store, and the emulator fails (`serialize`, transaction-emulator.cpp
   kept from version 4, `enable_due_payment`, 1112-1113 and 4301), of an active account the storage phase
   freezes (1105) and of an uninitialized one with an extra currency (not deleted, 1089). Before version 4
   the due payment stays as it was, but the storage phase's `fees_due` does not fit either: `serialize`
-  fails after `compute_state` (not here);
+  fails after `compute_state` (`serializeCases`);
 * the bits of the storage statistics (`store_UInt7`, 3714-3715: `VarUInteger 7`, below 2^48) updated by
   the bits of the storage root when its references do not change (3704-3705, 64-bit arithmetic): at
   2^48 - 1 with a root that grows (paid up to now: no storage fees on them); at 0 with a root that grows
@@ -666,11 +666,10 @@ def stateCases (x : Ctx) : Array TxCase := Id.run do
   out := out.push (x.case "state/balance-overflow/uninit-bounce" (mkAccount 0 a1 .uninit big 1700000000 0 1000)
     (msg 10000000000 true))
   out := out.push (x.case "state/balance-max" (active accept big) (msg 1))
-  if x.v ≥ 4 then
-    out := out.push (x.case "state/due-overflow/active" (mkAccount 0 a1 (.active accept data0) 0 1600000000 big 1000)
-      (msg 1000 true))
-    out := out.push (x.case "state/due-overflow/uninit-extra"
-      (mkAccount 0 a1 .uninit 0 1600000000 big 1000 (extraOf [(7, amt 1)])) (msg 1000 true))
+  out := out.push (x.case "state/due-overflow/active" (mkAccount 0 a1 (.active accept data0) 0 1600000000 big 1000)
+    (msg 1000 true))
+  out := out.push (x.case "state/due-overflow/uninit-extra"
+    (mkAccount 0 a1 .uninit 0 1600000000 big 1000 (extraOf [(7, amt 1)])) (msg 1000 true))
   -- paid up to `now`: no storage fees on 2^48 - 1 bits
   out := out.push (x.case "state/used-bits/overflow"
     (mkAccount 0 a1 (.active accept data0) 1000 1700000200 0 1000 (usedBits := some (2 ^ 48 - 1))) (msg 10000000000))
@@ -678,6 +677,59 @@ def stateCases (x : Ctx) : Array TxCase := Id.run do
     (mkAccount 0 a1 (.active accept data0) 1000 1700000000 0 1000 (usedBits := some 0)) (msg 10000000000))
   out := out.push (x.case "state/used-bits/below-root-shrinks"
     (mkAccount 0 a1 (.active accept data0) (2 ^ 32) 1700000000 0 1000 (usedBits := some 0)) (msg 1))
+  return out
+
+/-- `Transaction::serialize` (transaction.cpp:3746-3860) fails when a field of the transaction does not
+fit its store, and the emulator fails (transaction-emulator.cpp:70-73):
+* `total_fees:CurrencyCollection` (3773): an account at 2^120 - 1 with a due payment of 2^120 - 1, paid
+  up to now (no storage fee), receives 2^120 - 1 (credit first, 1149): the storage phase collects
+  the due payment (1069-1075), the gas fees take the total fees above 2^120 - 1;
+* `storage_fees_collected:Grams` (3871): the same with storage fees on top of the due payment;
+* `storage_fees_due:(Maybe Grams)` (3876): before version 4 the due payment cases of `stateCases`; an
+  uninitialized account the storage phase deletes (1089-1092) whose message bounces back: no account
+  is written (`account_none`), the due payment only in the storage phase;
+* `gas_limit:(VarUInteger 7)` (3937): parameter 21 with a gas limit of 2^50 at one nanoton per gas and a
+  message of 2^50 (`compute_gas_limits`, 1427-1450); at 2^48 - 1 it fits;
+* `gas_credit:(Maybe (VarUInteger 3))` (3939): parameter 21 with a gas credit of 2^16 + 5 and an
+  external message the contract accepts (1444); at 2^16 - 1 it fits;
+* the bounce phase's fees (`t_Grams.store_long` of a `uint64` as `long long`, 4000, 4004-4005): an
+  uninitialized account without a `StateInit` (no state, 1907) bounces the message, parameter 25 with
+  a lump price of 2^63 or more (`compute_fwd_fees`, 2432-2438). A message of one TON: the model has
+  no funds for the bounce (`req_fwd_fees` of 2^63, which `serialize` refuses); C++ compares the fee
+  as `long long` (3459-3460), negative, goes on and fails at the bounced message's value, below zero
+  (3478-3481). A message of 2^64 (more than 64 signed bits: never short of funds in C++): a fee of
+  2^63 + 2^62 kept whole (`first_frac` 0) fails C++ at the message's `fwd_fee` (3484) and the
+  model's `serialize` (`fwd_fees`); with `first_frac` 65535 the part collected (`msg_fees`, 2496-2498)
+  is above 2^63 and both fail in `serialize`; a fee of 2^63 - 1 fits. -/
+def serializeCases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let big := 2 ^ 120 - 1
+  out := out.push (x.case "serialize/total-fees" (mkAccount 0 a1 (.active accept data0) big 1700000200 big 1000)
+    (intMsg 0 a1 big false none #[]))
+  out := out.push (x.case "serialize/fees-collected" (mkAccount 0 a1 (.active accept data0) big 1600000000 big 1000)
+    (intMsg 0 a1 big false none #[]))
+  out := out.push (x.case "serialize/fees-due-deleted" (mkAccount 0 a1 .uninit 0 1600000000 big 1000)
+    (intMsg 0 a1 1000000000 true none #[]))
+  let gas (limit credit price : Nat) (flat : Nat × Nat) : Cell :=
+    withParam x.cfg 21 (Configs.gasExt price limit limit credit (4 * limit) 100000000 1000000000 (some flat))
+  out := out.push (x.case "serialize/gas-limit" (active accept (2 ^ 60)) (intMsg 0 a1 (2 ^ 50) false none #[])
+    (gas (2 ^ 50) 10000 65536 (100, 100)))
+  out := out.push (x.case "serialize/gas-limit-max" (active accept (2 ^ 60)) (intMsg 0 a1 (2 ^ 50) false none #[])
+    (gas (2 ^ 48 - 1) 10000 65536 (100, 100)))
+  out := out.push (x.case "serialize/gas-credit" (active accept) (extMsg 0 a1 none #[])
+    (gas 1000000 (2 ^ 16 + 5) 26214400 (100, 40000)))
+  out := out.push (x.case "serialize/gas-credit-max" (active accept) (extMsg 0 a1 none #[])
+    (gas 1000000 (2 ^ 16 - 1) 26214400 (100, 40000)))
+  let uninit := mkAccount 0 a1 .uninit 1000000000 1700000200 0 1000
+  let fwd (lump first : Nat) : Cell := withParam x.cfg 25 (Configs.msgPrices lump 0 0 0 first 0)
+  out := out.push (x.case "serialize/bounce-nofunds-fees" uninit (intMsg 0 a1 1000000000 true none #[])
+    (fwd (2 ^ 63) 0))
+  out := out.push (x.case "serialize/bounce-fwd-fees" uninit (intMsg 0 a1 (2 ^ 64) true none #[])
+    (fwd (2 ^ 63 + 2 ^ 62) 0))
+  out := out.push (x.case "serialize/bounce-msg-fees" uninit (intMsg 0 a1 (2 ^ 64) true none #[])
+    (fwd (2 ^ 63 + 2 ^ 62) 65535))
+  out := out.push (x.case "serialize/bounce-fees-max" uninit (intMsg 0 a1 (2 ^ 64) true none #[])
+    (fwd (2 ^ 63 - 1) 0))
   return out
 
 end Cov
@@ -697,7 +749,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [4, 5, 9, 16].contains v then out := out ++ Cov.gasOverrideCases x
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
-      Cov.accountCases x true ++ Cov.stateCases x
+      Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x
   return out
 
 end Tests.Tx
