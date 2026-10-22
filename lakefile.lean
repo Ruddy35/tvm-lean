@@ -69,6 +69,8 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Pilot.Closure,
     `TvmLean.Proofs.Exec.LoopInv,
     `TvmLean.Proofs.Exec.Pilot.LoopInv,
+    `TvmLean.Proofs.Contracts.StorageCode,
+    `TvmLean.Proofs.Contracts.StorageData,
     `TvmLean.Proofs.All,
     `TvmLean.Proofs.Contracts.Wallet3Run.Tactic, `TvmLean.Proofs.Contracts.Wallet3Run.Common,
     `TvmLean.Proofs.Contracts.Wallet3Run.Other, `TvmLean.Proofs.Contracts.Wallet3Run.Accepted,

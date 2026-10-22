@@ -109,6 +109,8 @@ import TvmLean.Proofs.Check.Tactic
 import TvmLean.Proofs.Check.Contracts.Wallet3
 import TvmLean.Proofs.Check.Contracts.Wallet2
 import TvmLean.Proofs.Check.Contracts.SimpleWallet
+import TvmLean.Proofs.Contracts.StorageCode
+import TvmLean.Proofs.Contracts.StorageData
 
 /-!
 # All proof modules together
