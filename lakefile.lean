@@ -60,6 +60,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Dict.Map,
     `TvmLean.Proofs.Exec.Dict.Gas,
     `TvmLean.Proofs.Exec.Dict.Loaded,
+    `TvmLean.Proofs.Exec.Spec.DictSet,
     `TvmLean.Proofs.All,
     `TvmLean.Proofs.Contracts.Wallet3Run.Tactic, `TvmLean.Proofs.Contracts.Wallet3Run.Common,
     `TvmLean.Proofs.Contracts.Wallet3Run.Other, `TvmLean.Proofs.Contracts.Wallet3Run.Accepted,
