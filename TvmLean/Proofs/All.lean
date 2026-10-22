@@ -86,6 +86,7 @@ import TvmLean.Proofs.Contracts.Wallet3Run.Accepted
 import TvmLean.Proofs.Contracts.Wallet3Run.Signature
 import TvmLean.Proofs.Contracts.Wallet3Run.External
 import TvmLean.Proofs.Contracts.Wallet3Run.ExternalOld
+import TvmLean.Proofs.Contracts.Wallet3Induction
 
 /-!
 # All proof modules together
