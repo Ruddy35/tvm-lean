@@ -462,34 +462,43 @@ wallet ext, restricted wallet v1 и v2, автоматический DNS — 188
 
 ## 9. Окружение
 
-### 9.1. Сервер сборки и сверки
+### 9.1. Серверы сборки и сверки
 
-16 ядер, 62 ГБ, Ubuntu, gcc 15.2, Python 3.14, **без root**. Всё — в `~/ws`:
+Три одинаковых сервера (с 2026-10-22; прежний сервер выведен): 16 ядер (Xeon E5-1660 v3, Haswell),
+62 ГБ, Ubuntu 26.04, gcc 15.2, Python 3.14, **без root**. На каждом всё — в `~/ws`:
 
 | Путь | Что |
 |---|---|
-| `~/ws/tvm-lean` | рабочая копия репозитория (с кэшем сборки `.lake`) |
-| `~/ws/ton-src` | исходники C++ эталона `3d478cb` с подмодулями |
-| `~/ws/ton-bin` | эталонный `fift` (`fiftx` — обёртка), библиотека `fift` |
-| `~/ws/ton-build` | Release-сборка эталона: эмулятор транзакций `emulator/libemulator.so` для сверки транзакций (`TVMLEAN_TON_BUILD`) |
-| `~/ws/ton-build-cov` | сборка `fift` с покрытием |
-| `~/ws/tools` | `venv` (cmake, ninja, gcovr) и `local` (m4, autoconf, automake, libtool) |
-| `~/ws/fixtures` | фикстуры дифференциальных прогонов (TON Storage) |
+| `~/ws/tvm-lean` | рабочая копия репозитория (клон с GitHub, с кэшем сборки `.lake`) |
+| `~/ws/ton-src` | исходники C++ эталона `3d478cb` с подмодулями (собраны на одном сервере) |
+| `~/ws/ton-bin` | эталонный `fift` и его библиотека |
+| `~/ws/ton-build` | Release-сборка эталона (`TON_ARCH=haswell`): `emulator/libemulator.so` для сверки транзакций (`TVMLEAN_TON_BUILD`) |
+| `~/ws/tools` | `local` (m4, autoconf, automake, libtool); cmake и ninja — из pip (`~/.local/bin`) |
 | `~/ws/runs` | логи прогонов |
 
-Доступ ассистента к серверу — по ключу через SSH поверх WebSocket (туннель Cloudflare, пользователь
-`claude`); мост и ключ владелец передаёт отдельно, в репозиторий они не попадают. Человеку достаточно
-обычного SSH. Код между средой разработчика и сервером — только через git (форк `Ruddy35/tvm-lean`).
+Настройка с нуля — `scripts/server/provision.sh` (Lean, репозиторий, первая сборка) и
+`scripts/server/build-cpp-reference.sh` (эталон без root; бинарники одной машины переносятся на
+другие с тем же процессором; собранные с `-march=native` на более новом процессоре падают с
+«Illegal instruction»). Полная проверка коммита делится между серверами по версиям:
+`scripts/server/verify-split.sh <коммит> "0 1 2 3 4 5"` (и `6 … 11`, `12 … 16` на других); коммит
+проверен, когда все части кончаются `verify: OK`. Фикстуры дифференциальных прогонов (TON Storage,
+35 889 случаев) были только на прежнем сервере и с ним утрачены; сверка оракулом, fuzz и
+транзакциями от них не зависит.
+
+Доступ ассистента к серверам — по ключу через SSH поверх WebSocket (туннели Cloudflare, по одному на
+сервер, пользователь `claude`); мост и ключ владелец передаёт отдельно, в репозиторий они не
+попадают. Человеку достаточно обычного SSH. Код между средой разработчика и серверами — только через
+git (форк `Ruddy35/tvm-lean`, публичный: серверы клонируют его сами).
 
 ### 9.2. Команды
 
 ```sh
 cd ~/ws/tvm-lean
-export PATH=$HOME/.elan/bin:$PATH TON_FIFT_BIN=$HOME/ws/ton-bin/fiftx TON_FIFT_LIB=$HOME/ws/ton-bin/lib
+export PATH=$HOME/.elan/bin:$PATH TON_FIFT_BIN=$HOME/ws/ton-bin/fift TON_FIFT_LIB=$HOME/ws/ton-bin/lib
 export TVMLEAN_TON_BUILD=$HOME/ws/ton-build   # эмулятор транзакций: $TVMLEAN_TON_BUILD/emulator/libemulator.so
 
 lake build tvm-lean-tests                       # сборка тестов (инкрементально — минуты)
-FIXTURES=~/ws/fixtures OUT=~/ws/runs/$(date +%F-%H%M) scripts/verify-all.sh   # полная проверка
+OUT=~/ws/runs/$(date +%F-%H%M) scripts/verify-all.sh   # полная проверка (FIXTURES=<каталог> — с фикстурами)
 TVMLEAN_GLOBAL_VERSION=16 .lake/build/bin/tvm-lean-tests --oracle-only --filter TPUSH  # один набор
 lake build tvm-lean-tx-test && .lake/build/bin/tvm-lean-tx-test --versions 4,16   # транзакции
 .lake/build/bin/tvm-lean-tx-test --fuzz 3000 --seed 1 --versions 16              # случайные транзакции
