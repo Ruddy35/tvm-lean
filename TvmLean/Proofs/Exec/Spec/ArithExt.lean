@@ -15,14 +15,16 @@ instructions, and NaN for the quiet ones (C++ `push_int_quiet`); the fit of a re
   `ISNNEG`) and their quiet forms;
 * the division families `DIV`/`MOD`/`DIVMOD`/`ADDDIVMOD` and `MULDIV`/`MULMOD`/`MULDIVMOD`/
   `MULADDDIVMOD`, any rounding mode the decoder makes (-1 down, 0 to nearest, 1 up: the result is
-  `divModRound`), quiet or not, a zero divisor (NaN), a NaN operand of `DIV`;
+  `divModRound`; rounding down by a positive divisor, the division of `Int`, `divModRound_floor`),
+  quiet or not, a zero divisor (NaN), a NaN operand of `DIV`;
 * the shifts `LSHIFT`/`RSHIFT` by a constant and by the stack, their quiet forms (version
   dependent: an `if` on `st.globalVersion`), `POW2`, `QPOW2`; the right shifts are the division of
   `Int` (`floorDivPow2_eq`);
 * `FITS`/`UFITS` by a constant and by the stack and their quiet forms, `BITSIZE`, `UBITSIZE`,
   `QBITSIZE`, `ISNAN`, `CHKNAN`;
-* `AND`, `OR`, `XOR` and their quiet forms, on the 257-bit two's complements (`twos257`), and
-  `QNOT`. (`NOT` is specified with the instructions of wallet v3.)
+* `AND`, `OR`, `XOR` and their quiet forms, the bitwise operations of `BitVec 257` (`and_bits`:
+  the model's operation on the two's complements `twos257` read back signed is the `toInt` of the
+  `BitVec` operation), and `QNOT`. (`NOT` is specified with the instructions of wallet v3.)
 
 A handler whose conditions include literals is run after those are decided (`arith_pre`): the
 contextual `simp` of `vm_simp` loops in a branch that assumes a false literal condition. The
@@ -365,6 +367,52 @@ theorem roundMode_ok (rm : Int) (h : rm = -1 ∨ rm = 0 ∨ rm = 1) : (rm != -1 
   vm_simp [hs, unfoldPrivateRun]
 
 /-! ## Division -/
+
+/-- The floor division of the model (`floorDiv`, rounding down) by a positive divisor is the
+division of `Int` (`Int.ediv`, which rounds down for a positive divisor). -/
+theorem floorDiv_of_pos (x y : Int) (hy : 0 < y) : floorDiv x y = x / y := by
+  have hy0 : ¬ y = 0 := by omega
+  have hay : (((intAbs y).toNat : Nat) : Int) = y := by
+    simp only [intAbs, show ¬ y < 0 by omega, decide_false, Bool.false_eq_true, if_false]; omega
+  unfold floorDiv
+  simp only [hy0, if_false, show decide (y < 0) = false by simp; omega]
+  generalize hA : (intAbs x).toNat = ax
+  generalize hB : (intAbs y).toNat = ay at hay
+  have hdm := Nat.div_add_mod ax ay
+  have hml := Nat.mod_lt ax (show ay > 0 by omega)
+  have hcast : (((ay * (ax / ay) : Nat)) : Int) = y * ((ax / ay : Nat) : Int) := by
+    rw [Int.natCast_mul, hay]
+  have hdmI : (((ay * (ax / ay) + ax % ay : Nat)) : Int) = (ax : Int) := by rw [hdm]
+  rw [Int.natCast_add, hcast] at hdmI
+  have hmlI : ((ax % ay : Nat) : Int) < y := by rw [← hay]; exact Int.ofNat_lt.mpr hml
+  generalize ax / ay = Q at *
+  generalize ax % ay = R at *
+  by_cases hx : x < 0
+  · have hax : (ax : Int) = -x := by
+      rw [← hA]; simp only [intAbs, hx, decide_true, if_true]; omega
+    simp only [hx, decide_true]
+    by_cases hR : R = 0
+    · subst hR
+      simp
+      refine ((Int.ediv_emod_unique (r := 0) hy).2 ⟨?_, by omega, by omega⟩).1.symm
+      rw [Int.mul_neg]; generalize y * (Q : Int) = P at *; omega
+    · simp [hR]
+      refine ((Int.ediv_emod_unique (r := y - R) hy).2 ⟨?_, ?_, ?_⟩).1.symm
+      · show y - R + y * (-(Q : Int) - 1) = x
+        rw [Int.mul_sub, Int.mul_neg, Int.mul_one]; generalize y * (Q : Int) = P at *; omega
+      · omega
+      · omega
+  · have hax : (ax : Int) = x := by
+      rw [← hA]; simp only [intAbs, hx, decide_false, Bool.false_eq_true, if_false]; omega
+    simp [hx]
+    refine ((Int.ediv_emod_unique (r := R) hy).2 ⟨?_, by omega, hmlI⟩).1.symm
+    generalize y * (Q : Int) = P at *; omega
+
+/-- `divModRound` rounding down (`DIV`, `MOD`, `MULDIV`, ... of rounding mode -1) by a positive
+divisor: the quotient and the remainder of `Int` (`Int.ediv`, `Int.emod`). -/
+theorem divModRound_floor (x y : Int) (hy : 0 < y) : divModRound x y (-1) = (x / y, x % y) := by
+  have hy0 : ¬ y = 0 := by omega
+  simp only [divModRound, hy0, if_false, if_true, floorDiv_of_pos x y hy, Int.emod_def, Int.mul_comm]
 
 /-- `DIV`, `DIVR`, `DIVC` and their quiet forms (C++ `exec_divmod`, result mode 1; rounding `rm`
 -1 down, 0 to nearest, 1 up): the quotient of `divModRound`. A zero divisor gives NaN (int_ov
@@ -827,78 +875,246 @@ theorem intToBitsTwos_257 (x : Int) :
     rw [if_neg h]
     simp only [h1, decide_true, if_true]; rfl
 
-/-- `AND` (C++ `exec_and`): the bitwise and of the 257-bit two's complements of `x` and `y`, read
-back as a signed integer; range_chk for an operand that does not fit 257 bits. -/
+/-- `natToBits` (the most significant bit first) of `w + 1` bits: the bits of `u / 2`, then the
+lowest bit. -/
+theorem natToBits_succ (u w : Nat) : natToBits u (w + 1) = (natToBits (u / 2) w).push (u.testBit 0) := by
+  unfold natToBits
+  rw [Array.ofFn_succ]
+  congr 1
+  · apply Array.ext
+    · simp
+    · intro i h1 h2
+      simp only [Array.getElem_ofFn, Fin.coe_castSucc, Nat.testBit_div_two]
+      congr 1
+      simp at h1
+      omega
+  · simp
+
+theorem foldl_natToBits (u w acc : Nat) :
+    (natToBits u w).foldl (fun acc b => (acc <<< 1) + (if b then 1 else 0)) acc = acc * 2 ^ w + u % 2 ^ w := by
+  induction w generalizing u acc with
+  | zero => simp [natToBits, Nat.mod_one]
+  | succ w ih =>
+    rw [natToBits_succ, Array.foldl_push, ih]
+    rw [Nat.pow_succ', Nat.mod_mul, Nat.shiftLeft_eq, Nat.pow_one, Nat.mul_comm 2 (2 ^ w), ← Nat.mul_assoc]
+    generalize acc * 2 ^ w = A
+    generalize u / 2 % 2 ^ w = B
+    have h := Nat.mod_two_eq_zero_or_one u
+    rcases h with h | h
+    · have hb : u.testBit 0 = false := by simp [Nat.testBit_zero, h]
+      simp only [hb, h, Bool.false_eq_true, if_false]; omega
+    · have hb : u.testBit 0 = true := by simp [Nat.testBit_zero, h]
+      simp only [hb, h, if_true]; omega
+
+/-- Reading back `w` bits of `u`: `u` modulo `2^w`. -/
+theorem bitsToNat_natToBits (u w : Nat) : bitsToNat (natToBits u w) = u % 2 ^ w := by
+  have := foldl_natToBits u w 0
+  simp only [Nat.zero_mul, Nat.zero_add] at this
+  exact this
+
+theorem getElem!_natToBits (u w i : Nat) (h : i < w) : (natToBits u w)[i]! = u.testBit (w - 1 - i) := by
+  simp [natToBits, h]
+
+theorem size_natToBits (u w : Nat) : (natToBits u w).size = w := by
+  simp [natToBits]
+
+theorem bitsAnd_natToBits (a b w : Nat) : bitsAnd (natToBits a w) (natToBits b w) = natToBits (a &&& b) w := by
+  unfold bitsAnd
+  simp only [size_natToBits, bne_self_eq_false, Bool.false_eq_true, if_false]
+  apply Array.ext
+  · simp [size_natToBits]
+  · intro i h1 h2
+    have hw : i < w := by simpa [size_natToBits] using h2
+    rw [Array.getElem_ofFn]
+    simp only [getElem!_natToBits _ _ _ hw]
+    simp only [natToBits, Array.getElem_ofFn, Nat.testBit_and]
+
+theorem bitsOr_natToBits (a b w : Nat) : bitsOr (natToBits a w) (natToBits b w) = natToBits (a ||| b) w := by
+  unfold bitsOr
+  simp only [size_natToBits, bne_self_eq_false, Bool.false_eq_true, if_false]
+  apply Array.ext
+  · simp [size_natToBits]
+  · intro i h1 h2
+    have hw : i < w := by simpa [size_natToBits] using h2
+    rw [Array.getElem_ofFn]
+    simp only [getElem!_natToBits _ _ _ hw]
+    simp only [natToBits, Array.getElem_ofFn, Nat.testBit_or]
+
+theorem bitsXor_natToBits (a b w : Nat) : bitsXor (natToBits a w) (natToBits b w) = natToBits (a ^^^ b) w := by
+  unfold bitsXor
+  simp only [size_natToBits, bne_self_eq_false, Bool.false_eq_true, if_false]
+  apply Array.ext
+  · simp [size_natToBits]
+  · intro i h1 h2
+    have hw : i < w := by simpa [size_natToBits] using h2
+    rw [Array.getElem_ofFn]
+    simp only [getElem!_natToBits _ _ _ hw]
+    simp only [natToBits, Array.getElem_ofFn, Nat.testBit_xor]
+
+/-- The top bit of a number below `2^(w+1)`: whether it is at least `2^w`. -/
+theorem testBit_top (u w : Nat) (hu : u < 2 ^ (w + 1)) : u.testBit w = decide (2 ^ w ≤ u) := by
+  rw [Nat.testBit_eq_decide_div_mod_eq]
+  have hp : 0 < 2 ^ w := Nat.two_pow_pos w
+  have h2 : u / 2 ^ w < 2 := by
+    rw [Nat.div_lt_iff_lt_mul hp]; rw [Nat.pow_succ] at hu; omega
+  by_cases h : 2 ^ w ≤ u
+  · have : 1 ≤ u / 2 ^ w := (Nat.le_div_iff_mul_le hp).mpr (by omega)
+    simp [h]; omega
+  · have : u / 2 ^ w = 0 := Nat.div_eq_of_lt (by omega)
+    simp [h, this]
+
+set_option exponentiation.threshold 300 in
+/-- The 257-bit two's complement of an integer that fits is the bit string of its `BitVec`. -/
+theorem twos257_eq (x : Int) (hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256) :
+    twos257 x = natToBits (BitVec.ofInt 257 x).toNat 257 := by
+  unfold twos257
+  congr 1
+  rw [BitVec.toNat_ofInt, Nat.shiftLeft_eq, Nat.one_mul]
+  have h257 : ((2 ^ 257 : Nat) : Int) = 2 * 2 ^ 256 := by
+    rw [Int.natCast_pow, Int.pow_succ, Int.mul_comm]; rfl
+  have hM : (0 : Int) < 2 ^ 256 := Int.pow_pos (by decide)
+  rw [h257]
+  generalize (2 : Int) ^ 256 = M at *
+  by_cases h : x ≥ 0
+  · rw [if_pos h, Int.emod_eq_of_lt h (by omega)]
+  · rw [if_neg h]
+    have he : x % (2 * M) = x + 2 * M :=
+      ((Int.ediv_emod_unique (a := x) (b := 2 * M) (r := x + 2 * M) (q := -1) (by omega)).2
+        ⟨by omega, by omega, by omega⟩).2
+    rw [he]
+    have h257' : ((2 ^ 257 : Nat) : Int) = 2 * M := by rw [← h257]
+    omega
+
+set_option exponentiation.threshold 300 in
+/-- The signed reading of a 257-bit string is the `toInt` of its `BitVec`. -/
+theorem bitsToIntSignedTwos_natToBits (u : Nat) (hu : u < 2 ^ 257) :
+    bitsToIntSignedTwos (natToBits u 257) = (BitVec.ofNat 257 u).toInt := by
+  rw [BitVec.toInt_eq_toNat_cond, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hu]
+  unfold bitsToIntSignedTwos
+  rw [show (natToBits u 257).size = 256 + 1 from size_natToBits u 257]
+  simp only [bitsToNat_natToBits, Nat.mod_eq_of_lt hu, getElem!_natToBits u 257 0 (by decide),
+    testBit_top u 256 hu, Nat.shiftLeft_eq, Nat.one_mul]
+  have h257 : (2 : Nat) ^ 257 = 2 * 2 ^ 256 := by rw [Nat.pow_succ, Nat.mul_comm]
+  rw [h257] at hu ⊢
+  generalize (2 : Nat) ^ 256 = M at *
+  by_cases h : M ≤ u
+  · have : ¬ 2 * u < 2 * M := by omega
+    simp [h, this]
+  · have : 2 * u < 2 * M := by omega
+    simp [h, this]
+
+set_option exponentiation.threshold 300 in
+/-- `AND` of the model on integers that fit 257 bits is the bitwise and of `BitVec 257`. -/
+theorem and_bits (x y : Int) (hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256) (hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256) :
+    bitsToIntSignedTwos (bitsAnd (twos257 x) (twos257 y)) = (BitVec.ofInt 257 x &&& BitVec.ofInt 257 y).toInt := by
+  rw [twos257_eq x hx, twos257_eq y hy, bitsAnd_natToBits,
+    bitsToIntSignedTwos_natToBits _ (Nat.and_lt_two_pow _ (BitVec.isLt _))]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_and, Nat.mod_eq_of_lt (Nat.and_lt_two_pow _ (BitVec.isLt _))]
+
+set_option exponentiation.threshold 300 in
+/-- `OR` of the model on integers that fit 257 bits is the bitwise or of `BitVec 257`. -/
+theorem or_bits (x y : Int) (hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256) (hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256) :
+    bitsToIntSignedTwos (bitsOr (twos257 x) (twos257 y)) = (BitVec.ofInt 257 x ||| BitVec.ofInt 257 y).toInt := by
+  rw [twos257_eq x hx, twos257_eq y hy, bitsOr_natToBits,
+    bitsToIntSignedTwos_natToBits _ (Nat.or_lt_two_pow (BitVec.isLt _) (BitVec.isLt _))]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_or, Nat.mod_eq_of_lt (Nat.or_lt_two_pow (BitVec.isLt _) (BitVec.isLt _))]
+
+set_option exponentiation.threshold 300 in
+/-- `XOR` of the model on integers that fit 257 bits is the bitwise exclusive or of `BitVec 257`. -/
+theorem xor_bits (x y : Int) (hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256) (hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256) :
+    bitsToIntSignedTwos (bitsXor (twos257 x) (twos257 y)) = (BitVec.ofInt 257 x ^^^ BitVec.ofInt 257 y).toInt := by
+  rw [twos257_eq x hx, twos257_eq y hy, bitsXor_natToBits,
+    bitsToIntSignedTwos_natToBits _ (Nat.xor_lt_two_pow (BitVec.isLt _) (BitVec.isLt _))]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_xor, Nat.mod_eq_of_lt (Nat.xor_lt_two_pow (BitVec.isLt _) (BitVec.isLt _))]
+
+/-- The signed value of a `BitVec 257` fits 257 bits. -/
+theorem toInt_fits257 (v : BitVec 257) : -2 ^ 256 ≤ v.toInt ∧ v.toInt < 2 ^ 256 :=
+  ⟨BitVec.le_toInt v, BitVec.toInt_lt⟩
+
+/-- `AND` (C++ `exec_and`): the bitwise and of `x` and `y` as 257-bit two's complements (`BitVec
+257`, read back signed); range_chk for an operand that does not fit 257 bits. -/
 @[vm_spec] theorem and_ (st : VmState) (s : Stack) (x y : Int)
     (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
     ExceptT.run (execInstr .and_) st =
-      let r := bitsToIntSignedTwos (bitsAnd (twos257 x) (twos257 y))
       if ¬ (-2 ^ 256 ≤ x ∧ x < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
       else if ¬ (-2 ^ 256 ≤ y ∧ y < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
-      else if -2 ^ 256 ≤ r ∧ r < 2 ^ 256 then (.ok (), { st with stack := s.push (.int (.num r)) })
-      else (.error .intOv, { st with stack := s }) := by
-  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256 <;>
-    vm_simp [hs, intToBitsTwos_257, hx, hy]
+      else (.ok (), { st with stack := s.push (.int (.num (BitVec.ofInt 257 x &&& BitVec.ofInt 257 y).toInt)) }) := by
+  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
+  · have hf := toInt_fits257 (BitVec.ofInt 257 x &&& BitVec.ofInt 257 y)
+    simp only [Int.reducePow, Int.reduceNeg] at hf
+    vm_simp [hs, intToBitsTwos_257, hx, hy, and_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
 
-/-- `OR` (C++ `exec_or`): as `and_`, with the bitwise or. -/
+/-- `OR` (C++ `exec_or`): as `and_`, the bitwise or. -/
 @[vm_spec] theorem or (st : VmState) (s : Stack) (x y : Int)
     (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
     ExceptT.run (execInstr .or) st =
-      let r := bitsToIntSignedTwos (bitsOr (twos257 x) (twos257 y))
       if ¬ (-2 ^ 256 ≤ x ∧ x < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
       else if ¬ (-2 ^ 256 ≤ y ∧ y < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
-      else if -2 ^ 256 ≤ r ∧ r < 2 ^ 256 then (.ok (), { st with stack := s.push (.int (.num r)) })
-      else (.error .intOv, { st with stack := s }) := by
-  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256 <;>
-    vm_simp [hs, intToBitsTwos_257, hx, hy]
+      else (.ok (), { st with stack := s.push (.int (.num (BitVec.ofInt 257 x ||| BitVec.ofInt 257 y).toInt)) }) := by
+  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
+  · have hf := toInt_fits257 (BitVec.ofInt 257 x ||| BitVec.ofInt 257 y)
+    simp only [Int.reducePow, Int.reduceNeg] at hf
+    vm_simp [hs, intToBitsTwos_257, hx, hy, or_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
 
-/-- `XOR` (C++ `exec_xor`): as `and_`, with the bitwise exclusive or. -/
+/-- `XOR` (C++ `exec_xor`): as `and_`, the bitwise exclusive or. -/
 @[vm_spec] theorem xor (st : VmState) (s : Stack) (x y : Int)
     (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
     ExceptT.run (execInstr .xor) st =
-      let r := bitsToIntSignedTwos (bitsXor (twos257 x) (twos257 y))
       if ¬ (-2 ^ 256 ≤ x ∧ x < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
       else if ¬ (-2 ^ 256 ≤ y ∧ y < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
-      else if -2 ^ 256 ≤ r ∧ r < 2 ^ 256 then (.ok (), { st with stack := s.push (.int (.num r)) })
-      else (.error .intOv, { st with stack := s }) := by
-  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256 <;>
-    vm_simp [hs, intToBitsTwos_257, hx, hy]
+      else (.ok (), { st with stack := s.push (.int (.num (BitVec.ofInt 257 x ^^^ BitVec.ofInt 257 y).toInt)) }) := by
+  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
+  · have hf := toInt_fits257 (BitVec.ofInt 257 x ^^^ BitVec.ofInt 257 y)
+    simp only [Int.reducePow, Int.reduceNeg] at hf
+    vm_simp [hs, intToBitsTwos_257, hx, hy, xor_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
 
-/-- `QAND` (C++ `exec_and`, quiet): as `and_`, NaN for a result that does not fit. -/
+/-- `QAND` (C++ `exec_and`, quiet): as `and_`. -/
 @[vm_spec] theorem qand (st : VmState) (s : Stack) (x y : Int)
     (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
     ExceptT.run (execInstr (.contExt .qand)) st =
-      let r := bitsToIntSignedTwos (bitsAnd (twos257 x) (twos257 y))
       if ¬ (-2 ^ 256 ≤ x ∧ x < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
       else if ¬ (-2 ^ 256 ≤ y ∧ y < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
-      else if -2 ^ 256 ≤ r ∧ r < 2 ^ 256 then (.ok (), { st with stack := s.push (.int (.num r)) })
-      else (.ok (), { st with stack := s.push (.int .nan) }) := by
-  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256 <;>
-    vm_simp [hs, intToBitsTwos_257, hx, hy]
+      else (.ok (), { st with stack := s.push (.int (.num (BitVec.ofInt 257 x &&& BitVec.ofInt 257 y).toInt)) }) := by
+  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
+  · have hf := toInt_fits257 (BitVec.ofInt 257 x &&& BitVec.ofInt 257 y)
+    simp only [Int.reducePow, Int.reduceNeg] at hf
+    vm_simp [hs, intToBitsTwos_257, hx, hy, and_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
 
-/-- `QOR` (C++ `exec_or`, quiet). -/
+/-- `QOR` (C++ `exec_or`, quiet): as `or`. -/
 @[vm_spec] theorem qor (st : VmState) (s : Stack) (x y : Int)
     (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
     ExceptT.run (execInstr (.contExt .qor)) st =
-      let r := bitsToIntSignedTwos (bitsOr (twos257 x) (twos257 y))
       if ¬ (-2 ^ 256 ≤ x ∧ x < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
       else if ¬ (-2 ^ 256 ≤ y ∧ y < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
-      else if -2 ^ 256 ≤ r ∧ r < 2 ^ 256 then (.ok (), { st with stack := s.push (.int (.num r)) })
-      else (.ok (), { st with stack := s.push (.int .nan) }) := by
-  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256 <;>
-    vm_simp [hs, intToBitsTwos_257, hx, hy]
+      else (.ok (), { st with stack := s.push (.int (.num (BitVec.ofInt 257 x ||| BitVec.ofInt 257 y).toInt)) }) := by
+  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
+  · have hf := toInt_fits257 (BitVec.ofInt 257 x ||| BitVec.ofInt 257 y)
+    simp only [Int.reducePow, Int.reduceNeg] at hf
+    vm_simp [hs, intToBitsTwos_257, hx, hy, or_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
 
-/-- `QXOR` (C++ `exec_xor`, quiet). -/
+/-- `QXOR` (C++ `exec_xor`, quiet): as `xor`. -/
 @[vm_spec] theorem qxor (st : VmState) (s : Stack) (x y : Int)
     (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
     ExceptT.run (execInstr (.contExt .qxor)) st =
-      let r := bitsToIntSignedTwos (bitsXor (twos257 x) (twos257 y))
       if ¬ (-2 ^ 256 ≤ x ∧ x < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
       else if ¬ (-2 ^ 256 ≤ y ∧ y < 2 ^ 256) then (.error .rangeChk, { st with stack := s })
-      else if -2 ^ 256 ≤ r ∧ r < 2 ^ 256 then (.ok (), { st with stack := s.push (.int (.num r)) })
-      else (.ok (), { st with stack := s.push (.int .nan) }) := by
-  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256 <;>
-    vm_simp [hs, intToBitsTwos_257, hx, hy]
+      else (.ok (), { st with stack := s.push (.int (.num (BitVec.ofInt 257 x ^^^ BitVec.ofInt 257 y).toInt)) }) := by
+  by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
+  · have hf := toInt_fits257 (BitVec.ofInt 257 x ^^^ BitVec.ofInt 257 y)
+    simp only [Int.reducePow, Int.reduceNeg] at hf
+    vm_simp [hs, intToBitsTwos_257, hx, hy, xor_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
 
 /-- `QNOT` (C++ `exec_not`, quiet): `-x - 1`. -/
 @[vm_spec] theorem qnot (st : VmState) (s : Stack) (x : Int) (hs : st.stack = s.push (.int (.num x))) :
