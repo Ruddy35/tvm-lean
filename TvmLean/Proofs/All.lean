@@ -101,6 +101,8 @@ import TvmLean.Proofs.Exec.Dict.SetGet
 import TvmLean.Proofs.Exec.Spec.DictSetGet
 import TvmLean.Proofs.Exec.Closure
 import TvmLean.Proofs.Exec.Pilot.Closure
+import TvmLean.Proofs.Exec.LoopInv
+import TvmLean.Proofs.Exec.Pilot.LoopInv
 
 /-!
 # All proof modules together
