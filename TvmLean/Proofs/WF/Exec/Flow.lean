@@ -4,13 +4,15 @@ import TvmLean.Proofs.WF.Exec.Arith
 import TvmLean.Proofs.WF.Exec.Cell
 import TvmLean.Proofs.WF.Exec.CellOp
 import TvmLean.Proofs.WF.Exec.Cont
+import TvmLean.Proofs.WF.Exec.Msg
 
 /-!
 # The Flow family keeps states well-formed
 
 `execInstrFlow_WF`: every handler of `execInstrFlow` (`TvmLean/Semantics/Exec/Flow/`) keeps
 `VmState.WF`, so the family does, given the obligations of the families a `RUNVM` child runs that
-are not proved yet (Tuple, TonEnv, Crypto, Msg, Misc, Debug, Exception, Dict).
+are not proved yet (Tuple, TonEnv, Crypto, Misc, Debug, Exception, Dict); the Stack, Cont, Cell,
+Arith, CellOp and Msg families are used through their theorems.
 
 * The 46 handlers other than `RUNVM` (`execInstrFlowChildNoRunvm_WF`, the Flow family of a child
   VM): `mvcgen` and `wf_cont` (`Calls.lean`), with the specifications of `VM.call`, `VM.jump`,
@@ -739,58 +741,54 @@ theorem execInstrFlowChildNoRunvm_WF : FamilyWF execInstrFlowChildNoRunvm := by
 proved yet. -/
 theorem execInstrChildNoRunvm_WF (hTuple : FamilyWF execInstrTuple)
     (hTonEnv : FamilyWF execInstrTonEnv) (hCrypto : FamilyWF execInstrCrypto)
-    (hMsg : FamilyWF execInstrMsg) (hMisc : FamilyWF execInstrMisc)
-    (hDebug : FamilyWF execInstrDebug) (hException : FamilyWF execInstrException)
-    (hDict : FamilyWF execInstrDict) :
+    (hMisc : FamilyWF execInstrMisc) (hDebug : FamilyWF execInstrDebug)
+    (hException : FamilyWF execInstrException) (hDict : FamilyWF execInstrDict) :
     ExecWF execInstrChildNoRunvm := by
   intro i hi
   unfold execInstrChildNoRunvm
   have hthrow : (throw .invOpcode : VM Unit).KeepsWF := by mvcgen
   exact execInstrStack_WF i _ hi <| execInstrCont_WF i _ hi <| execInstrCell_WF i _ hi <|
     execInstrFlowChildNoRunvm_WF i _ hi <| execInstrArith_WF i _ hi <| hTuple i _ hi <|
-    execInstrCellOp_WF i _ hi <| hTonEnv i _ hi <| hCrypto i _ hi <| hMsg i _ hi <|
+    execInstrCellOp_WF i _ hi <| hTonEnv i _ hi <| hCrypto i _ hi <| execInstrMsg_WF i _ hi <|
     hMisc i _ hi <| hDebug i _ hi <| hException i _ hi <| hDict i _ hi <| hthrow
 
 /-- The instructions of a `RUNVM` child at any depth keep states well-formed. -/
 theorem execInstrNested_WF (hTuple : FamilyWF execInstrTuple)
     (hTonEnv : FamilyWF execInstrTonEnv) (hCrypto : FamilyWF execInstrCrypto)
-    (hMsg : FamilyWF execInstrMsg) (hMisc : FamilyWF execInstrMisc)
-    (hDebug : FamilyWF execInstrDebug) (hException : FamilyWF execInstrException)
-    (hDict : FamilyWF execInstrDict) :
+    (hMisc : FamilyWF execInstrMisc) (hDebug : FamilyWF execInstrDebug)
+    (hException : FamilyWF execInstrException) (hDict : FamilyWF execInstrDict) :
     ∀ depth, ExecWF (execInstrNested depth)
   | 0 => by
     unfold execInstrNested
-    exact execInstrChildNoRunvm_WF hTuple hTonEnv hCrypto hMsg hMisc hDebug hException hDict
+    exact execInstrChildNoRunvm_WF hTuple hTonEnv hCrypto hMisc hDebug hException hDict
   | depth + 1 => by
     intro i hi
     unfold execInstrNested
     exact execInstrFlowRunvmWith_WF
-      (execInstrNested_WF hTuple hTonEnv hCrypto hMsg hMisc hDebug hException hDict depth) i _ hi
-      (execInstrChildNoRunvm_WF hTuple hTonEnv hCrypto hMsg hMisc hDebug hException hDict i hi)
+      (execInstrNested_WF hTuple hTonEnv hCrypto hMisc hDebug hException hDict depth) i _ hi
+      (execInstrChildNoRunvm_WF hTuple hTonEnv hCrypto hMisc hDebug hException hDict i hi)
 
 /-- `RUNVM` and `RUNVMX` of the VM, whose child runs `execInstrNested` at the depth its gas
 allows. -/
 theorem execInstrFlowRunvm_WF (hTuple : FamilyWF execInstrTuple)
     (hTonEnv : FamilyWF execInstrTonEnv) (hCrypto : FamilyWF execInstrCrypto)
-    (hMsg : FamilyWF execInstrMsg) (hMisc : FamilyWF execInstrMisc)
-    (hDebug : FamilyWF execInstrDebug) (hException : FamilyWF execInstrException)
-    (hDict : FamilyWF execInstrDict) :
+    (hMisc : FamilyWF execInstrMisc) (hDebug : FamilyWF execInstrDebug)
+    (hException : FamilyWF execInstrException) (hDict : FamilyWF execInstrDict) :
     FamilyWF execInstrFlowRunvm := by
   intro i next hi hnext
   unfold execInstrFlowRunvm
   refine VM.Keeps.bind VM.Keeps.get' fun st _ => ?_
   extract_lets -underBinder +onlyGivenNames depth
   exact execInstrFlowRunvmWith_WF
-    (execInstrNested_WF hTuple hTonEnv hCrypto hMsg hMisc hDebug hException hDict depth) i next hi
+    (execInstrNested_WF hTuple hTonEnv hCrypto hMisc hDebug hException hDict depth) i next hi
     hnext
 
 /-- The Flow family keeps states well-formed, given the families a `RUNVM` child runs that are not
 proved yet. -/
 theorem execInstrFlow_WF (hTuple : FamilyWF execInstrTuple)
     (hTonEnv : FamilyWF execInstrTonEnv) (hCrypto : FamilyWF execInstrCrypto)
-    (hMsg : FamilyWF execInstrMsg) (hMisc : FamilyWF execInstrMisc)
-    (hDebug : FamilyWF execInstrDebug) (hException : FamilyWF execInstrException)
-    (hDict : FamilyWF execInstrDict) :
+    (hMisc : FamilyWF execInstrMisc) (hDebug : FamilyWF execInstrDebug)
+    (hException : FamilyWF execInstrException) (hDict : FamilyWF execInstrDict) :
     FamilyWF execInstrFlow := by
   intro i next hi hnext
   unfold execInstrFlow
@@ -819,7 +817,7 @@ theorem execInstrFlow_WF (hTuple : FamilyWF execInstrTuple)
     execInstrFlowRetData_WF i _ hi <|
     execInstrFlowJmpxVarArgs_WF i _ hi <|
     execInstrFlowJmpxData_WF i _ hi <|
-    execInstrFlowRunvm_WF hTuple hTonEnv hCrypto hMsg hMisc hDebug hException hDict i _ hi <|
+    execInstrFlowRunvm_WF hTuple hTonEnv hCrypto hMisc hDebug hException hDict i _ hi <|
     execInstrFlowIfjmp_WF i _ hi <|
     execInstrFlowIfnotjmp_WF i _ hi <|
     execInstrFlowIfelse_WF i _ hi <|
