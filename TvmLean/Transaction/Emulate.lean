@@ -113,7 +113,9 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
   -- `serialize` validates the transaction with `block::tlb`: the inbound message must pass (a
   -- `fwd_fee` or an extra currency C++ reads differently fails here, whatever happened before)
   if !messageValid inMsg then return .failed "the transaction fails block::tlb validation"
-  let (t, newState) := t.computeState sl
+  -- `serialize` returns false when `compute_state` does (transaction-emulator.cpp:70-73)
+  let some (t, newState) := t.computeState sl
+    | return .failed "cannot serialize new transaction: compute_state fails"
   if !accountAddrValid newState then return .failed "compute_state: the new account fails block::tlb validation"
   let some tx := t.serialize newState | return .failed "serialize"
   return .ok tx newState
@@ -149,7 +151,8 @@ def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : N
       | .ok none => return .failed "action phase"
       | .ok (some t) => pure t
     else pure t
-  let (t, newState) := t.computeState sl
+  let some (t, newState) := t.computeState sl
+    | return .failed "cannot serialize new transaction: compute_state fails"
   if !accountAddrValid newState then return .failed "compute_state: the new account fails block::tlb validation"
   let some tx := t.serialize newState | return .failed "serialize"
   return .ok tx newState

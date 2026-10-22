@@ -219,11 +219,12 @@ def _root_.TvmLean.Tx.W.varUIntPadded (w : W) (v n : Nat) : W :=
 /-- A `ShardAccount` at `(wc, addr)` with the storage statistics C++ computes; `padded` stores one
 amount with a leading zero byte: 1 the balance, 2 the cells used, 3 the due payment. An active state
 may have a fixed prefix length `fpl`, the tick-tock flags `special` and no code (`noCode`, the code
-cell unused); `dictHash` is stored as `storage_extra_info$001 dict_hash`. -/
+cell unused); `dictHash` is stored as `storage_extra_info$001 dict_hash`; `usedBits` replaces the
+bits of the storage statistics (C++ does not check them against the storage). -/
 def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt : Nat) (extra : Option Cell := none)
     (padded : Nat := 0) (library : Option Cell := none) (anycast : Option BitString := none)
     (fpl : Option Nat := none) (special : Option (Bool × Bool) := none) (dictHash : Option BitString := none)
-    (noCode : Bool := false) : Cell :=
+    (noCode : Bool := false) (usedBits : Option Nat := none) : Cell :=
   let stateBits : W :=
     match st with
     | .active code data =>
@@ -246,7 +247,7 @@ def mkAccount (wc : Int) (addr : BitString) (st : AccState) (bal lastPaid due lt
         -- the stored address: `addr` itself, or with an anycast prefix (then `addr` is addr_orig)
         let w : W := (({} : W).bool true).bitStr (Account.mkAddr wc anycast addr).bits
         let w := if padded == 2 then w.varUIntPadded (c + 1) 7 else w.varUInt (c + 1) 7
-        let w := w.varUInt (b + sc.bits.size) 7
+        let w := w.varUInt (usedBits.getD (b + sc.bits.size)) 7
         let w := match dictHash with | some h => (w.uint 1 3).bitStr h | none => w.uint 0 3
         let w := w.uint lastPaid 32
         let w := if due > 0 then (if padded == 3 then (w.bool true).varUIntPadded due 16 else (w.bool true).grams due)

@@ -599,6 +599,47 @@ def accountCases (x : Ctx) (perVersion : Bool) : Array TxCase := Id.run do
     out := out.push (x.case "account/none-wc-1000" (mkAccount (-1000) a1 .none 0 0 0 0) (intMsg (-1000) a1 100000000 false none #[]))
   return out
 
+/-- `Transaction::compute_state` (transaction.cpp:3552-3735) fails when a field of the new account does
+not fit its store, and the emulator fails (`serialize`, transaction-emulator.cpp:70-73):
+* the balance (`balance.store`, 3572-3573: `Grams`, below 2^120) at 2^120 - 1 plus a message's value,
+  of an active and of an uninitialized account; with a bounce the value goes back (it fits), and with a
+  value of 1 the fees take more than it adds (it fits);
+* the due payment (`t_Grams.store_integer_ref`, 3720) at 2^120 - 1 plus the storage fees (1060, 1082;
+  kept from version 4, `enable_due_payment`, 1112-1113 and 4301), of an active account the storage phase
+  freezes (1105) and of an uninitialized one with an extra currency (not deleted, 1089). Before version 4
+  the due payment stays as it was, but the storage phase's `fees_due` does not fit either: `serialize`
+  fails after `compute_state` (not here);
+* the bits of the storage statistics (`store_UInt7`, 3714-3715: `VarUInteger 7`, below 2^48) updated by
+  the bits of the storage root when its references do not change (3704-3705, 64-bit arithmetic): at
+  2^48 - 1 with a root that grows (paid up to now: no storage fees on them); at 0 with a root that grows
+  (the difference is stored) and one that shrinks (the subtraction wraps around below 0, the store
+  fails).
+The cells of the storage statistics are the account's (below 2^48 as read) or counted from the cells of
+the new storage: they cannot reach 2^48. -/
+def stateCases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let big := 2 ^ 120 - 1
+  let msg (v : Nat) (bounce : Bool := false) : Cell := intMsg 0 a1 v bounce none #[]
+  out := out.push (x.case "state/balance-overflow/active" (active accept big) (msg 10000000000))
+  out := out.push (x.case "state/balance-overflow/uninit" (mkAccount 0 a1 .uninit big 1700000000 0 1000)
+    (msg 10000000000))
+  out := out.push (x.case "state/balance-overflow/uninit-bounce" (mkAccount 0 a1 .uninit big 1700000000 0 1000)
+    (msg 10000000000 true))
+  out := out.push (x.case "state/balance-max" (active accept big) (msg 1))
+  if x.v ≥ 4 then
+    out := out.push (x.case "state/due-overflow/active" (mkAccount 0 a1 (.active accept data0) 0 1600000000 big 1000)
+      (msg 1000 true))
+    out := out.push (x.case "state/due-overflow/uninit-extra"
+      (mkAccount 0 a1 .uninit 0 1600000000 big 1000 (extraOf [(7, amt 1)])) (msg 1000 true))
+  -- paid up to `now`: no storage fees on 2^48 - 1 bits
+  out := out.push (x.case "state/used-bits/overflow"
+    (mkAccount 0 a1 (.active accept data0) 1000 1700000200 0 1000 (usedBits := some (2 ^ 48 - 1))) (msg 10000000000))
+  out := out.push (x.case "state/used-bits/below-root-grows"
+    (mkAccount 0 a1 (.active accept data0) 1000 1700000000 0 1000 (usedBits := some 0)) (msg 10000000000))
+  out := out.push (x.case "state/used-bits/below-root-shrinks"
+    (mkAccount 0 a1 (.active accept data0) (2 ^ 32) 1700000000 0 1000 (usedBits := some 0)) (msg 1))
+  return out
+
 end Cov
 
 open Cov in
@@ -616,7 +657,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [4, 5, 9, 16].contains v then out := out ++ Cov.gasOverrideCases x
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
-      Cov.accountCases x true
+      Cov.accountCases x true ++ Cov.stateCases x
   return out
 
 end Tests.Tx

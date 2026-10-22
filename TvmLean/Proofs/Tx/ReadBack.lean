@@ -9,13 +9,13 @@ bits start with `B` and whose remaining references start with `R`, if it succeed
 primitive reads (`ReadsAs.bits`, `ReadsAs.ref`, `ReadsAs.uint`, `ReadsAs.bool`, `ReadsAs.maybe_none`,
 `ReadsAs.maybe_some`, `ReadsAs.varUInt`, `ReadsAs.currencies`, `ReadsAs.addrStd_mkAddr`) are stated
 on the bits the writers (`W.uint`, `W.varUInt`, `W.maybeRef`, `Account.mkAddr`) write. A
-`VarUInteger n` reads back only below `2 ^ (8 * (n - 1))` (`W.varUInt` writes a wrong length above:
-C++ fails there, see `StateParts.Fits`).
+`VarUInteger n` reads back only below `2 ^ (8 * (n - 1))` (`W.varUInt` writes a wrong length above;
+C++ `compute_state` and `Tx.computeState` fail there).
 
 `computeState_readBack`: the account `Tx.computeState` writes from a state `tf`, put in a shard
 account (`shardAccountCell`), reads back (`Account.unpack`) as an active account only if `tf` is
 active, and then with the code and the data of `tf`. `Tx.computeState` is cut into definitional
-pieces for this (`computeState_pieces`: `csAdjust`, `csState`, `csUsed`, `preW`); the parts it
+pieces for this (`computeState_pieces`: `csAdjust`, `csState`, `Tx.storageStat`, `preW`); the parts it
 writes (`StateParts`) must fit their fields (`StateParts.Fits`: what C++ `compute_state` checks
 with `FAIL_UNLESS` on each store, and the shape of the address).
 -/
@@ -632,8 +632,8 @@ namespace TvmLean.Tx
 /-! ## The account `Tx.computeState` writes -/
 
 /-! `Tx.computeState` in pieces: `csAdjust` (the status of an empty uninitialized or deleted
-account), `csState` (the transaction as written and the storage), `csUsed` (the storage statistics
-and the dict hash), `preW` (the bits before the storage). `computeState_pieces`: `Tx.computeState`
+account), `csState` (the transaction as written and the storage), `Tx.storageStat` (the storage
+statistics and the dict hash), `preW` (the bits before the storage). `computeState_pieces`: `Tx.computeState`
 is these pieces put together (definitionally). -/
 
 /-- The first step of `Tx.computeState`: an empty uninitialized account is not created, an account
@@ -677,29 +677,6 @@ def csState (t : Tx) : Tx × W :=
     let w := if csTT t ≠ 0 then w.uint (csTT t ||| 4) 3 else w.uint 0 1
     (t, ((w.maybeRef t.newCode).maybeRef t.newData).maybeRef t.newLibrary)
 
-/-- The storage statistics and the dict hash `Tx.computeState` writes for the storage `storage`. -/
-def csUsed (t : Tx) (sl : SizeLimits) (storage : Cell) : StorageUsed × Option BitString :=
-  let withoutExtra (rs : Array Cell) (extra : Bool) : Array Cell :=
-    if t.gv ≥ 10 && extra then rs.extract 1 rs.size else rs
-  let oldRefs : Option (Array Cell) := t.account.storage.map fun s =>
-    withoutExtra (s.cell.refs.extract s.refPos s.cell.refs.size) t.account.balance.extra.isSome
-  let newRefs := withoutExtra storage.refs t.balanceExtra.isSome
-  let oldBits : Nat := (t.account.storage.map (·.bitsRemaining)).getD 0
-  let refsChanged : Bool :=
-    match oldRefs with
-    | none => true
-    | some rs => rs.size != newRefs.size || (rs.zip newRefs).any fun (a, b) => a.hashBytes != b.hashBytes
-  let storeDictHash := t.gv ≥ 11 && !t.account.isMasterchain
-  if refsChanged || (storeDictHash && t.account.storageDictHash.isNone && t.account.storageUsed.cells > 25) then
-    let m := collectCells newRefs.toList
-    let (c, b) := cellsAndBits m
-    let used : StorageUsed := { cells := c + 1, bits := b + storage.bits.size }
-    let dh := if storeDictHash && used.cells ≥ sl.accStateCellsForStorageDict then storageDictHash m else none
-    (used, dh)
-  else
-    ({ t.account.storageUsed with bits := t.account.storageUsed.bits - oldBits + storage.bits.size },
-     if storeDictHash then t.account.storageDictHash else none)
-
 /-- The address `Tx.computeState` writes (the version of `t₀`, the transaction before `csState`). -/
 def csAddr (t₀ t : Tx) : Cell := if t₀.gv ≥ 10 then t.myAddr else t.account.myAddr
 
@@ -717,14 +694,17 @@ def preW (addr : Cell) (used : StorageUsed) (dictHash : Option BitString) (lastP
 set_option maxHeartbeats 2000000 in
 /-- `Tx.computeState` in pieces (definitionally the same). -/
 theorem computeState_pieces (t : Tx) (sl : SizeLimits) :
-    t.computeState sl =
+    t.computeState sl = (do
       let t := csAdjust t
-      if t.accStatus == .nonexist || t.accStatus == .deleted then (t, (W.bool {} false).cell)
-      else
-        let (t', w) := csState t
-        let (used, dictHash) := csUsed t' sl w.cell
-        (t', ((preW (csAddr t t') used dictHash t'.lastPaid t'.duePayment).slice (Slice.ofCell w.cell)).cell) := by
-  unfold Tx.computeState csAdjust csState csUsed csAddr preW csFpl csTT csW csFrozenHash
+      if t.accStatus == .nonexist || t.accStatus == .deleted then return (t, (W.bool {} false).cell)
+      if t.balance ≥ 2 ^ 120 then none
+      let (t', w) := csState t
+      let (used, dictHash) ← t'.storageStat sl w.cell
+      if used.cells ≥ 2 ^ 48 || used.bits ≥ 2 ^ 48 then none
+      if t'.duePayment ≥ 2 ^ 120 then none
+      return (t', ((preW (csAddr t t') used dictHash t'.lastPaid t'.duePayment).slice
+        (Slice.ofCell w.cell)).cell)) := by
+  unfold Tx.computeState csAdjust csState csAddr preW csFpl csTT csW csFrozenHash
   rfl
 
 /-- What `Tx.computeState` writes, when it writes an account (not `account_none`): the transaction
@@ -738,49 +718,71 @@ structure StateParts where
   dictHash : Option BitString
   fpl : Nat
 
-/-- The parts of the account `Tx.computeState` writes; `none` for `account_none`. -/
+/-- The parts of the account `Tx.computeState` writes; `none` for `account_none` (and where the
+update of the storage statistics wraps around). -/
 def Tx.computeStateParts (t : Tx) (sl : SizeLimits) : Option StateParts :=
   let t := csAdjust t
   if t.accStatus == .nonexist || t.accStatus == .deleted then none
   else
     let (t', w) := csState t
-    let (used, dictHash) := csUsed t' sl w.cell
-    some { t := t', addr := csAddr t t', storage := w.cell, used, dictHash, fpl := csFpl t }
+    match t'.storageStat sl w.cell with
+    | none => none
+    | some (used, dictHash) =>
+      some { t := t', addr := csAddr t t', storage := w.cell, used, dictHash, fpl := csFpl t }
 
-theorem computeState_some (t : Tx) (sl : SizeLimits) (p : StateParts) (hp : t.computeStateParts sl = some p) :
-    (t.computeState sl).1 = p.t ∧
-      (t.computeState sl).2 = ((preW p.addr p.used p.dictHash p.t.lastPaid p.t.duePayment).slice
-        (Slice.ofCell p.storage)).cell := by
-  rw [computeState_pieces]
-  revert hp
+theorem computeState_some {t : Tx} {sl : SizeLimits} {p : StateParts} (hp : t.computeStateParts sl = some p)
+    {t' : Tx} {acc : Cell} (h : t.computeState sl = some (t', acc)) :
+    t' = p.t ∧ acc = ((preW p.addr p.used p.dictHash p.t.lastPaid p.t.duePayment).slice
+      (Slice.ofCell p.storage)).cell := by
+  rw [computeState_pieces] at h
+  revert hp h
   unfold Tx.computeStateParts
   dsimp only
   split
   · intro hp; cases hp
   · generalize csState (csAdjust t) = q
-    obtain ⟨t', w⟩ := q
+    obtain ⟨t1, w⟩ := q
     dsimp only
-    generalize csUsed t' sl w.cell = r
-    obtain ⟨used, dh⟩ := r
-    intro hp
-    cases hp
-    exact ⟨rfl, rfl⟩
+    generalize t1.storageStat sl w.cell = r
+    cases r with
+    | none => intro hp; cases hp
+    | some r =>
+      obtain ⟨used, dh⟩ := r
+      intro hp h
+      cases hp
+      simp only [bind, Option.bind] at h
+      split at h
+      · cases h
+      · split at h
+        · cases h
+        · split at h
+          · cases h
+          · cases h
+            exact ⟨rfl, rfl⟩
 
-theorem computeState_none (t : Tx) (sl : SizeLimits) (hp : t.computeStateParts sl = none) :
-    (t.computeState sl).2 = (W.bool {} false).cell := by
-  rw [computeState_pieces]
-  revert hp
+theorem computeState_none {t : Tx} {sl : SizeLimits} (hp : t.computeStateParts sl = none) {t' : Tx} {acc : Cell}
+    (h : t.computeState sl = some (t', acc)) : acc = (W.bool {} false).cell := by
+  rw [computeState_pieces] at h
+  revert hp h
   unfold Tx.computeStateParts
   dsimp only
   split
-  · intro _; rfl
+  · intro _ h
+    simp only [pure] at h
+    cases h
+    rfl
   · generalize csState (csAdjust t) = q
-    obtain ⟨t', w⟩ := q
+    obtain ⟨t1, w⟩ := q
     dsimp only
-    generalize csUsed t' sl w.cell = r
-    obtain ⟨used, dh⟩ := r
-    intro hp
-    cases hp
+    generalize t1.storageStat sl w.cell = r
+    cases r with
+    | some r => intro hp; cases hp
+    | none =>
+      intro _ h
+      simp only [bind, Option.bind] at h
+      split at h
+      · cases h
+      · cases h
 
 end TvmLean.Tx
 
@@ -1074,8 +1076,9 @@ theorem ReadsAs.ltBalance (endLt : Nat) {g : Nat} (hg : g < 2 ^ 120) (e : Option
 /-- The parts of the account `Tx.computeState` writes fit the fields of `Account`: an address of
 `Account.mkAddr` (256 bits, an anycast prefix below 32 bits), the storage statistics below `2^48`
 (`VarUInteger 7`), a dict hash of 256 bits, the due payment and the balance below `2^120` (`Grams`),
-the fixed prefix length below 32 (`## 5`). C++ `compute_state` fails otherwise (each store is a
-`FAIL_UNLESS`); the model writes the account anyway, with wrong lengths (`W.varUInt`, `W.uint`). -/
+the fixed prefix length below 32 (`## 5`). C++ `compute_state` fails where the balance, the
+storage statistics or the due payment do not fit (each store is a `FAIL_UNLESS`), and so does
+`Tx.computeState`. -/
 structure StateParts.Fits (p : StateParts) : Prop where
   addr : ∃ wc any a lim, p.addr = Account.mkAddr wc any a lim ∧ a.size = 256 ∧ ∀ q, any = some q → q.size < 32
   cells : p.used.cells < 2 ^ 48
@@ -1102,24 +1105,27 @@ theorem computeStateParts_some {tf : Tx} {sl : SizeLimits} {p : StateParts} (hp 
     obtain ⟨t', w⟩ := q
     dsimp only
     intro hp
-    cases hp
-    simp only [Bool.or_eq_true, beq_iff_eq, not_or] at hs
-    exact ⟨hs.1, hs.2, rfl, rfl, rfl⟩
+    split at hp
+    · cases hp
+    · cases hp
+      simp only [Bool.or_eq_true, beq_iff_eq, not_or] at hs
+      exact ⟨hs.1, hs.2, rfl, rfl, rfl⟩
 
 /-- **Read-back.** If the shard account of the account `Tx.computeState` writes from `tf` (fitting)
 reads back as an active account, `tf` is active and the account's code and data are those of
 `tf`. -/
-theorem computeState_readBack {tf : Tx} {sl : SizeLimits} (hf : tf.Fits sl) {hash : BitString}
+theorem computeState_readBack {tf : Tx} {sl : SizeLimits} {t' : Tx} {acc : Cell}
+    (hcs : tf.computeState sl = some (t', acc)) (hf : tf.Fits sl) {hash : BitString}
     (hh : hash.size = 256) (lt : Nat) {wc : Int} {addr : BitString} {sp : Bool} {a : Account}
-    (hu : Account.unpack (shardAccountCell (tf.computeState sl).2 hash lt) wc addr sp = some a)
+    (hu : Account.unpack (shardAccountCell acc hash lt) wc addr sp = some a)
     (ha : a.status = .active) :
     tf.accStatus = .active ∧ a.code = tf.newCode ∧ a.data = tf.newData := by
-  obtain ⟨acc, x, storage, q, state, si, hsa, hbit, hpre, ⟨v, hcur⟩, hsbit, hsi, hcode, hdata⟩ :=
+  obtain ⟨acc', x, storage, q, state, si, hsa, hbit, hpre, ⟨v, hcur⟩, hsbit, hsi, hcode, hdata⟩ :=
     OKo_of (unpack_active _ wc addr sp) hu ha
   have hacc := shardAccount_read hh hsa
   cases hp : tf.computeStateParts sl with
   | none =>
-    rw [computeState_none tf sl hp] at hacc
+    rw [computeState_none hp hcs] at hacc
     subst hacc
     have hr := Rem.ofCell (W.bool {} false).cell
     rw [show (W.bool {} false).cell.bits.toList = [false] from rfl] at hr
@@ -1128,7 +1134,7 @@ theorem computeState_readBack {tf : Tx} {sl : SizeLimits} (hf : tf.Fits sl) {has
   | some p =>
     have pf := hf p hp
     obtain ⟨hne, hnd, hpt, hps, hpf⟩ := computeStateParts_some hp
-    obtain ⟨_, hacc2⟩ := computeState_some tf sl p hp
+    obtain ⟨_, hacc2⟩ := computeState_some hp hcs
     rw [hacc2] at hacc
     subst hacc
     obtain ⟨awc, any, aa, lim, hpa, hasz, hany⟩ := pf.addr

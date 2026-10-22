@@ -161,7 +161,7 @@ theorem EmulateFinal.effect {configRoot shardAccount inMsg : Cell} {now lt : Nat
 `tf` with `Effect t₀ tf`, `t₀` the state read from the shard account (`StartsFrom`). -/
 theorem emulate_effect (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString)
     (libs : Option Cell) :
-    OKp (OKout fun _ acc => ∃ tf sl cfg wc addr t₀, acc = (tf.computeState sl).2 ∧
+    OKp (OKout fun _ acc => ∃ tf sl t' cfg wc addr t₀, tf.computeState sl = some (t', acc) ∧
         StartsFrom shardAccount cfg wc addr .ord t₀ ∧ Effect t₀ tf)
       (emulate configRoot shardAccount inMsg now lt randSeed libs) := by
   have h := emulate_final configRoot shardAccount inMsg now lt randSeed libs
@@ -170,9 +170,9 @@ theorem emulate_effect (configRoot shardAccount inMsg : Cell) (now lt : Nat) (ra
   cases emulate configRoot shardAccount inMsg now lt randSeed libs with
   | ok tx acc =>
     intro h
-    obtain ⟨tf, sl, hacc, hf⟩ := h
+    obtain ⟨tf, sl, t', hacc, hf⟩ := h
     obtain ⟨cfg, wc, addr, t₀, hs, he⟩ := hf.effect
-    exact ⟨tf, sl, cfg, wc, addr, t₀, hacc, hs, he⟩
+    exact ⟨tf, sl, t', cfg, wc, addr, t₀, hacc, hs, he⟩
   | _ => intro _; trivial
 
 /-- The state `tf` a tick-tock transaction ends in (`TickTockFinal`) has `Effect t₀ tf` from the
@@ -204,7 +204,7 @@ theorem TickTockFinal.effect {configRoot shardAccount : Cell} {isTock : Bool} {n
 /-- **What a tick-tock transaction does** (`emulateTickTock`). -/
 theorem emulateTickTock_effect (configRoot shardAccount : Cell) (isTock : Bool) (now lt : Nat)
     (randSeed : BitString) (libs : Option Cell) :
-    OKp (OKout fun _ acc => ∃ tf sl cfg wc addr kind t₀, acc = (tf.computeState sl).2 ∧
+    OKp (OKout fun _ acc => ∃ tf sl t' cfg wc addr kind t₀, tf.computeState sl = some (t', acc) ∧
         StartsFrom shardAccount cfg wc addr kind t₀ ∧ Effect t₀ tf)
       (emulateTickTock configRoot shardAccount isTock now lt randSeed libs) := by
   have h := emulateTickTock_final configRoot shardAccount isTock now lt randSeed libs
@@ -213,9 +213,9 @@ theorem emulateTickTock_effect (configRoot shardAccount : Cell) (isTock : Bool) 
   cases emulateTickTock configRoot shardAccount isTock now lt randSeed libs with
   | ok tx acc =>
     intro h
-    obtain ⟨tf, sl, hacc, hf⟩ := h
+    obtain ⟨tf, sl, t', hacc, hf⟩ := h
     obtain ⟨cfg, wc, addr, kind, t₀, hs, he⟩ := hf.effect
-    exact ⟨tf, sl, cfg, wc, addr, kind, t₀, hacc, hs, he⟩
+    exact ⟨tf, sl, t', cfg, wc, addr, kind, t₀, hacc, hs, he⟩
   | _ => intro _; trivial
 
 end TvmLean.Tx

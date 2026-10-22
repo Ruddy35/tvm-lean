@@ -66,7 +66,7 @@ set_option maxHeartbeats 2000000 in
 `EmulateFinal`, and the new account is the one `Tx.computeState` writes from it. -/
 theorem emulate_final (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString)
     (libs : Option Cell) :
-    OKp (OKout fun _ acc => ∃ tf sl, acc = (tf.computeState sl).2 ∧
+    OKp (OKout fun _ acc => ∃ tf sl t', tf.computeState sl = some (t', acc) ∧
         EmulateFinal configRoot shardAccount inMsg now lt randSeed libs tf sl)
       (emulate configRoot shardAccount inMsg now lt randSeed libs) := by
   unfold emulate
@@ -93,7 +93,7 @@ set_option maxHeartbeats 2000000 in
 /-- **Decomposition of `emulateTickTock`.** -/
 theorem emulateTickTock_final (configRoot shardAccount : Cell) (isTock : Bool) (now lt : Nat)
     (randSeed : BitString) (libs : Option Cell) :
-    OKp (OKout fun _ acc => ∃ tf sl, acc = (tf.computeState sl).2 ∧
+    OKp (OKout fun _ acc => ∃ tf sl t', tf.computeState sl = some (t', acc) ∧
         TickTockFinal configRoot shardAccount isTock now lt randSeed libs tf sl)
       (emulateTickTock configRoot shardAccount isTock now lt randSeed libs) := by
   unfold emulateTickTock

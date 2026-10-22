@@ -648,68 +648,87 @@ def W.status (w : W) (s : AccStatus) : W :=
 /-- `store_UInt7` (`VarUInteger 7`). -/
 def W.uint7 (w : W) (v : Nat) : W := w.varUInt v 7
 
-/-- `Transaction::compute_state`: the new `Account` cell. -/
-def Tx.computeState (t : Tx) (sl : SizeLimits) : Tx × Cell :=
+/-- The storage statistics and the dict hash of the new account with the storage `storage`
+(`Transaction::compute_state`, transaction.cpp:3630-3710): recomputed when the references of the storage
+change, else updated by the bits of its root; from version 10 without the extra currencies
+(`storage_without_extra_currencies` replaces the dictionary of the balance, its first reference, by
+`hme_empty`: the same bits). `none` where the update of the bits (`new_storage_used.bits -= old;
+new_storage_used.bits += new`, 3704-3705, 64-bit) wraps around below zero: at least 2^64 - 1023,
+which `store_UInt7` refuses (3714-3715). -/
+def Tx.storageStat (t : Tx) (sl : SizeLimits) (storage : Cell) : Option (StorageUsed × Option BitString) :=
+  let withoutExtra (rs : Array Cell) (extra : Bool) : Array Cell :=
+    if t.gv ≥ 10 && extra then rs.extract 1 rs.size else rs
+  let oldRefs : Option (Array Cell) := t.account.storage.map fun s =>
+    withoutExtra (s.cell.refs.extract s.refPos s.cell.refs.size) t.account.balance.extra.isSome
+  let newRefs := withoutExtra storage.refs t.balanceExtra.isSome
+  let oldBits : Nat := (t.account.storage.map (·.bitsRemaining)).getD 0
+  let refsChanged : Bool :=
+    match oldRefs with
+    | none => true
+    | some rs => rs.size != newRefs.size || (rs.zip newRefs).any fun (a, b) => a.hashBytes != b.hashBytes
+  let storeDictHash := t.gv ≥ 11 && !t.account.isMasterchain
+  if refsChanged || (storeDictHash && t.account.storageDictHash.isNone && t.account.storageUsed.cells > 25) then
+    let m := collectCells newRefs.toList
+    let (c, b) := cellsAndBits m
+    let used : StorageUsed := { cells := c + 1, bits := b + storage.bits.size }
+    let dh := if storeDictHash && used.cells ≥ sl.accStateCellsForStorageDict then storageDictHash m else none
+    some (used, dh)
+  else if t.account.storageUsed.bits + storage.bits.size < oldBits then none
+  else
+    some ({ t.account.storageUsed with bits := t.account.storageUsed.bits + storage.bits.size - oldBits },
+      if storeDictHash then t.account.storageDictHash else none)
+
+/-- `Transaction::compute_state` (transaction.cpp:3552-3735): the new `Account` cell, or `none` where C++
+returns `false` (a store of a `FAIL_UNLESS` that does not fit; `serialize` fails and so does the
+emulator, transaction-emulator.cpp:70-73): the balance and the due payment are `Grams` (below 2^120),
+the storage statistics `VarUInteger 7` (below 2^48). The other stores cannot fail: `store_long_bool`
+keeps the low bits of a value (the logical time, the fixed prefix length, the last paid time), and the
+account has at most 1023 bits (an `addr_std` address with an anycast prefix of 30 bits and every other
+field at its largest; an anycast account in workchain 127 has a longer `addr_var` address, which fails
+`accountAddrValid`) and 4 references; the balance of an account written as `account_none` is zero. -/
+def Tx.computeState (t : Tx) (sl : SizeLimits) : Option (Tx × Cell) := do
   let zero := t.balance = 0 && t.balanceExtra.isNone
   let t := if t.accStatus == .uninit && !t.wasActivated && zero then { t with accStatus := .nonexist, wasCreated := false } else t
   let t := if t.accStatus == .deleted && !zero then { t with accStatus := .uninit } else t
-  if t.accStatus == .nonexist || t.accStatus == .deleted then (t, (W.bool {} false).cell)
-  else
-    let disableAnycast := t.gv ≥ 10
-    let ticktock := (if t.newTick then 2 else 0) + (if t.newTock then 1 else 0)
-    let fpl := if disableAnycast then t.newFixedPrefixLength else t.account.addrRewriteLength
-    let stateInitBits (w : W) : W :=
-      let w := if fpl ≠ 0 then w.uint (fpl + 32) 6 else w.uint 0 1
+  if t.accStatus == .nonexist || t.accStatus == .deleted then return (t, (W.bool {} false).cell)
+  -- `balance.store(cb)` (3572-3573): the grams are `Grams`
+  if t.balance ≥ 2 ^ 120 then none
+  let disableAnycast := t.gv ≥ 10
+  let ticktock := (if t.newTick then 2 else 0) + (if t.newTock then 1 else 0)
+  let fpl := if disableAnycast then t.newFixedPrefixLength else t.account.addrRewriteLength
+  let stateInitBits (w : W) : W :=
+    let w := if fpl ≠ 0 then w.uint (fpl + 32) 6 else w.uint 0 1
+    let w := if ticktock ≠ 0 then w.uint (ticktock ||| 4) 3 else w.uint 0 1
+    ((w.maybeRef t.newCode).maybeRef t.newData).maybeRef t.newLibrary
+  let w : W := ((({} : W).uint t.endLt 64).currencies { grams := t.balance, extra := t.balanceExtra })
+  let (t, w) :=
+    if t.accStatus == .uninit then (t, w.uint 0 2)
+    else if t.accStatus == .frozen then
+      let frozenHash := if t.wasFrozen then bytesToBits (stateInitBits {}).cell.hashBytes else t.frozenHash
+      let t := { t with frozenHash, newCode := none, newData := none, newLibrary := none }
+      if frozenHash == t.account.addrOrig then
+        ({ t with accStatus := if t.gv ≥ 13 then .uninit else t.accStatus }, w.uint 0 2)
+      else (t, (w.uint 1 2).bitStr frozenHash)
+    else
+      -- active: account_active$1 and the StateInit
+      let w := if fpl ≠ 0 then w.uint (fpl + 96) 7 else w.uint 2 2
       let w := if ticktock ≠ 0 then w.uint (ticktock ||| 4) 3 else w.uint 0 1
-      ((w.maybeRef t.newCode).maybeRef t.newData).maybeRef t.newLibrary
-    let w : W := ((({} : W).uint t.endLt 64).currencies { grams := t.balance, extra := t.balanceExtra })
-    let (t, w) :=
-      if t.accStatus == .uninit then (t, w.uint 0 2)
-      else if t.accStatus == .frozen then
-        let frozenHash := if t.wasFrozen then bytesToBits (stateInitBits {}).cell.hashBytes else t.frozenHash
-        let t := { t with frozenHash, newCode := none, newData := none, newLibrary := none }
-        if frozenHash == t.account.addrOrig then
-          ({ t with accStatus := if t.gv ≥ 13 then .uninit else t.accStatus }, w.uint 0 2)
-        else (t, (w.uint 1 2).bitStr frozenHash)
-      else
-        -- active: account_active$1 and the StateInit
-        let w := if fpl ≠ 0 then w.uint (fpl + 96) 7 else w.uint 2 2
-        let w := if ticktock ≠ 0 then w.uint (ticktock ||| 4) 3 else w.uint 0 1
-        (t, ((w.maybeRef t.newCode).maybeRef t.newData).maybeRef t.newLibrary)
-    let storage := w.cell
-    -- storage statistics: recomputed when the references of the storage change, else updated by the
-    -- bits of its root; from version 10 without the extra currencies (`storage_without_extra_currencies`
-    -- replaces the dictionary of the balance, its first reference, by `hme_empty`: the same bits)
-    let withoutExtra (rs : Array Cell) (extra : Bool) : Array Cell :=
-      if t.gv ≥ 10 && extra then rs.extract 1 rs.size else rs
-    let oldRefs : Option (Array Cell) := t.account.storage.map fun s =>
-      withoutExtra (s.cell.refs.extract s.refPos s.cell.refs.size) t.account.balance.extra.isSome
-    let newRefs := withoutExtra storage.refs t.balanceExtra.isSome
-    let oldBits : Nat := (t.account.storage.map (·.bitsRemaining)).getD 0
-    let refsChanged : Bool :=
-      match oldRefs with
-      | none => true
-      | some rs => rs.size != newRefs.size || (rs.zip newRefs).any fun (a, b) => a.hashBytes != b.hashBytes
-    let storeDictHash := t.gv ≥ 11 && !t.account.isMasterchain
-    let (used, dictHash) :=
-      if refsChanged || (storeDictHash && t.account.storageDictHash.isNone && t.account.storageUsed.cells > 25) then
-        let m := collectCells newRefs.toList
-        let (c, b) := cellsAndBits m
-        let used : StorageUsed := { cells := c + 1, bits := b + storage.bits.size }
-        let dh := if storeDictHash && used.cells ≥ sl.accStateCellsForStorageDict then storageDictHash m else none
-        (used, dh)
-      else
-        ({ t.account.storageUsed with bits := t.account.storageUsed.bits - oldBits + storage.bits.size },
-         if storeDictHash then t.account.storageDictHash else none)
-    let addr := if disableAnycast then t.myAddr else t.account.myAddr
-    let w : W := ({} : W).bool true |>.slice (Slice.ofCell addr)
-    let w := (w.uint7 used.cells).uint7 used.bits
-    let w := match dictHash with
-      | some h => (w.uint 1 3).bitStr h
-      | none => w.uint 0 3
-    let w := w.uint t.lastPaid 32
-    let w := if t.duePayment ≠ 0 then (w.bool true).grams t.duePayment else w.bool false
-    (t, (w.slice (Slice.ofCell storage)).cell)
+      (t, ((w.maybeRef t.newCode).maybeRef t.newData).maybeRef t.newLibrary)
+  let storage := w.cell
+  let (used, dictHash) ← t.storageStat sl storage
+  -- `store_UInt7` (3714-3715): the storage statistics are `VarUInteger 7`
+  if used.cells ≥ 2 ^ 48 || used.bits ≥ 2 ^ 48 then none
+  -- `t_Grams.store_integer_ref(cb, due_payment)` (3720)
+  if t.duePayment ≥ 2 ^ 120 then none
+  let addr := if disableAnycast then t.myAddr else t.account.myAddr
+  let w : W := ({} : W).bool true |>.slice (Slice.ofCell addr)
+  let w := (w.uint7 used.cells).uint7 used.bits
+  let w := match dictHash with
+    | some h => (w.uint 1 3).bitStr h
+    | none => w.uint 0 3
+  let w := w.uint t.lastPaid 32
+  let w := if t.duePayment ≠ 0 then (w.bool true).grams t.duePayment else w.bool false
+  return (t, (w.slice (Slice.ofCell storage)).cell)
 
 /-- `serialize_compute_phase`. -/
 def W.computePhase (w : W) (cp : ComputePhase) : W :=
