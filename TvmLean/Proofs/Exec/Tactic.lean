@@ -1,4 +1,5 @@
 import Lean
+import TvmLean.Proofs.Fast.Twin
 import TvmLean.Proofs.DecEq
 import TvmLean.Proofs.Exec.Run
 import TvmLean.Proofs.Exec.Spec.Stack
@@ -26,8 +27,10 @@ rewrites one step of the run, `vm_run` the whole run:
   `stepCode`) is chosen by evaluating the code: the next instruction
   (`VmState.stepOnceWith_instr'`), or the implicit `RET` or `JMPREF`; the facts it rests on (the bits
   left, the opcode's global version, the decoded instruction) are computed natively and proved by
-  `decide`, checked by the kernel (`kernelEq`: an auxiliary lemma, one per code position, cached),
-  so the decoder is never unfolded in the goal. Other continuations (`quit`, the exception handler
+  `decide`, checked by the kernel (`kernelEq`: an auxiliary lemma, one per code position, cached;
+  with the option `vm.fastFacts`, by kernel evaluation over the fast twins of
+  `TvmLean/Proofs/Fast/`, which takes a fraction of the time), so the decoder is never unfolded in
+  the goal. Other continuations (`quit`, the exception handler
   `excQuit`) are unfolded (`VmState.stepOnceWith`, its destructuring of pairs made projections,
   `pairMatchToProj`);
 * the instruction runs by its specification (`runInstr`: the lemmas tagged `vm_spec`, their
@@ -106,10 +109,21 @@ unsafe def evalNatUnsafe (e : Expr) : MetaM Nat := evalExpr Nat (mkConst ``Nat) 
 /-- The value of a closed term of type `Nat`. -/
 @[implemented_by evalNatUnsafe] opaque evalNat (e : Expr) : MetaM Nat
 
+register_option vm.fastFacts : Bool := {
+  defValue := false
+  descr := "prove the closed facts of the code (`kernelEq`: the decoded instructions, dictionary \
+    lookups) by kernel evaluation over the fast twins (`TvmLean.Fast.fastRflProof`, \
+    TvmLean/Proofs/Fast/Twin.lean) instead of `decide`; the speed-up needs the replacements of \
+    TvmLean/Proofs/Fast/ imported (e.g. `TvmLean.Proofs.Fast.Run`)"
+}
+
 /-- A proof of `lhs = rhs`, both closed, by `decide`, checked by the kernel alone (an auxiliary
-lemma, as `decide +kernel` makes). -/
+lemma, as `decide +kernel` makes); with the option `vm.fastFacts`, by kernel evaluation over the
+fast twins (`TvmLean.Fast.fastRflProof`, also an auxiliary lemma checked by the kernel). -/
 def kernelEq (lhs rhs : Expr) : MetaM Expr := do
   let ty ← mkEq lhs rhs
+  if vm.fastFacts.get (← getOptions) then
+    return ← Fast.fastRflProof ty
   let pf ← mkDecideProof ty
   let name ← mkAuxLemma [] ty pf
   return mkConst name
