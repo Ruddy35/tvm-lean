@@ -32,11 +32,17 @@ its assumption `H`; the facts no longer needed are best cleared, since `grind` i
 quantified hypothesis on every value it sees.
 
 * `VM.KeepsIf H m Q`: `VM.Keeps` under a pure assumption `H` (the precondition of a join point);
-  `VM.KeepsIf.of_keeps`;
-* `VM.Keeps.bind`, `VM.Keeps.pure'`, `VM.Keeps.get'`, `VM.Keeps.set'`, `VM.Keeps.ofWF`: the steps;
+  `VM.KeepsIf.of_keeps`; `VM.KeepsWFIf H m`, the same for an action without a result (a join
+  point of a handler, whose jumps `mvcgen` leaves with the postcondition of `VM.KeepsWF`
+  simplified);
+* `VM.Keeps.bind`, `VM.Keeps.pure'`, `VM.Keeps.throw'`, `VM.Keeps.get'`, `VM.Keeps.set'`,
+  `VM.Keeps.ofWF`: the steps;
 * `VM.Keeps.forIn_list`, `VM.Keeps.forIn_range`: loops in the VM monad with an invariant of their
   state (`mvcgen`'s loop invariants are not offered on a loop alone);
-* `jp_close h`: a jump to a join point closed by its specification `h`.
+* `VM.Keeps.forIn_array`: the same over an array;
+* `jp_close h`: a jump to a join point closed by its specification `h`; `keeps_leaf h`: the same
+  in a handler proved by hand (`split` for its `if`s and `match`es, where `mvcgen` builds an
+  ill-typed proof on some `match`es with a catch-all pattern or on pairs, Lean 4.24).
 -/
 
 open Std.Do
@@ -55,6 +61,18 @@ theorem VM.KeepsIf.of_keeps {α : Type} {H : Prop} {m : VM α} {Q : α → Prop}
   intro st ⟨hs, hH⟩
   exact VM.triple_run (h hH) st hs
 
+/-- `VM.KeepsIf` of an action without a result, with the postcondition `mvcgen` leaves for
+`VM.KeepsWF` (the join points of a handler). -/
+abbrev VM.KeepsWFIf (H : Prop) (m : VM Unit) : Prop :=
+  ⦃fun st => ⌜st.WF ∧ H⌝⦄ m ⦃post⟨fun _ st => ⌜st.WF⌝, fun _ st => ⌜st.WF⌝⟩⦄
+
+theorem VM.KeepsWFIf.of_keeps {H : Prop} {m : VM Unit} (h : H → m.KeepsWF) : VM.KeepsWFIf H m :=
+  VM.spec_mono (VM.KeepsIf.of_keeps h) (fun _ h => h) (fun _ _ h => h.1) (fun _ _ h => h)
+
+theorem VM.KeepsWFIf.keeps {H : Prop} {m : VM Unit} (h : VM.KeepsWFIf H m) (hH : H) :
+    m.KeepsWF :=
+  VM.spec_mono h (fun _ h => ⟨h, hH⟩) (fun _ _ h => ⟨h, trivial⟩) (fun _ _ h => h)
+
 theorem VM.Keeps.bind {α β : Type} {x : VM α} {f : α → VM β} {Q : α → Prop} {R : β → Prop}
     (hx : x.Keeps Q) (hf : ∀ a, Q a → (f a).Keeps R) : (x >>= f).Keeps R :=
   Triple.bind _ _ hx fun a => VM.KeepsIf.of_keeps (hf a)
@@ -67,6 +85,9 @@ theorem VM.Keeps.ofWF {α : Type} {m : VM α}
 
 theorem VM.Keeps.pure' {α : Type} {Q : α → Prop} {a : α} (h : Q a) :
     (pure a : VM α).Keeps Q := by
+  mvcgen
+
+theorem VM.Keeps.throw' {α : Type} {Q : α → Prop} (e : Excno) : (throw e : VM α).Keeps Q := by
   mvcgen
 
 theorem VM.Keeps.get' : (get : VM VmState).Keeps VmState.WF := by
@@ -95,6 +116,23 @@ theorem VM.Keeps.forIn_range {β : Type} (P : β → Prop) (r : Std.Range) {init
     (hf : ∀ i b, P b → (f i b).Keeps fun s => P s.value) : (forIn r init f).Keeps P := by
   rw [Std.Range.forIn_eq_forIn_range']
   exact VM.Keeps.forIn_list P _ h0 hf
+
+/-- A loop over an array in the VM monad, as `VM.Keeps.forIn_list`. -/
+theorem VM.Keeps.forIn_array {α β : Type} (P : β → Prop) (a : Array α) {init : β}
+    {f : α → β → VM (ForInStep β)} (h0 : P init)
+    (hf : ∀ x b, P b → (f x b).Keeps fun s => P s.value) : (forIn a init f).Keeps P := by
+  rw [← Array.forIn_toList]
+  exact VM.Keeps.forIn_list P _ h0 hf
+
+/-- Closes a leaf of a handler proved by hand: a `throw`, or a value passed to a join point whose
+specification is `h` (`keeps_leaf (hjp _ _)`, the last argument left to the tactic). -/
+macro "keeps_leaf " h:term : tactic => `(tactic|
+  first
+    | exact VM.Keeps.bind (Q := fun _ => False) (VM.Keeps.throw' _) fun _ h => h.elim
+    | exact VM.Keeps.throw' _
+    | exact VM.Keeps.bind (Q := fun _ => True) (VM.Keeps.pure' trivial) fun _ _ =>
+        ($h _).keeps trivial
+    | exact ($h _).keeps trivial)
 
 /-- Closes a jump to a join point, `wp⟦jp args⟧ Q st` (or the condition `mvcgen` leaves before
 it, `∀ st, st.WF → ... → wp⟦jp args⟧ Q st`), by the specification `h` of the join point applied to
