@@ -24,7 +24,7 @@ instructions, and NaN for the quiet ones (C++ `push_int_quiet`); the fit of a re
   `QBITSIZE`, `ISNAN`, `CHKNAN`;
 * `AND`, `OR`, `XOR` and their quiet forms, the bitwise operations of `BitVec 257` (`and_bits`:
   the model's operation on the two's complements `twos257` read back signed is the `toInt` of the
-  `BitVec` operation), and `QNOT`. (`NOT` is specified with the instructions of wallet v3.)
+  `BitVec` operation), and `QNOT` (`NOT` is `Spec.not_` of `Spec/Arith.lean`).
 
 A handler whose conditions include literals is run after those are decided (`arith_pre`): the
 contextual `simp` of `vm_simp` loops in a branch that assumes a false literal condition. The
@@ -33,6 +33,11 @@ by `unfoldPrivateRun` and `delta_private`.
 -/
 
 namespace TvmLean.Spec
+
+/- The proofs of this module are elaborated one after the other: elaborated in parallel, they kept
+some 70 threads with their stacks and heaps, 8.4 GB of address space at the peak, near the limit
+of 12 GB a build runs under (sequentially: 3.2 GB). -/
+set_option Elab.async false
 
 open Lean Meta Simp in
 /-- `ExceptT.run (f args) st` for a private VM program `f` of the model (a `private def` in
@@ -859,8 +864,9 @@ maximum. -/
 def twos257 (x : Int) : BitString :=
   natToBits (if x ≥ 0 then x.toNat else (1 <<< 257) - (-x).toNat) 257
 
-/-- `intToBitsTwos x 257`: `twos257 x` if `x` fits 257 bits, range_chk otherwise. -/
-theorem intToBitsTwos_257 (x : Int) :
+/-- `intToBitsTwos x 257`: `twos257 x` if `x` fits 257 bits, range_chk otherwise (for any `x`;
+`TvmLean.intToBitsTwos_257` of `Spec/Arith.lean` is the case of an `x` that fits). -/
+theorem intToBitsTwos_twos257 (x : Int) :
     intToBitsTwos x 257 = if -2 ^ 256 ≤ x ∧ x < 2 ^ 256 then .ok (twos257 x) else .error .rangeChk := by
   unfold intToBitsTwos
   simp only [intPow2, Nat.reduceSub, Nat.reduceEqDiff, if_false]
@@ -922,7 +928,7 @@ theorem bitsAnd_natToBits (a b w : Nat) : bitsAnd (natToBits a w) (natToBits b w
   unfold bitsAnd
   simp only [size_natToBits, bne_self_eq_false, Bool.false_eq_true, if_false]
   apply Array.ext
-  · simp [size_natToBits]
+  · simp only [Array.size_ofFn, size_natToBits]
   · intro i h1 h2
     have hw : i < w := by simpa [size_natToBits] using h2
     rw [Array.getElem_ofFn]
@@ -933,7 +939,7 @@ theorem bitsOr_natToBits (a b w : Nat) : bitsOr (natToBits a w) (natToBits b w) 
   unfold bitsOr
   simp only [size_natToBits, bne_self_eq_false, Bool.false_eq_true, if_false]
   apply Array.ext
-  · simp [size_natToBits]
+  · simp only [Array.size_ofFn, size_natToBits]
   · intro i h1 h2
     have hw : i < w := by simpa [size_natToBits] using h2
     rw [Array.getElem_ofFn]
@@ -944,7 +950,7 @@ theorem bitsXor_natToBits (a b w : Nat) : bitsXor (natToBits a w) (natToBits b w
   unfold bitsXor
   simp only [size_natToBits, bne_self_eq_false, Bool.false_eq_true, if_false]
   apply Array.ext
-  · simp [size_natToBits]
+  · simp only [Array.size_ofFn, size_natToBits]
   · intro i h1 h2
     have hw : i < w := by simpa [size_natToBits] using h2
     rw [Array.getElem_ofFn]
@@ -1048,8 +1054,8 @@ theorem toInt_fits257 (v : BitVec 257) : -2 ^ 256 ≤ v.toInt ∧ v.toInt < 2 ^ 
   by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
   · have hf := toInt_fits257 (BitVec.ofInt 257 x &&& BitVec.ofInt 257 y)
     simp only [Int.reducePow, Int.reduceNeg] at hf
-    vm_simp [hs, intToBitsTwos_257, hx, hy, and_bits x y hx hy, hf]
-  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
+    vm_simp [hs, intToBitsTwos_twos257, hx, hy, and_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_twos257, hx, hy]
 
 /-- `OR` (C++ `exec_or`): as `and_`, the bitwise or. -/
 @[vm_spec] theorem or (st : VmState) (s : Stack) (x y : Int)
@@ -1061,8 +1067,8 @@ theorem toInt_fits257 (v : BitVec 257) : -2 ^ 256 ≤ v.toInt ∧ v.toInt < 2 ^ 
   by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
   · have hf := toInt_fits257 (BitVec.ofInt 257 x ||| BitVec.ofInt 257 y)
     simp only [Int.reducePow, Int.reduceNeg] at hf
-    vm_simp [hs, intToBitsTwos_257, hx, hy, or_bits x y hx hy, hf]
-  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
+    vm_simp [hs, intToBitsTwos_twos257, hx, hy, or_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_twos257, hx, hy]
 
 /-- `XOR` (C++ `exec_xor`): as `and_`, the bitwise exclusive or. -/
 @[vm_spec] theorem xor (st : VmState) (s : Stack) (x y : Int)
@@ -1074,8 +1080,8 @@ theorem toInt_fits257 (v : BitVec 257) : -2 ^ 256 ≤ v.toInt ∧ v.toInt < 2 ^ 
   by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
   · have hf := toInt_fits257 (BitVec.ofInt 257 x ^^^ BitVec.ofInt 257 y)
     simp only [Int.reducePow, Int.reduceNeg] at hf
-    vm_simp [hs, intToBitsTwos_257, hx, hy, xor_bits x y hx hy, hf]
-  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
+    vm_simp [hs, intToBitsTwos_twos257, hx, hy, xor_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_twos257, hx, hy]
 
 /-- `QAND` (C++ `exec_and`, quiet): as `and_`. -/
 @[vm_spec] theorem qand (st : VmState) (s : Stack) (x y : Int)
@@ -1087,8 +1093,8 @@ theorem toInt_fits257 (v : BitVec 257) : -2 ^ 256 ≤ v.toInt ∧ v.toInt < 2 ^ 
   by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
   · have hf := toInt_fits257 (BitVec.ofInt 257 x &&& BitVec.ofInt 257 y)
     simp only [Int.reducePow, Int.reduceNeg] at hf
-    vm_simp [hs, intToBitsTwos_257, hx, hy, and_bits x y hx hy, hf]
-  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
+    vm_simp [hs, intToBitsTwos_twos257, hx, hy, and_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_twos257, hx, hy]
 
 /-- `QOR` (C++ `exec_or`, quiet): as `or`. -/
 @[vm_spec] theorem qor (st : VmState) (s : Stack) (x y : Int)
@@ -1100,8 +1106,8 @@ theorem toInt_fits257 (v : BitVec 257) : -2 ^ 256 ≤ v.toInt ∧ v.toInt < 2 ^ 
   by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
   · have hf := toInt_fits257 (BitVec.ofInt 257 x ||| BitVec.ofInt 257 y)
     simp only [Int.reducePow, Int.reduceNeg] at hf
-    vm_simp [hs, intToBitsTwos_257, hx, hy, or_bits x y hx hy, hf]
-  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
+    vm_simp [hs, intToBitsTwos_twos257, hx, hy, or_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_twos257, hx, hy]
 
 /-- `QXOR` (C++ `exec_xor`, quiet): as `xor`. -/
 @[vm_spec] theorem qxor (st : VmState) (s : Stack) (x y : Int)
@@ -1113,8 +1119,8 @@ theorem toInt_fits257 (v : BitVec 257) : -2 ^ 256 ≤ v.toInt ∧ v.toInt < 2 ^ 
   by_cases hx : -2 ^ 256 ≤ x ∧ x < 2 ^ 256 <;> by_cases hy : -2 ^ 256 ≤ y ∧ y < 2 ^ 256
   · have hf := toInt_fits257 (BitVec.ofInt 257 x ^^^ BitVec.ofInt 257 y)
     simp only [Int.reducePow, Int.reduceNeg] at hf
-    vm_simp [hs, intToBitsTwos_257, hx, hy, xor_bits x y hx hy, hf]
-  all_goals vm_simp [hs, intToBitsTwos_257, hx, hy]
+    vm_simp [hs, intToBitsTwos_twos257, hx, hy, xor_bits x y hx hy, hf]
+  all_goals vm_simp [hs, intToBitsTwos_twos257, hx, hy]
 
 /-- `QNOT` (C++ `exec_not`, quiet): `-x - 1`. -/
 @[vm_spec] theorem qnot (st : VmState) (s : Stack) (x : Int) (hs : st.stack = s.push (.int (.num x))) :
