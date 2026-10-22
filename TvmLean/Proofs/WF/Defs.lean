@@ -1,4 +1,5 @@
 import TvmLean.Proofs.CellWF
+import TvmLean.Proofs.Basic
 
 /-!
 # Well-formed values and VM states
@@ -225,8 +226,7 @@ theorem Cell.default_WF : (default : Cell).WF := Cell.empty_WF
 theorem Cell.WF.ref! {c : Cell} (h : c.WF) (i : Nat) : (c.refs[i]!).WF :=
   WF.getElem!_of_forall h.refs_wf Cell.default_WF i
 
-@[simp] theorem natToBits_size (n bits : Nat) : (natToBits n bits).size = bits := by
-  simp [natToBits]
+attribute [simp] natToBits_size
 
 theorem Cell.ofUInt_WF {bits n : Nat} (h : bits ≤ 1023) : (Cell.ofUInt bits n).WF :=
   Cell.mkOrdinary_WF (by simp [natToBits]; exact h) (by simp) (by simp)

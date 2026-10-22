@@ -1,4 +1,4 @@
-import TvmLean.Model
+import TvmLean.Proofs.Basic
 
 /-!
 # Bit strings and numbers: `natToBits` and `bitsToNat`
@@ -11,44 +11,9 @@ These are the facts the round trips of the layouts rest on: `bitsToNat (natToBit
 
 namespace TvmLean
 
-@[simp] theorem natToBits_size (n k : Nat) : (natToBits n k).size = k := by
-  simp [natToBits]
+attribute [simp] natToBits_size
 
 @[simp] theorem bitsToNat_empty : bitsToNat #[] = 0 := rfl
-
-theorem bitsToNat_push (bs : BitString) (b : Bool) :
-    bitsToNat (bs.push b) = 2 * bitsToNat bs + (if b then 1 else 0) := by
-  simp [bitsToNat, Nat.shiftLeft_eq, Nat.mul_comm]
-
-/-- The bits of `n` on `k + 1` digits: those of `n / 2` on `k`, then the lowest bit. -/
-theorem natToBits_succ (n k : Nat) :
-    natToBits n (k + 1) = (natToBits (n / 2) k).push (n.testBit 0) := by
-  apply Array.ext
-  · simp
-  · intro i h1 _
-    simp only [natToBits, Array.getElem_ofFn, Array.getElem_push, Array.size_ofFn]
-    split
-    · simp only [Nat.testBit_div_two]
-      congr 1
-      omega
-    · have : i = k := by simp at h1; omega
-      subst this
-      simp
-
-theorem bit_eq_mod_two (n : Nat) : (if n.testBit 0 = true then 1 else 0) = n % 2 := by
-  rw [Nat.testBit_zero]; split <;> simp_all <;> omega
-
-/-- `bitsToNat` reads back `natToBits` modulo `2 ^ k`. -/
-theorem bitsToNat_natToBits (n k : Nat) : bitsToNat (natToBits n k) = n % 2 ^ k := by
-  induction k generalizing n with
-  | zero => simp [natToBits, bitsToNat, Nat.mod_one]
-  | succ k ih =>
-    rw [natToBits_succ, bitsToNat_push, ih, Nat.pow_succ, Nat.mul_comm (2 ^ k) 2, Nat.mod_mul,
-      bit_eq_mod_two]
-    omega
-
-theorem bitsToNat_natToBits_of_lt {n k : Nat} (h : n < 2 ^ k) : bitsToNat (natToBits n k) = n := by
-  rw [bitsToNat_natToBits, Nat.mod_eq_of_lt h]
 
 /-- Every bit string is the `natToBits` of its value on its length. -/
 theorem natToBits_bitsToNat (bs : BitString) : natToBits (bitsToNat bs) bs.size = bs := by

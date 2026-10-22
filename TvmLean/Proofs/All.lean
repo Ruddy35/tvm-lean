@@ -1,0 +1,90 @@
+import TvmLean.Proofs.ModelEquiv
+import TvmLean.Proofs.DecEq
+import TvmLean.Proofs.CellWF
+import TvmLean.Semantics.Contract
+import TvmLean.Proofs.Contracts.CellLiteral
+import TvmLean.Proofs.Contracts.Wallet3Code
+import TvmLean.Proofs.Contracts.Bits
+import TvmLean.Proofs.Contracts.Spec
+import TvmLean.Proofs.Contracts.Wallet3Spec
+import TvmLean.Proofs.Contracts.Wallet3Msgs
+import TvmLean.Proofs.Contracts.Wallet3Kernel
+import TvmLean.Proofs.Exec.Step
+import TvmLean.Proofs.Exec.Eval
+import TvmLean.Proofs.Exec.Spec.Stack
+import TvmLean.Proofs.Exec.Spec.Arith
+import TvmLean.Proofs.Exec.Spec.Flow
+import TvmLean.Proofs.Exec.Spec.Cell
+import TvmLean.Proofs.Exec.Spec.TonEnv
+import TvmLean.Proofs.Exec.Run
+import TvmLean.Proofs.Exec.Tactic
+import TvmLean.Proofs.Exec.Pilot.AddOne
+import TvmLean.Proofs.Exec.Pilot.Wallet3
+import TvmLean.Proofs.Exec.Spec.ArithExt
+import TvmLean.Proofs.Exec.Pilot.ArithExt
+import TvmLean.Proofs.Exec.Spec.StackExt
+import TvmLean.Proofs.Exec.Pilot.StackExt
+import TvmLean.Proofs.Exec.Spec.Tuple
+import TvmLean.Proofs.Exec.Pilot.Tuple
+import TvmLean.Proofs.Exec.Spec.CellExt
+import TvmLean.Proofs.Exec.Pilot.CellExt
+import TvmLean.Proofs.WF.Defs
+import TvmLean.Proofs.WF.Library
+import TvmLean.Proofs.WF.Monad
+import TvmLean.Proofs.WF.Decode
+import TvmLean.Proofs.WF.Step
+import TvmLean.Proofs.WF.Exec.Stack
+import TvmLean.Proofs.WF.Exec.Arith
+import TvmLean.Proofs.WF.Cells
+import TvmLean.Proofs.WF.Exec.Cell
+import TvmLean.Proofs.WF.Exec.CellOp
+import TvmLean.Proofs.WF.Calls
+import TvmLean.Proofs.WF.Exec.Cont
+import TvmLean.Proofs.WF.JoinPoints
+import TvmLean.Proofs.WF.Exec.Flow
+import TvmLean.Proofs.WF.Exec.Msg
+import TvmLean.Proofs.WF.Exec.Exception
+import TvmLean.Proofs.WF.Exec.Debug
+import TvmLean.Proofs.WF.Exec.Tuple
+import TvmLean.Proofs.WF.Exec.Misc
+import TvmLean.Proofs.WF.Exec.TonEnv
+import TvmLean.Proofs.WF.Exec.Crypto
+import TvmLean.Proofs.WF.DictPrims
+import TvmLean.Proofs.WF.Exec.Dict
+import TvmLean.Proofs.WF.All
+import TvmLean.Proofs.Fast.Twin
+import TvmLean.Proofs.Fast.Bits
+import TvmLean.Proofs.Fast.Sha256
+import TvmLean.Proofs.Fast.Sha512
+import TvmLean.Proofs.Fast.Hash
+import TvmLean.Proofs.Fast.Dispatch
+import TvmLean.Proofs.Fast.Run
+import TvmLean.Proofs.Fast.Checkpoint
+import TvmLean.Proofs.Fast.Wallet3
+import TvmLean.Proofs.Tx.Phases
+import TvmLean.Proofs.Tx.Compute
+import TvmLean.Proofs.Tx.Decompose
+import TvmLean.Proofs.Tx.Actions
+import TvmLean.Proofs.Tx.ActionPhase
+import TvmLean.Proofs.Tx.Effect
+import TvmLean.Proofs.Tx.ReadBack
+import TvmLean.Proofs.Tx.Induction
+import TvmLean.Proofs.Tx.Example
+import TvmLean.Proofs.Exec.Load
+import TvmLean.Proofs.Exec.Spec.Dispatch
+import TvmLean.Proofs.Exec.Spec.Crypto
+import TvmLean.Proofs.Exec.Spec.Msg
+import TvmLean.Proofs.Exec.Cont
+import TvmLean.Proofs.Exec.Spec.Loop
+import TvmLean.Proofs.Exec.Spec.Dict
+import TvmLean.Proofs.Tx.Shape
+import TvmLean.Proofs.Basic
+
+/-!
+# All proof modules together
+
+Imports every root of `lean_lib TvmLeanProofs` (and `TvmLean.Proofs.Basic`). Building it checks that
+the proof libraries can be used together: a name declared in two modules fails here, though each
+module builds alone. Shared facts go to `TvmLean/Proofs/Basic.lean`. A new root of
+`TvmLeanProofs` is added here too.
+-/

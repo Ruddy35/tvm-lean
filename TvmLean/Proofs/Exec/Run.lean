@@ -1,5 +1,6 @@
 import TvmLean.Proofs.Exec.Step
 import TvmLean.Proofs.Exec.Eval
+import TvmLean.Proofs.Basic
 
 /-!
 # A run, one step at a time, as rewriting
@@ -48,8 +49,6 @@ theorem VmState.runCont_dite (exec : Instr → VM Unit) (fuel : Nat) (c : Prop) 
       if h : c then VmState.runCont exec fuel (x h) else VmState.runCont exec fuel (y h) := by
   split <;> rfl
 
-theorem StepResult.state_continue (st : VmState) : (StepResult.continue st).state = st := rfl
-theorem StepResult.state_halt (ec : Int) (st : VmState) : (StepResult.halt ec st).state = st := rfl
 theorem StepResult.state_ite (c : Prop) [Decidable c] (x y : StepResult) :
     (if c then x else y).state = if c then x.state else y.state := by
   split <;> rfl

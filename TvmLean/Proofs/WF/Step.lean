@@ -317,8 +317,7 @@ theorem VM.run_state_of_spec {α : Type} {m : VM α} {Q : α → VmState → Pro
   | ok a => exact hQ a st' this
   | error e => exact this
 
-@[simp] theorem StepResult.state_continue (st : VmState) : (StepResult.continue st).state = st := rfl
-@[simp] theorem StepResult.state_halt (n : Int) (st : VmState) : (StepResult.halt n st).state = st := rfl
+attribute [simp] StepResult.state_continue StepResult.state_halt
 
 set_option maxHeartbeats 1000000 in
 /-- One step keeps the state well-formed, if every well-formed instruction does (`ExecWF`): the

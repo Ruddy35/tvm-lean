@@ -1,4 +1,5 @@
 import TvmLean.Proofs.Tx.Phases
+import TvmLean.Proofs.Basic
 
 /-!
 # Reading back what a writer wrote
@@ -24,9 +25,6 @@ reader needs (`StateParts.Fits`).
 
 namespace TvmLean
 
-theorem natToBits_size (n k : Nat) : (natToBits n k).size = k := by
-  simp [natToBits]
-
 private def bstep (acc : Nat) (b : Bool) : Nat := (acc <<< 1) + (if b then 1 else 0)
 
 private theorem foldl_bstep (l : List Bool) (acc : Nat) :
@@ -51,7 +49,8 @@ theorem bitsToNat_append (a b : BitString) :
 theorem bitsToNat_singleton (b : Bool) : bitsToNat #[b] = if b then 1 else 0 := by
   cases b <;> rfl
 
-theorem natToBits_succ (n k : Nat) : natToBits n (k + 1) = #[n.testBit k] ++ natToBits n k := by
+/-- The bits of `n` on `k + 1` digits: the bit `k`, then those on `k` digits. -/
+theorem natToBits_succ_high (n k : Nat) : natToBits n (k + 1) = #[n.testBit k] ++ natToBits n k := by
   apply Array.ext
   · simp [natToBits_size]; omega
   · intro i h1 h2
@@ -60,17 +59,6 @@ theorem natToBits_succ (n k : Nat) : natToBits n (k + 1) = #[n.testBit k] ++ nat
     · simp [natToBits]
       congr 1
       omega
-
-theorem bitsToNat_natToBits (n k : Nat) : bitsToNat (natToBits n k) = n % 2 ^ k := by
-  induction k with
-  | zero => simp [natToBits, bitsToNat, Nat.mod_one]
-  | succ k ih =>
-    rw [natToBits_succ, bitsToNat_append, ih, natToBits_size, bitsToNat_singleton, Nat.mod_pow_succ,
-      Nat.testBit_eq_decide_div_mod_eq]
-    rcases Nat.mod_two_eq_zero_or_one (n / 2 ^ k) with h | h <;> simp [h] <;> omega
-
-theorem bitsToNat_natToBits_of_lt {n k : Nat} (h : n < 2 ^ k) : bitsToNat (natToBits n k) = n := by
-  rw [bitsToNat_natToBits, Nat.mod_eq_of_lt h]
 
 end TvmLean
 
@@ -334,7 +322,7 @@ theorem natToBits_append (a b j k : Nat) (hb : b < 2 ^ k) :
     rw [← natToBits_mod, Nat.mul_comm, Nat.mul_add_mod, Nat.mod_eq_of_lt hb]
     simp [natToBits]
   | succ j ih =>
-    rw [show j + 1 + k = (j + k) + 1 by omega, natToBits_succ, ih, natToBits_succ, Array.append_assoc]
+    rw [show j + 1 + k = (j + k) + 1 by omega, natToBits_succ_high, ih, natToBits_succ_high, Array.append_assoc]
     congr 2
     rw [Nat.mul_comm, Nat.testBit_two_pow_mul_add _ hb]
     simp only [show ¬(j + k < k) by omega, if_false, Nat.add_sub_cancel]

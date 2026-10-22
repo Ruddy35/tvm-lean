@@ -29,14 +29,8 @@ set_option mvcgen.warning false
 
 namespace TvmLean
 
-@[simp] theorem OrdCregs.empty_c0 : OrdCregs.empty.c0 = none := rfl
-@[simp] theorem OrdCregs.empty_c1 : OrdCregs.empty.c1 = none := rfl
-@[simp] theorem OrdCregs.empty_c2 : OrdCregs.empty.c2 = none := rfl
-@[simp] theorem OrdCregs.empty_c3 : OrdCregs.empty.c3 = none := rfl
-@[simp] theorem OrdCregs.empty_c4 : OrdCregs.empty.c4 = none := rfl
-@[simp] theorem OrdCregs.empty_c5 : OrdCregs.empty.c5 = none := rfl
-@[simp] theorem OrdCregs.empty_c7 : OrdCregs.empty.c7 = none := rfl
-@[simp] theorem OrdCdata.empty_stack : OrdCdata.empty.stack = #[] := rfl
+attribute [simp] OrdCregs.empty_c0 OrdCregs.empty_c1 OrdCregs.empty_c2 OrdCregs.empty_c3
+  OrdCregs.empty_c4 OrdCregs.empty_c5 OrdCregs.empty_c7 OrdCdata.empty_stack
 
 theorem WF.not_mem_mk_nil {α : Type} (v : α) : ¬ v ∈ (Array.mk [] : Array α) := by simp
 

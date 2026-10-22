@@ -50,14 +50,8 @@ def VmState.closureStack (st : VmState) (cdata : OrdCdata) : VmState :=
 
 attribute [vm_run] OrdCregs.restore
 
-@[vm_run] theorem OrdCregs.empty_c0 : OrdCregs.empty.c0 = none := rfl
-@[vm_run] theorem OrdCregs.empty_c1 : OrdCregs.empty.c1 = none := rfl
-@[vm_run] theorem OrdCregs.empty_c2 : OrdCregs.empty.c2 = none := rfl
-@[vm_run] theorem OrdCregs.empty_c3 : OrdCregs.empty.c3 = none := rfl
-@[vm_run] theorem OrdCregs.empty_c4 : OrdCregs.empty.c4 = none := rfl
-@[vm_run] theorem OrdCregs.empty_c5 : OrdCregs.empty.c5 = none := rfl
-@[vm_run] theorem OrdCregs.empty_c7 : OrdCregs.empty.c7 = none := rfl
-@[vm_run] theorem OrdCdata.empty_stack : OrdCdata.empty.stack = #[] := rfl
+attribute [vm_run] OrdCregs.empty_c0 OrdCregs.empty_c1 OrdCregs.empty_c2 OrdCregs.empty_c3
+  OrdCregs.empty_c4 OrdCregs.empty_c5 OrdCregs.empty_c7 OrdCdata.empty_stack
 @[vm_run] theorem OrdCdata.empty_nargs : OrdCdata.empty.nargs = -1 := rfl
 
 /-- The closure data without a stack or arguments is `OrdCdata.empty`. -/
