@@ -99,6 +99,8 @@ import TvmLean.Proofs.Exec.Spec.DictDel
 import TvmLean.Proofs.Exec.Pilot.DictSet
 import TvmLean.Proofs.Exec.Dict.SetGet
 import TvmLean.Proofs.Exec.Spec.DictSetGet
+import TvmLean.Proofs.Exec.Closure
+import TvmLean.Proofs.Exec.Pilot.Closure
 
 /-!
 # All proof modules together
