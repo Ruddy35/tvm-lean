@@ -1,5 +1,4 @@
-import TvmLean.Proofs.Tx.Effect
-import TvmLean.Proofs.Tx.ReadBack
+import TvmLean.Proofs.Tx.Shape
 
 /-!
 # Induction over the transactions of an account
@@ -24,12 +23,13 @@ changes only to code satisfying the same specification.
 A step (`Step`) is a transaction the model runs (`emulate`, `emulateTickTock`) under the
 configuration `configRoot`, with any inbound message, time, logical time, random seed and
 libraries; the next shard account holds the account it writes, with any hash (256 bits) and logical
-time of the last transaction (`shardAccountCell`). Two conditions restrict the steps:
-* the account written has the shape its reader needs (`Tx.Fits`: the address, the dict hash, the
-  fixed prefix length; the balance, the storage statistics and the due payment fit whenever
-  `Tx.computeState` succeeds, as C++ `compute_state` checks);
-* the account takes its code and data from the message's `StateInit` only if `Init` holds of it
-  (`DeployOK`). The model takes them only from a `StateInit` whose hash matches the address (an
+time of the last transaction (`shardAccountCell`); every transaction the model returns is a step
+(`Step.of_emulate`, `Step.of_emulateTickTock`). The account written reads back
+(`computeState_readBack`): its balance, storage statistics and due payment fit their fields since
+`Tx.computeState` succeeded (as C++ `compute_state` checks), its address, dict hash and fixed prefix
+length have the shape the reader needs (`EmulateFinal.fits`, `TickTockFinal.fits`). One condition
+restricts the steps: the account takes its code and data from the message's `StateInit` only if
+`Init` holds of it (`DeployOK`). The model takes them only from a `StateInit` whose hash matches the address (an
   uninitialized account) or the frozen state hash; that only the contract's own `StateInit` can be
   deployed is a property of the hash, which a theorem cannot assume (hashes collide), so the
   statement leaves `Init` to the user: `Init c := Inv` of the code and data of `c` makes the
@@ -56,22 +56,22 @@ def RunPreserves (Inv : Option Cell → Option Cell → Prop) : Prop :=
     ∀ code', NewCode c5 (some code) code' → Inv code' (some c4)
 
 /-- One transaction of the account in the shard account `sa` under the configuration `configRoot`:
-ordinary (`emulate`) or tick-tock (`emulateTickTock`), the account written fitting its fields, the
-code and data taken from the message's `StateInit` only if `Init` holds of it. The next shard
-account holds the account written (`acc`, the account `Tx.computeState` writes from the state `tf`
-the transaction ends in) with any hash and logical time of the last transaction. -/
+ordinary (`emulate`) or tick-tock (`emulateTickTock`), the code and data taken from the message's
+`StateInit` only if `Init` holds of it. The next shard account holds the account written (`acc`, the
+account `Tx.computeState` writes from the state `tf` the transaction ends in) with any hash and
+logical time of the last transaction. -/
 inductive Step (configRoot : Cell) (Init : Cell → Prop) : Cell → Cell → Prop
   | ord {sa inMsg : Cell} {now lt : Nat} {seed : BitString} {libs : Option Cell} {tx acc : Cell} {tf t' : Tx}
       {sl : SizeLimits} (hash : BitString) (lt' : Nat) :
       emulate configRoot sa inMsg now lt seed libs = .ok tx acc →
       EmulateFinal configRoot sa inMsg now lt seed libs tf sl → tf.computeState sl = some (t', acc) →
-      tf.Fits sl → DeployOK Init tf → hash.size = 256 →
+      DeployOK Init tf → hash.size = 256 →
       Step configRoot Init sa (shardAccountCell acc hash lt')
   | tickTock {sa : Cell} {isTock : Bool} {now lt : Nat} {seed : BitString} {libs : Option Cell} {tx acc : Cell}
       {tf t' : Tx} {sl : SizeLimits} (hash : BitString) (lt' : Nat) :
       emulateTickTock configRoot sa isTock now lt seed libs = .ok tx acc →
       TickTockFinal configRoot sa isTock now lt seed libs tf sl → tf.computeState sl = some (t', acc) →
-      tf.Fits sl → hash.size = 256 →
+      hash.size = 256 →
       Step configRoot Init sa (shardAccountCell acc hash lt')
 
 /-- The shard accounts reachable by transactions (`Step`) from those of `Start`. -/
@@ -81,8 +81,7 @@ inductive Reachable (configRoot : Cell) (Init : Cell → Prop) (Start : Cell →
       Reachable configRoot Init Start sa'
 
 /-- Every ordinary transaction (`emulate`) the model returns ends in a state `tf` of `EmulateFinal`
-from which it writes its account: `Step.ord` applies to it if the account fits and the deployment is
-allowed. -/
+from which it writes its account. -/
 theorem emulate_step (configRoot sa inMsg : Cell) (now lt : Nat) (seed : BitString) (libs : Option Cell)
     {tx acc : Cell} (h : emulate configRoot sa inMsg now lt seed libs = .ok tx acc) :
     ∃ tf sl t', EmulateFinal configRoot sa inMsg now lt seed libs tf sl ∧ tf.computeState sl = some (t', acc) := by
@@ -101,6 +100,25 @@ theorem emulateTickTock_step (configRoot sa : Cell) (isTock : Bool) (now lt : Na
   rw [h] at this
   obtain ⟨tf, sl, t', hacc, hf⟩ := this
   exact ⟨tf, sl, t', hf, hacc⟩
+
+/-- Every ordinary transaction the model returns is a step, if it deploys only what `Init` allows. -/
+theorem Step.of_emulate {configRoot : Cell} {Init : Cell → Prop} {sa inMsg : Cell} {now lt : Nat}
+    {seed : BitString} {libs : Option Cell} {tx acc : Cell}
+    (h : emulate configRoot sa inMsg now lt seed libs = .ok tx acc)
+    (hdep : ∀ tf sl, EmulateFinal configRoot sa inMsg now lt seed libs tf sl → DeployOK Init tf)
+    (hash : BitString) (hh : hash.size = 256) (lt' : Nat) :
+    Step configRoot Init sa (shardAccountCell acc hash lt') := by
+  obtain ⟨tf, sl, t', hf, hcs⟩ := emulate_step configRoot sa inMsg now lt seed libs h
+  exact Step.ord hash lt' h hf hcs (hdep tf sl hf) hh
+
+/-- Every tick-tock transaction the model returns is a step. -/
+theorem Step.of_emulateTickTock {configRoot : Cell} {Init : Cell → Prop} {sa : Cell} {isTock : Bool}
+    {now lt : Nat} {seed : BitString} {libs : Option Cell} {tx acc : Cell}
+    (h : emulateTickTock configRoot sa isTock now lt seed libs = .ok tx acc)
+    (hash : BitString) (hh : hash.size = 256) (lt' : Nat) :
+    Step configRoot Init sa (shardAccountCell acc hash lt') := by
+  obtain ⟨tf, sl, t', hf, hcs⟩ := emulateTickTock_step configRoot sa isTock now lt seed libs h
+  exact Step.tickTock hash lt' h hf hcs hh
 
 /-- A tick-tock transaction has no inbound message, hence no `StateInit` to deploy. -/
 theorem TickTockFinal.inMsgState {configRoot sa : Cell} {isTock : Bool} {now lt : Nat} {seed : BitString}
@@ -152,13 +170,13 @@ theorem Step.good {configRoot : Cell} {Init : Cell → Prop} {Inv : Option Cell 
     Good Inv sa' := by
   intro wc addr sp a hu ha
   cases hs with
-  | ord hash lt' _ hfin hacc hfits hdep hh =>
-    obtain ⟨htf, hc, hd⟩ := computeState_readBack hacc hfits hh lt' hu ha
+  | ord hash lt' _ hfin hacc hdep hh =>
+    obtain ⟨htf, hc, hd⟩ := computeState_readBack hacc hfin.fits hh lt' hu ha
     obtain ⟨_, _, _, t₀, hst, heff⟩ := hfin.effect
     rw [hc, hd]
     exact heff.inv htf (hst.good hg) hdep hdeploy hrun
-  | tickTock hash lt' _ hfin hacc hfits hh =>
-    obtain ⟨htf, hc, hd⟩ := computeState_readBack hacc hfits hh lt' hu ha
+  | tickTock hash lt' _ hfin hacc hh =>
+    obtain ⟨htf, hc, hd⟩ := computeState_readBack hacc hfin.fits hh lt' hu ha
     obtain ⟨_, _, _, _, t₀, hst, heff⟩ := hfin.effect
     rw [hc, hd]
     refine heff.inv htf (hst.good hg) ?_ hdeploy hrun
