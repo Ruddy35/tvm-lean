@@ -1,5 +1,6 @@
 import TvmLean.Proofs.Exec.Tactic
 import TvmLean.Proofs.Exec.Spec.DictDel
+import TvmLean.Proofs.Exec.Spec.DictSetGet
 
 /-!
 # Pilot: dictionary updates on an unknown dictionary
@@ -19,6 +20,9 @@ the update).
 * `run_del_get`: `DICTUDEL; DROP; PUSHINT 5; SWAP; PUSHINT 8; DICTUGET` (`codeDel_eq`) on the stack
   `[5, D, 8]` ends normally with the stack `[0]` (the key is gone, whether the dictionary became
   empty or not); or the delete fails, or the gas runs out (`OutcomeDel`).
+* `run_setget`: `DICTUSETGET` on `[val, 5, D, 8]` ends normally with `[D', v, -1]`, `v` a value
+  with the contents the key had in `D`, or with `[D', 0]` if the key was absent; or the update
+  fails, or a new cell is too deep, or the gas runs out (`OutcomeSetGet`).
 -/
 
 namespace TvmLean.Pilot.DictSetPilot
@@ -155,5 +159,67 @@ theorem run_del_get (fuel : Nat) (st : VmState) (D : Cell) (hwf : Dict.WF (some 
     | (right; left; exact ⟨_, _, _, by assumption, by rfl⟩)
     | (exfalso; exact gone hwf (by assumption) (by assumption))
     | (left; exact ⟨_, rfl, rfl⟩)
+
+
+/-! ## Lookup-and-set -/
+
+/-- The bits of `DICTUSETGET` (`0xf41e`). -/
+def bitsSetGet : BitString :=
+  #[true, true, true, true, false, true, false, false, false, false, false, true, true, true, true, false]
+
+/-- The code `DICTUSETGET`. -/
+def codeSetGet : Cell := Cell.mkOrdinary bitsSetGet #[]
+
+/-- It is what the model's assembler makes of the instruction. -/
+theorem codeSetGet_eq : assembleCp0 [.dictExt (.mutGet true true false .set)] = .ok codeSetGet := by decide
+
+/-- The state that runs `codeSetGet` on the stack `[val, idx, D, 8]`. -/
+def startSetGet (st : VmState) (val : Slice) (idx : Int) (D : Cell) : VmState :=
+  { st with stack := #[.slice val, .int (.num idx), .cell D, .int (.num 8)],
+            cc := .ordinary (Slice.ofCell codeSetGet) (.quit 0) OrdCregs.empty OrdCdata.empty,
+            cp := 0, chainJumps := 0, librariesRefused := #[], librariesMissed := #[], maxLibraryLoads := none,
+            regs := { st.regs with c0 := .quit 0, c2 := .excQuit }, gas := ⟨1000000, 1000000, 0, 1000000, 1000000⟩ }
+
+/-- The ways the run ends: normally with the new root and the old value (its contents those the key
+had) and `-1`, or the new root and `0` if the key was absent; or by the failure of the update, a
+cell too deep, or the gas. -/
+def OutcomeSetGet (val : Slice) (D : Cell) (r : StepResult) : Prop :=
+  (∃ stF D' v, r = VmState.haltResult (~~~ 0) stF ∧
+      stF.stack = ((#[].push D').push (.slice v)).push (.int (.num (-1))) ∧
+      Dict.value (some D) key5 = some v.toCellRemaining) ∨
+    (∃ stF D', r = VmState.haltResult (~~~ 0) stF ∧ stF.stack = (#[].push D').push (.int (.num 0)) ∧
+      Dict.value (some D) key5 = none) ∨
+    (∃ e stF, Dict.setGetRes (some D) key5 (DictMap.sliceB val) .set = .error e ∧
+      r = VmState.haltResult (~~~ e.toInt) stF) ∨
+    (∃ stF, r = VmState.haltResult (~~~ Excno.cellOv.toInt) stF) ∨
+    (∃ stF, r = VmState.haltResult Excno.outOfGas.toInt stF)
+
+/-- The old value is the value the key had. -/
+theorem old_value {D : Cell} {val v : Slice} {r : Option Cell} {ok : Bool} {created : Nat}
+    {rest : List Cell} (hwf : Dict.WF (some D) 8)
+    (h : Dict.setGetRes (some D) key5 (DictMap.sliceB val) .set = .ok (some v, r, ok, created, rest)) :
+    Dict.value (some D) key5 = some v.toCellRemaining :=
+  ((Dict.value_setGetRes (key := key5) hwf h).1).symm
+
+/-- No old value: the key was absent. -/
+theorem old_absent {D : Cell} {val : Slice} {r : Option Cell} {ok : Bool} {created : Nat}
+    {rest : List Cell} (hwf : Dict.WF (some D) 8)
+    (h : Dict.setGetRes (some D) key5 (DictMap.sliceB val) .set = .ok (none, r, ok, created, rest)) :
+    Dict.value (some D) key5 = none :=
+  ((Dict.value_setGetRes (key := key5) hwf h).1).symm
+
+set_option maxHeartbeats 4000000 in
+/-- **Lookup-and-set, run by `vm_run`.** -/
+theorem run_setget (fuel : Nat) (st : VmState) (val : Slice) (D : Cell) (hwf : Dict.WF (some D) 8) :
+    OutcomeSetGet val D (VmState.runWith execInstr (fuel + 3) (startSetGet st val 5 D)) := by
+  unfold startSetGet
+  vm_run
+  all_goals unfold OutcomeSetGet
+  all_goals first
+    | (right; right; right; right; exact ⟨_, rfl⟩)
+    | (right; right; right; left; exact ⟨_, rfl⟩)
+    | (right; right; left; exact ⟨_, _, by assumption, by rfl⟩)
+    | (left; exact ⟨_, _, _, rfl, rfl, old_value hwf (by assumption)⟩)
+    | (right; left; exact ⟨_, _, rfl, rfl, old_absent hwf (by assumption)⟩)
 
 end TvmLean.Pilot.DictSetPilot
