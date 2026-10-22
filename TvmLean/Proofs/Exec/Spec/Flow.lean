@@ -111,4 +111,46 @@ raised. -/
       else ExceptT.run (VM.throwToHandler fun st => st.throwException e) { st with stack := s } := by
   vm_simp [hs]
 
+/-- `EXECUTE` = `CALLX` (C++ `exec_execute`): the continuation (plain: no saved registers, no
+closure data) is called, the return continuation becoming `c0`. -/
+@[vm_spec] theorem execute (st : VmState) (s : Stack) (code : Slice) (saved : Continuation)
+    (hs : st.stack = s.push (.cont (.ordinary code saved OrdCregs.empty OrdCdata.empty))) :
+    ExceptT.run (execInstr .execute) st =
+      (.ok (), { st with stack := s, regs := { st.regs with c0 := { st with stack := s }.retCont }
+                         cc := .ordinary code saved OrdCregs.empty OrdCdata.empty }) := by
+  vm_simp [hs]
+
+/-- `JMPX` (C++ `exec_jmpx`): the VM jumps to the continuation (no closure data; its saved
+registers are restored when it is entered). -/
+@[vm_spec] theorem jmpx (st : VmState) (s : Stack) (code : Slice) (saved : Continuation) (cregs : OrdCregs)
+    (hs : st.stack = s.push (.cont (.ordinary code saved cregs OrdCdata.empty))) :
+    ExceptT.run (execInstr .jmpx) st = (.ok (), { st with stack := s, cc := .ordinary code saved cregs OrdCdata.empty }) := by
+  vm_simp [hs]
+
+/-- `IFELSE` (C++ `exec_if_else`) on the stack `s f k₁ k₀`: `k₁` is called if the flag is true,
+else `k₀` (`VmState.callTo`). -/
+@[vm_spec] theorem ifelse (st : VmState) (s : Stack) (n : Int) (k1 k0 : Continuation)
+    (hs : st.stack = ((s.push (.int (.num n))).push (.cont k1)).push (.cont k0)) :
+    ExceptT.run (execInstr .ifelse) st =
+      if n ≠ 0 then (.ok (), { st with stack := s }.callTo k1) else (.ok (), { st with stack := s }.callTo k0) := by
+  by_cases h : n = 0 <;> vm_simp [hs, h]
+
+/-- `THROWANY` (C++ `exec_throw_any`, no parameter, unconditional) on the stack `s n`: the
+exception `n` (in `0..65535`, range_chk else) is raised. -/
+@[vm_spec] theorem throwAny (st : VmState) (s : Stack) (n : Int) (hs : st.stack = s.push (.int (.num n))) :
+    ExceptT.run (execInstr (.throwAny false false true)) st =
+      if 0 ≤ n ∧ n ≤ 0xffff then ExceptT.run (VM.throwToHandler fun st => st.throwException n) { st with stack := s }
+      else (.error .rangeChk, { st with stack := s }) := by
+  by_cases hn : 0 ≤ n ∧ n ≤ 0xffff
+  · rw [if_pos hn]
+    have h1 : ¬ n < 0 := by omega
+    have h2 : ¬ n.toNat > 0xffff := by omega
+    have h3 : ((n.toNat : Nat) : Int) = n := Int.toNat_of_nonneg hn.1
+    vm_simp [hs, h1, h2, h3]
+  · rw [if_neg hn]
+    by_cases h1 : n < 0
+    · vm_simp [hs, h1]
+    · have h2 : n.toNat > 0xffff := by omega
+      vm_simp [hs, h1, h2]
+
 end TvmLean.Spec

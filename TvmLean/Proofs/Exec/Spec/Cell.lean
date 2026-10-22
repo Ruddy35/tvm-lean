@@ -113,6 +113,78 @@ then the rest; cell_und if the slice is shorter. -/
   have h2 : ¬ n.toNat > 1023 := by omega
   vm_simp [hs, h1, h2]
 
+/-- The integer `LD{I,U}` reads from the bits `bs`: unsigned (`bitsToNat`) or signed
+(`bitsToIntSignedTwos`). -/
+abbrev loadIntValue (unsigned : Bool) (bs : BitString) : Int :=
+  if unsigned then Int.ofNat (bitsToNat bs) else bitsToIntSignedTwos bs
+
+/-- `LD{I,U} n` / `PLD{I,U} n` (C++ `exec_load_int_fixed`, `1 ≤ n ≤ 256`, not quiet): the first `n`
+bits of the slice as an integer (`loadIntValue`), then the rest of the slice unless prefetching;
+cell_und if the slice is shorter. -/
+@[vm_spec] theorem loadInt (st : VmState) (s : Stack) (sl : Slice) (unsigned prefetch : Bool) (n : Nat)
+    (hn : 0 < n) (hs : st.stack = s.push (.slice sl)) :
+    ExceptT.run (execInstr (.loadInt unsigned prefetch false n)) st =
+      if sl.haveBits n then
+        if (IntVal.num (loadIntValue unsigned (sl.readBits n))).signedFits257 then
+          (.ok (), { st with stack := (if prefetch then s.push (.int (.num (loadIntValue unsigned (sl.readBits n))))
+            else (s.push (.int (.num (loadIntValue unsigned (sl.readBits n))))).push (.slice (sl.advanceBits n))) })
+        else (.error .intOv, { st with stack := s })
+      else (.error .cellUnd, { st with stack := s }) := by
+  cases unsigned <;> cases prefetch <;> vm_simp [hs]
+
+/-- `PLDREFIDX i` (C++ `exec_preload_ref_fixed`; `PLDREF` is `i = 0`): reference `i` of the slice is
+pushed; cell_und if it has no such reference. -/
+@[vm_spec] theorem pldRefIdx (st : VmState) (s : Stack) (sl : Slice) (i : Nat) (hs : st.stack = s.push (.slice sl)) :
+    ExceptT.run (execInstr (.pldRefIdx i)) st =
+      if sl.haveRefs (i + 1) then (.ok (), { st with stack := s.push (.cell sl.cell.refs[sl.refPos + i]!) })
+      else (.error .cellUnd, { st with stack := s }) := by
+  by_cases h : sl.haveRefs (i + 1) = true
+  · have h2 : sl.refPos + i < sl.cell.refs.size := by
+      simp [Slice.haveRefs] at h; omega
+    vm_simp [hs, h, h2]
+  · vm_simp [hs, h]
+
+/-- `SREFS` (C++ `exec_slice_bits_refs`, mode 2): the number of references left in the slice. -/
+@[vm_spec] theorem srefs (st : VmState) (s : Stack) (sl : Slice) (hs : st.stack = s.push (.slice sl)) :
+    ExceptT.run (execInstr .srefs) st = (.ok (), { st with stack := s.push (.int (.num sl.refsRemaining)) }) := by
+  vm_simp [hs]
+
+/-- `SBITS` (C++ `exec_slice_bits_refs`, mode 1): the number of bits left in the slice. -/
+@[vm_spec] theorem sbits (st : VmState) (s : Stack) (sl : Slice) (hs : st.stack = s.push (.slice sl)) :
+    ExceptT.run (execInstr .sbits) st = (.ok (), { st with stack := s.push (.int (.num sl.bitsRemaining)) }) := by
+  vm_simp [hs]
+
+/-- `SDSKIPFIRST` (C++ `exec_skip_first`) on the stack `s sl n`: the first `n` bits are skipped;
+`n` must be in `0..1023` (range_chk); cell_und if the slice is shorter. -/
+@[vm_spec] theorem sdskipfirst (st : VmState) (s : Stack) (sl : Slice) (n : Int)
+    (hs : st.stack = (s.push (.slice sl)).push (.int (.num n))) :
+    ExceptT.run (execInstr .sdskipfirst) st =
+      if 0 ≤ n ∧ n ≤ 1023 then
+        if sl.haveBits n.toNat then (.ok (), { st with stack := s.push (.slice (sl.advanceBits n.toNat)) })
+        else (.error .cellUnd, { st with stack := s })
+      else (.error .rangeChk, { st with stack := s.push (.slice sl) }) := by
+  by_cases hm : 0 ≤ n ∧ n ≤ 1023
+  · have h1 : ¬ n < 0 := by omega
+    have h2 : ¬ n.toNat > 1023 := by omega
+    rw [if_pos hm]
+    vm_simp [hs, h1, h2]
+  · rw [if_neg hm]
+    by_cases h1 : n < 0
+    · vm_simp [hs, h1]
+    · have h2 : n.toNat > 1023 := by omega
+      vm_simp [hs, h1, h2]
+
+/-- `LDSLICE n` / `PLDSLICE n` (C++ `exec_load_slice_fixed2`, not quiet): the first `n` bits as a
+new slice, then the rest unless prefetching; cell_und if the slice is shorter. -/
+@[vm_spec] theorem loadSliceFixed (st : VmState) (s : Stack) (sl : Slice) (prefetch : Bool) (n : Nat)
+    (hs : st.stack = s.push (.slice sl)) :
+    ExceptT.run (execInstr (.loadSliceFixed prefetch false n)) st =
+      if sl.haveBits n then
+        (.ok (), { st with stack := (if prefetch then s.push (.slice (Slice.ofCell (Cell.mkOrdinary (sl.readBits n) #[])))
+          else (s.push (.slice (Slice.ofCell (Cell.mkOrdinary (sl.readBits n) #[])))).push (.slice (sl.advanceBits n))) })
+      else (.error .cellUnd, { st with stack := s }) := by
+  cases prefetch <;> vm_simp [hs]
+
 end Spec
 
 end TvmLean

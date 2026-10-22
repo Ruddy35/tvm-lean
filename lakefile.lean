@@ -46,7 +46,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Tx.Compute, `TvmLean.Proofs.Tx.Decompose, `TvmLean.Proofs.Tx.Actions,
     `TvmLean.Proofs.Tx.ActionPhase, `TvmLean.Proofs.Tx.Effect, `TvmLean.Proofs.Tx.ReadBack,
     `TvmLean.Proofs.Tx.Induction, `TvmLean.Proofs.Tx.Example, `TvmLean.Proofs.Exec.Load,
-    `TvmLean.Proofs.Exec.Spec.Dispatch]
+    `TvmLean.Proofs.Exec.Spec.Dispatch, `TvmLean.Proofs.Exec.Spec.Crypto, `TvmLean.Proofs.Exec.Spec.Msg]
   -- the kernel checks the proofs that follow every path through a phase of a transaction
   -- (`TvmLean.Proofs.Tx.Tactic`) on deeply nested terms: a larger thread stack than the default
   moreLeanArgs := #["--tstack=65536"]

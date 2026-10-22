@@ -30,6 +30,10 @@ namespace TvmLean
 (`VM.fetch`). -/
 abbrev Stack.at (s : Stack) (k : Nat) : Value := s[s.size - 1 - k]!
 
+/-- The stack with the values at depths `i` and `j` exchanged (`VM.swap`). -/
+abbrev Stack.swap (s : Stack) (i j : Nat) : Stack :=
+  (s.set! (s.size - 1 - i) (s.at j)).set! (s.size - 1 - j) (s.at i)
+
 namespace Spec
 
 /-- `PUSH s(k)` (C++ `exec_push`, `exec_dup`, `exec_over`, stackops.cpp): the value at depth `k`
@@ -114,6 +118,64 @@ and is dropped. -/
 @[vm_spec] theorem pushPow2 (st : VmState) (e : Nat) :
     ExceptT.run (execInstr (.pushPow2 e)) st = (.ok (), { st with stack := st.stack.push (.int (.num (2 ^ e))) }) := by
   vm_simp [intPow2]
+
+/-- `XCHG s(x),s(y)` (C++ `exec_xchg`, `1 ≤ x < y`): the values at depths `x` and `y` are
+exchanged. -/
+@[vm_spec] theorem xchg (st : VmState) (x y : Nat) (hxy : 0 < x ∧ x < y) :
+    ExceptT.run (execInstr (.xchg x y)) st =
+      if y < st.stack.size then (.ok (), { st with stack := st.stack.swap x y })
+      else (.error .stkUnd, st) := by
+  have h : ¬ (x = 0 ∨ y ≤ x) := by omega
+  vm_simp [h]
+
+/-- `XCHG2 s(x),s(y)` (C++ `exec_xchg2`): `XCHG s1,s(x)` then `XCHG s0,s(y)`. -/
+@[vm_spec] theorem xchg2 (st : VmState) (x y : Nat) :
+    ExceptT.run (execInstr (.xchg2 x y)) st =
+      if Nat.max (Nat.max x y) 1 < st.stack.size then
+        (.ok (), { st with stack := (st.stack.swap 1 x).swap 0 y })
+      else (.error .stkUnd, st) := by
+  vm_simp [Stack.swap, Stack.at]
+
+/-- `XCHG3 s(x),s(y),s(z)` (C++ `exec_xchg3`): `XCHG s2,s(x)`, `XCHG s1,s(y)`, `XCHG s0,s(z)`. -/
+@[vm_spec] theorem xchg3 (st : VmState) (x y z : Nat) :
+    ExceptT.run (execInstr (.xchg3 x y z)) st =
+      if Nat.max (Nat.max (Nat.max x y) z) 2 < st.stack.size then
+        (.ok (), { st with stack := ((st.stack.swap 2 x).swap 1 y).swap 0 z })
+      else (.error .stkUnd, st) := by
+  vm_simp [Stack.swap, Stack.at]
+
+/-- `XC2PU s(x),s(y),s(z)` (C++ `exec_xc2pu`): `XCHG2 s(x),s(y)`, then `PUSH s(z)`. -/
+@[vm_spec] theorem xc2pu (st : VmState) (x y z : Nat) :
+    ExceptT.run (execInstr (.xc2pu x y z)) st =
+      if Nat.max (Nat.max (Nat.max x y) z) 1 < st.stack.size then
+        (.ok (), { st with stack := ((st.stack.swap 1 x).swap 0 y).push (((st.stack.swap 1 x).swap 0 y).at z) })
+      else (.error .stkUnd, st) := by
+  vm_simp [Stack.swap, Stack.at]
+
+/-- `PUSH2 s(x),s(y)` (C++ `exec_push2`): `PUSH s(x)`, then `PUSH s(y+1)`. -/
+@[vm_spec] theorem push2 (st : VmState) (x y : Nat) :
+    ExceptT.run (execInstr (.push2 x y)) st =
+      if Nat.max x y < st.stack.size then
+        (.ok (), { st with stack := (st.stack.push (st.stack.at x)).push (st.stack.at y) })
+      else (.error .stkUnd, st) := by
+  vm_simp [Stack.swap, Stack.at]
+  have : st.stack.size - (y + 1) = st.stack.size - 1 - y := by omega
+  rw [this]
+
+/-- `TUCK` (C++ `exec_tuck`) on a stack `s a b`: `s b a b`. -/
+@[vm_spec] theorem tuck (st : VmState) (s : Stack) (a b : Value) (hs : st.stack = (s.push a).push b) :
+    ExceptT.run (execInstr .tuck) st = (.ok (), { st with stack := ((s.push b).push a).push b }) := by
+  vm_simp [hs]
+
+/-- `-ROT` (C++ `exec_rotrev`) on a stack `s a b c`: `s c a b`. -/
+@[vm_spec] theorem rotRev (st : VmState) (s : Stack) (a b c : Value) (hs : st.stack = ((s.push a).push b).push c) :
+    ExceptT.run (execInstr .rotRev) st = (.ok (), { st with stack := ((s.push c).push a).push b }) := by
+  vm_simp [hs]
+
+/-- `2DROP` (C++ `exec_drop2`) on a stack `s a b`: `s`. -/
+@[vm_spec] theorem drop2 (st : VmState) (s : Stack) (a b : Value) (hs : st.stack = (s.push a).push b) :
+    ExceptT.run (execInstr .drop2) st = (.ok (), { st with stack := s }) := by
+  vm_simp [hs]
 
 end Spec
 
