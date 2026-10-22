@@ -16,8 +16,10 @@ C++ `compute_state` and `Tx.computeState` fail there).
 account (`shardAccountCell`), reads back (`Account.unpack`) as an active account only if `tf` is
 active, and then with the code and the data of `tf`. `Tx.computeState` is cut into definitional
 pieces for this (`computeState_pieces`: `csAdjust`, `csState`, `Tx.storageStat`, `preW`); the parts it
-writes (`StateParts`) must fit their fields (`StateParts.Fits`: what C++ `compute_state` checks
-with `FAIL_UNLESS` on each store, and the shape of the address).
+writes (`StateParts`) fit their fields: the balance, the storage statistics and the due payment
+whenever `Tx.computeState` succeeds (C++ `compute_state` checks them with `FAIL_UNLESS`,
+`computeState_some`); the address, the dict hash and the fixed prefix length have the shape the
+reader needs (`StateParts.Fits`).
 -/
 
 namespace TvmLean
@@ -730,10 +732,14 @@ def Tx.computeStateParts (t : Tx) (sl : SizeLimits) : Option StateParts :=
     | some (used, dictHash) =>
       some { t := t', addr := csAddr t t', storage := w.cell, used, dictHash, fpl := csFpl t }
 
+/-- `Tx.computeState` succeeds with the account of its parts, whose balance, storage statistics and
+due payment fit their fields (C++ fails otherwise, and so does the model). -/
 theorem computeState_some {t : Tx} {sl : SizeLimits} {p : StateParts} (hp : t.computeStateParts sl = some p)
     {t' : Tx} {acc : Cell} (h : t.computeState sl = some (t', acc)) :
     t' = p.t ∧ acc = ((preW p.addr p.used p.dictHash p.t.lastPaid p.t.duePayment).slice
-      (Slice.ofCell p.storage)).cell := by
+      (Slice.ofCell p.storage)).cell ∧
+      (csAdjust t).balance < 2 ^ 120 ∧ p.used.cells < 2 ^ 48 ∧ p.used.bits < 2 ^ 48 ∧
+      p.t.duePayment < 2 ^ 120 := by
   rw [computeState_pieces] at h
   revert hp h
   unfold Tx.computeStateParts
@@ -753,12 +759,16 @@ theorem computeState_some {t : Tx} {sl : SizeLimits} {p : StateParts} (hp : t.co
       simp only [bind, Option.bind] at h
       split at h
       · cases h
-      · split at h
+      · rename_i hbal
+        split at h
         · cases h
-        · split at h
+        · rename_i hcb
+          split at h
           · cases h
-          · cases h
-            exact ⟨rfl, rfl⟩
+          · rename_i hdue
+            cases h
+            simp only [Bool.or_eq_true, decide_eq_true_eq, not_or, Nat.not_le] at hcb
+            exact ⟨rfl, rfl, Nat.lt_of_not_le hbal, hcb.1, hcb.2, Nat.lt_of_not_le hdue⟩
 
 theorem computeState_none {t : Tx} {sl : SizeLimits} (hp : t.computeStateParts sl = none) {t' : Tx} {acc : Cell}
     (h : t.computeState sl = some (t', acc)) : acc = (W.bool {} false).cell := by
@@ -1073,19 +1083,13 @@ theorem ReadsAs.ltBalance (endLt : Nat) {g : Nat} (hg : g < 2 ^ 120) (e : Option
 
 /-! ## Reading back the account `Tx.computeState` writes -/
 
-/-- The parts of the account `Tx.computeState` writes fit the fields of `Account`: an address of
-`Account.mkAddr` (256 bits, an anycast prefix below 32 bits), the storage statistics below `2^48`
-(`VarUInteger 7`), a dict hash of 256 bits, the due payment and the balance below `2^120` (`Grams`),
-the fixed prefix length below 32 (`## 5`). C++ `compute_state` fails where the balance, the
-storage statistics or the due payment do not fit (each store is a `FAIL_UNLESS`), and so does
-`Tx.computeState`. -/
+/-- The parts of the account `Tx.computeState` writes have the shape its reader needs: an address of
+`Account.mkAddr` (256 bits, an anycast prefix below 32 bits), a dict hash of 256 bits, the fixed
+prefix length below 32 (`## 5`). The balance, the storage statistics and the due payment fit their
+fields whenever `Tx.computeState` succeeds (`computeState_some`). -/
 structure StateParts.Fits (p : StateParts) : Prop where
   addr : ∃ wc any a lim, p.addr = Account.mkAddr wc any a lim ∧ a.size = 256 ∧ ∀ q, any = some q → q.size < 32
-  cells : p.used.cells < 2 ^ 48
-  bits : p.used.bits < 2 ^ 48
   dictHash : ∀ h, p.dictHash = some h → h.size = 256
-  due : p.t.duePayment < 2 ^ 120
-  balance : p.t.balance < 2 ^ 120
   fpl : p.fpl < 32
 
 /-- The account `Tx.computeState` writes from `tf` fits (`StateParts.Fits`), if it is not
@@ -1134,7 +1138,7 @@ theorem computeState_readBack {tf : Tx} {sl : SizeLimits} {t' : Tx} {acc : Cell}
   | some p =>
     have pf := hf p hp
     obtain ⟨hne, hnd, hpt, hps, hpf⟩ := computeStateParts_some hp
-    obtain ⟨_, hacc2⟩ := computeState_some hp hcs
+    obtain ⟨_, hacc2, hbal', hcells, hbits, hdue⟩ := computeState_some hp hcs
     rw [hacc2] at hacc
     subst hacc
     obtain ⟨awc, any, aa, lim, hpa, hasz, hany⟩ := pf.addr
@@ -1142,16 +1146,13 @@ theorem computeState_readBack {tf : Tx} {sl : SizeLimits} {t' : Tx} {acc : Cell}
     have hr0 := Rem.ofCell ((preW p.addr p.used p.dictHash p.t.lastPaid p.t.duePayment).slice
       (Slice.ofCell p.storage)).cell
     rw [W.cell_bits, W.cell_refs, W.slice_bits, W.slice_refs, preW_bits, preW_refs, hpa, mkAddr_refs] at hr0
-    have hr1 := (ReadsAs.accountPrefix (lim := lim) hasz hany pf.cells pf.bits pf.dictHash pf.due
+    have hr1 := (ReadsAs.accountPrefix (lim := lim) hasz hany hcells hbits pf.dictHash hdue
       (Slice.ofCell ((preW p.addr p.used p.dictHash p.t.lastPaid p.t.duePayment).slice (Slice.ofCell p.storage)).cell)
       p.storage.bits.toList p.storage.refs.toList q storage
       (by rw [hpa]; simpa using hr0) hpre).2
     -- the storage
     obtain ⟨S, SR, hSb, hSr, hact, hnact⟩ := csState_storage (csAdjust tf) ⟨hne, hnd⟩
-    obtain ⟨hbal, _, _, _⟩ := csState_fields (csAdjust tf)
     rw [hps, W.cell_bits, W.cell_refs, hSb, hSr] at hr1
-    have hbal' : (csAdjust tf).balance < 2 ^ 120 := by
-      have := pf.balance; rw [hpt, hbal] at this; exact this
     have hr2 := (ReadsAs.ltBalance (csAdjust tf).endLt hbal' (csAdjust tf).balanceExtra storage S SR v state
       (by simpa using hr1) hcur).2
     by_cases hst : (csState (csAdjust tf)).1.accStatus = .active

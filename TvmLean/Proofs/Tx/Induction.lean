@@ -25,8 +25,9 @@ A step (`Step`) is a transaction the model runs (`emulate`, `emulateTickTock`) u
 configuration `configRoot`, with any inbound message, time, logical time, random seed and
 libraries; the next shard account holds the account it writes, with any hash (256 bits) and logical
 time of the last transaction (`shardAccountCell`). Two conditions restrict the steps:
-* the account written fits its fields (`Tx.Fits`: what C++ `compute_state` checks with
-  `FAIL_UNLESS`, where `Tx.computeState` fails too, and the shape of the address and the dict hash);
+* the account written has the shape its reader needs (`Tx.Fits`: the address, the dict hash, the
+  fixed prefix length; the balance, the storage statistics and the due payment fit whenever
+  `Tx.computeState` succeeds, as C++ `compute_state` checks);
 * the account takes its code and data from the message's `StateInit` only if `Init` holds of it
   (`DeployOK`). The model takes them only from a `StateInit` whose hash matches the address (an
   uninitialized account) or the frozen state hash; that only the contract's own `StateInit` can be
