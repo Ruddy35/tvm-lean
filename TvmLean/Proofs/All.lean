@@ -97,6 +97,8 @@ import TvmLean.Proofs.Exec.Dict.Loaded
 import TvmLean.Proofs.Exec.Spec.DictSet
 import TvmLean.Proofs.Exec.Spec.DictDel
 import TvmLean.Proofs.Exec.Pilot.DictSet
+import TvmLean.Proofs.Exec.Dict.SetGet
+import TvmLean.Proofs.Exec.Spec.DictSetGet
 
 /-!
 # All proof modules together

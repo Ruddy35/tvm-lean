@@ -530,11 +530,17 @@ macro_rules
       | exact dictKeyBits?_size (by assumption)
       | exact Slice.readBits_size_of_haveBits (by assumption))
 
+/-- More ways to prove `Dict.WF root n` for `vm_dict_wf` (`macro_rules` add them; none here). -/
+syntax "vm_dict_wf_ext" : tactic
+
+macro_rules | `(tactic| vm_dict_wf_ext) => `(tactic| fail "vm_dict_wf_ext: no rule")
+
 /-- `vm_dict_wf`: a goal `Dict.WF root n` from the context: a hypothesis (the key length a literal
 or not), the empty dictionary, or the result of a set or a delete (a hypothesis
 `Dict.setSetRes root key vb = .ok (c, ..)`, `Dict.setRes ..`, `Dict.delRes ..`, which `vm_run`
 leaves when it splits on it) of a dictionary that is well-formed in turn (`Dict.WF.setSet`,
-`Dict.WF.setRes`, `Dict.WF.delRes`). Fails at once on any other goal. -/
+`Dict.WF.setRes`, `Dict.WF.delRes`, and the rules of `vm_dict_wf_ext`). Fails at once on any other
+goal. -/
 syntax "vm_dict_wf" : tactic
 
 open Lean Elab Tactic Meta in
@@ -548,7 +554,8 @@ elab_rules : tactic
       | (simp only [Int.reduceToNat]; with_reducible assumption)
       | (refine Dict.WF.setSet ?_ ?_ (by assumption) <;> first | vm_dict_wf | vm_dict_key)
       | (refine Dict.WF.setRes ?_ ?_ (by assumption) <;> first | vm_dict_wf | vm_dict_key)
-      | (refine Dict.WF.delRes ?_ ?_ (by assumption) <;> first | vm_dict_wf | vm_dict_key)))
+      | (refine Dict.WF.delRes ?_ ?_ (by assumption) <;> first | vm_dict_wf | vm_dict_key)
+      | vm_dict_wf_ext))
 
 /-- The discharger of `vm_simp` and `vm_run` (`vm_disch`) also proves `Dict.WF` (`vm_dict_wf`), the
 condition of the specifications on well-formed dictionaries. -/
