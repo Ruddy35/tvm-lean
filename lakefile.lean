@@ -36,6 +36,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Spec.ArithExt, `TvmLean.Proofs.Exec.Pilot.ArithExt,
     `TvmLean.Proofs.Exec.Spec.StackExt, `TvmLean.Proofs.Exec.Pilot.StackExt,
     `TvmLean.Proofs.Exec.Spec.Tuple, `TvmLean.Proofs.Exec.Pilot.Tuple,
+    `TvmLean.Proofs.Exec.Spec.CellExt, `TvmLean.Proofs.Exec.Pilot.CellExt,
     `TvmLean.Proofs.WF.Defs, `TvmLean.Proofs.WF.Library, `TvmLean.Proofs.WF.Monad, `TvmLean.Proofs.WF.Decode,
     `TvmLean.Proofs.WF.Step, `TvmLean.Proofs.WF.Exec.Stack, `TvmLean.Proofs.WF.Exec.Arith,
     `TvmLean.Proofs.WF.Cells, `TvmLean.Proofs.WF.Exec.Cell, `TvmLean.Proofs.WF.Exec.CellOp,
