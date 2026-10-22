@@ -12,7 +12,9 @@ has at most 255 entries in C++ (`pop_tuple_range(255)`); the model checks it whe
 
 * `TUPLE n`, `UNTUPLE n`, `UNPACKFIRST n`, `EXPLODE n` (their loops over the entries as `Array`
   operations: `VM.run_pop_loop`, `foldl_push_range`), `INDEX`, `INDEX2`, `INDEX3` (the inner tuples
-  given), `INDEXQ`, `SETINDEX`, `SETINDEXQ`, `TLEN`, `QTLEN`, `ISTUPLE`, `LAST`, `TPUSH`, `TPOP`;
+  given), `INDEXQ`, `SETINDEX`, `SETINDEXQ` (on a tuple and on null), `TLEN`, `QTLEN`, `ISTUPLE`,
+  `LAST`, `TPUSH`, `TPOP`;
+* `TUPLEVAR`, `UNTUPLEVAR`, `INDEXVAR` (the count or index from the stack);
 * `NULL`, `ISNULL`, `NULLSWAPIF`, `NULLSWAPIFNOT`, `NULLROTRIF`, `NULLROTRIFNOT` and their `2` forms.
 -/
 
@@ -154,6 +156,50 @@ entries and their number. -/
     · rw [VM.run_push_entries _ _ _ (Nat.le_refl _)]
       vm_simp [VmState.consumeTupleGas, VmState.consumeGas]
 
+/-- `TUPLEVAR` (C++ `exec_mktuple_var`): the count `n` on top, `0 ≤ n ≤ 255` (range_chk); the
+next `n` values become a tuple, as `TUPLE n`. -/
+@[vm_spec] theorem mktupleVar (st : VmState) (s : Stack) (n : Int) (hs : st.stack = s.push (.int (.num n))) :
+    ExceptT.run (execInstr (.tupleOp .mktupleVar)) st =
+      if n < 0 then (.error .rangeChk, { st with stack := s })
+      else if 255 < n.toNat then (.error .rangeChk, { st with stack := s })
+      else if n.toNat ≤ s.size then
+        (.ok (), { st with stack := (s.take (s.size - n.toNat)).push (.tuple (s.extract (s.size - n.toNat) s.size)),
+                           gas := st.gas.consume (n.toNat * tupleEntryGasPrice) })
+      else (.error .stkUnd, { st with stack := s }) := by
+  vm_simp [hs]
+  split
+  · rfl
+  · split
+    · rfl
+    · split
+      · rw [Std.Range.forIn_eq_forIn_range']
+        rw [VM.run_pop_loop _ _ _ (by simp [Std.Range.size]; omega)]
+        vm_simp [Std.Range.size, VmState.consumeTupleGas, VmState.consumeGas, Array.reverse_reverse,
+          List.length_range', Nat.div_one, Array.empty_append]
+      · rfl
+
+/-- `UNTUPLEVAR` (C++ `exec_untuple_var`): the count `n` on top, `0 ≤ n ≤ 255` (range_chk); a
+tuple of exactly `n` entries below (type_chk otherwise) is replaced by its entries, as
+`UNTUPLE n`. -/
+@[vm_spec] theorem untupleVar (st : VmState) (s : Stack) (items : Array Value) (n : Int)
+    (hs : st.stack = (s.push (.tuple items)).push (.int (.num n))) :
+    ExceptT.run (execInstr (.tupleOp .untupleVar)) st =
+      if n < 0 then (.error .rangeChk, { st with stack := s.push (.tuple items) })
+      else if 255 < n.toNat then (.error .rangeChk, { st with stack := s.push (.tuple items) })
+      else if items.size ≠ n.toNat then (.error .typeChk, { st with stack := s })
+      else (.ok (), { st with stack := s ++ items, gas := st.gas.consume (n.toNat * tupleEntryGasPrice) }) := by
+  vm_simp [hs, bne_iff_ne]
+  split
+  · rfl
+  · split
+    · rfl
+    · by_cases he : items.size = n.toNat
+      · have h255 : ¬ 255 < items.size := by omega
+        simp only [he, not_true_eq_false]
+        rw [VM.run_push_entries _ _ _ (by omega)]
+        vm_simp [VmState.consumeTupleGas, VmState.consumeGas, ← he, false_or, h255]
+      · simp only [he, not_false_eq_true, true_or, if_true, if_false]
+
 /-! ## Entries -/
 
 /-- `INDEX k` (C++ `exec_tuple_index`): the entry `k` of a tuple; range_chk if there is none. -/
@@ -205,6 +251,18 @@ entries and their number. -/
     ExceptT.run (execInstr (.tupleOp (.indexQ k))) st = (.ok (), { st with stack := s.push .null }) := by
   vm_simp [hs]
 
+/-- `INDEXVAR` (C++ `exec_tuple_index_var`): the index `k` on top, `0 ≤ k ≤ 254` (range_chk); the
+entry `k` of the tuple below. -/
+@[vm_spec] theorem indexVar (st : VmState) (s : Stack) (items : Array Value) (k : Int)
+    (hs : st.stack = (s.push (.tuple items)).push (.int (.num k))) :
+    ExceptT.run (execInstr (.tupleOp .indexVar)) st =
+      if k < 0 then (.error .rangeChk, { st with stack := s.push (.tuple items) })
+      else if 254 < k.toNat then (.error .rangeChk, { st with stack := s.push (.tuple items) })
+      else if 255 < items.size then (.error .typeChk, { st with stack := s })
+      else if k.toNat < items.size then (.ok (), { st with stack := s.push items[k.toNat]! })
+      else (.error .rangeChk, { st with stack := s }) := by
+  vm_simp [hs]
+
 /-- `SETINDEX k` (C++ `exec_tuple_set_index`): the entry `k` of the tuple below the top becomes
 the top; range_chk if there is none. -/
 @[vm_spec] theorem setIndex (st : VmState) (s : Stack) (items : Array Value) (x : Value) (k : Nat)
@@ -237,6 +295,23 @@ extended with nulls (unless the value is null: the tuple stays); range_chk for `
   · simp only [ge_iff_le, h0, h3, gt_iff_lt, if_true, if_false]
   by_cases h1 : items.size ≤ k <;> by_cases h2 : (x == Value.null) = true <;>
     simp only [ge_iff_le, gt_iff_lt, h0, h1, h2, h3, if_true, if_false, Bool.false_eq_true] <;>
+    vm_simp [VmState.consumeTupleGas, VmState.consumeGas]
+
+/-- `SETINDEXQ k` on null: a tuple of `k + 1` nulls with the value at `k` (null if the value is
+null); range_chk for `k ≥ 255`. -/
+@[vm_spec] theorem setIndexQ_null (st : VmState) (s : Stack) (x : Value) (k : Nat)
+    (hs : st.stack = (s.push .null).push x) :
+    ExceptT.run (execInstr (.tupleOp (.setIndexQ k))) st =
+      if 255 ≤ k then (.error .rangeChk, { st with stack := s })
+      else if x == .null then (.ok (), { st with stack := s.push .null })
+      else (.ok (), { st with stack := s.push (.tuple ((Array.replicate (k + 1) Value.null).set! k x)),
+                              gas := st.gas.consume ((k + 1 : Nat) * tupleEntryGasPrice) }) := by
+  simp only [TvmLean.Exec.reduceExecInstrRun, TvmLean.Exec.unfoldModelRun, VM.run_bind, VM.run_get, VM.run_pop, hs,
+    Array.size_push, Nat.zero_lt_succ, dite_true, VM.back_push, Array.pop_push, VM.bindRes_ok, ↓VM.run_ite_throw]
+  by_cases h0 : 255 ≤ k
+  · simp only [ge_iff_le, h0, if_true]
+  by_cases h2 : (x == Value.null) = true <;>
+    simp only [ge_iff_le, gt_iff_lt, h0, h2, if_true, if_false, Bool.false_eq_true] <;>
     vm_simp [VmState.consumeTupleGas, VmState.consumeGas]
 
 /-- `TLEN` (C++ `exec_tuple_length`): the number of entries of a tuple. -/
