@@ -2,7 +2,8 @@
 // from FunC (crypto/smartcont/auto/*.fif), their initial data and messages signed with a fixed key
 // (wallet v3, highload wallet v2, the elector, the configuration contract).
 // Prints one line per cell, "name base64-BOC"; tools/txoracle/contracts.txt is its output:
-//   fift -I <ton>/crypto/fift/lib:<ton>/crypto/smartcont -s tools/txoracle/contracts.fif > tools/txoracle/contracts.txt
+//   fift -I <ton>/crypto/fift/lib:<ton>/crypto/smartcont:<ton>/storage/storage-daemon/smartcont \
+//     -s tools/txoracle/contracts.fif > tools/txoracle/contracts.txt
 "Asm.fif" include
 "TonUtil.fif" include
 
@@ -553,3 +554,12 @@ updd "nothere" z$ own cats dabody "dnsauto.body.update-missing" put
 <b 0x4344656c 32 u, 1 64 u, b> "dnsauto.body.cdel" put
 <b 0x54616b65 32 u, 1 64 u, 100000000 Gram, b> "dnsauto.body.take" put
 <b 0x43000001 32 u, 1 64 u, b> "dnsauto.body.ctl-unknown" put
+
+// --- the storage contract of TON Storage (storage/storage-daemon/smartcont/storage-contract.fc): the
+// code func -SPA made of it (storage-contract.fif, found on the include path), which is
+// storage-contract-code.boc (its hash below); its data and messages are made in
+// Tests/Tx/StorageContract.lean
+"storage-contract.fif" include constant stcode
+stcode hashu 0xb4f9d928599d2f9be748f8a04af86a3cb2ff2053634df62b275545f6152b1d1a <>
+  abort"storage-contract.fif is not storage-contract-code.boc"
+stcode "storage.code" put

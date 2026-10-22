@@ -110,6 +110,7 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Gen.Versions,
     `Tests.Tx.Oracle,
     `Tests.Tx.Gen,
+    `Tests.Tx.StorageContract,
     `Tests.Tx.Real,
     `Tests.Tx.Coverage
   ]

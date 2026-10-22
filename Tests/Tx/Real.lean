@@ -1,4 +1,5 @@
 import Tests.Tx.Gen
+import Tests.Tx.StorageContract
 import TvmLean.Proofs.Contracts.Wallet3Code
 
 /-!
@@ -83,7 +84,11 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
   operations ChPr and CDel (domains left, none, only expired ones) from the owner and another
   account, Take, an unknown control operation; an unknown operation with and without a query id, an
   answer, a comment, a short and an empty body, a bounced message; external messages before and
-  after the initialization, the message of `new-auto-dns.fif` with its `StateInit`.
+  after the initialization, the message of `new-auto-dns.fif` with its `StateInit`;
+- the storage contract of TON Storage (`storage/storage-daemon/smartcont/storage-contract.fc`,
+  `Tests/Tx/StorageContract.lean`): every operation of `recv_internal`, proofs of storage (Merkle
+  proofs of microchunk trees) valid and invalid, external messages; and 500 random internal messages
+  from a fixed seed, each at its own version (`StorageContract.randomCases`).
 -/
 
 namespace Tests.Tx
@@ -299,6 +304,7 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
   let pcRun ← pcCases.mapM fun (st, m, v, bal) => return (st, m, v, bal, ← pcData st, ← pcBody m)
   let cfgCode ← get "config.code"
   let pub := (← get "key.pub").bits
+  let stCode ← get "storage.code"
   let cfgBodies ← ["set-param", "set-key", "set-code", "elector-code", "noop", "unknown", "seqno", "expired", "vote",
     "bad-signature"].mapM fun n => return (n, ← get s!"config.body.{n}")
   let mut out : Array TxCase := #[]
@@ -369,6 +375,7 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
     out := out ++ (← restricted1Cases get cfg mk)
     out := out ++ (← restricted2Cases get cfg mk)
     out := out ++ (← dnsAutoCases get mk)
+    out := out ++ (← StorageContract.cases stCode mk)
     for (st, m, v, bal, d, body) in pcRun do
       let acc := mkAccount 0 pcAddr (.active pcCode d) bal 1700000000 0 1000
       let msg := match v with
@@ -410,6 +417,6 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
         ("transfer", mc stranger, #[], #[]), ("from-basechain", (0, stranger), q 0x6e565052, #[])] do
       out := out.push (mk s!"config/internal/{n}" (cfgAcc cfg) (intMsg (-1) cfgAddr 2000000000 true none body
         (bodyRefs := refs) (src := src)))
-  return out
+  return out ++ (← StorageContract.randomCases stCode cfg0 versions)
 
 end Tests.Tx
