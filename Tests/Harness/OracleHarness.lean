@@ -58,7 +58,10 @@ private def valueToToken (v : Value) : Except String String := do
   | .cont _ => throw "only quit(0) continuations are supported in oracle stack token stream"
 
 /-- Tokens of one value. A non-empty tuple is its elements' tokens followed by `TUP:<n>`, which the
-fift side (`push-token`) turns into `n tuple`; nested tuples follow from the recursion. -/
+fift side (`push-token`) turns into `n tuple`; nested tuples follow from the recursion. Fift's
+`tuple` takes at most 255 values (`interpret_make_tuple`, fift/words.cpp:1254-1265): a longer tuple
+is its first 255 elements and `TUP:255`, then each further element's tokens and `TPUSH` (fift's `,`,
+`interpret_tuple_push`). -/
 private partial def valueToTokens (v : Value) : Except String (List String) := do
   match v with
   | .tuple t =>
@@ -66,9 +69,12 @@ private partial def valueToTokens (v : Value) : Except String (List String) := d
         pure ["T"]
       else
         let mut out : List String := []
-        for x in t do
+        for x in t.extract 0 255 do
           out := out ++ (← valueToTokens x)
-        pure (out ++ [s!"TUP:{t.size}"])
+        out := out ++ [s!"TUP:{min t.size 255}"]
+        for x in t.extract 255 t.size do
+          out := out ++ (← valueToTokens x) ++ ["TPUSH"]
+        pure out
   | _ => pure [← valueToToken v]
 
 private def stackToTokens (stack : Array Value) : Except String (List String) := do

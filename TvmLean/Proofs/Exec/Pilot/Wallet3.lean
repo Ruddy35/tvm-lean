@@ -159,12 +159,13 @@ macro "wallet_commit" : tactic => `(tactic| (
 set_option maxHeartbeats 0 in
 set_option maxRecDepth 100000 in
 /-- **Wallet v3's `recv_external`, from the initial state of the compute phase.** For any data,
-message, body, balance and value, any `c7` whose parameters give `NOW`, any gas maximum up to
+message, body, balance and value, any `c7` whose parameters give `NOW` (a tuple of more than 3 and at
+most 255 entries, as `get_param` reads it: tonops.cpp:121-128), any gas maximum up to
 `GasLimits.infty` = 2^63 - 1 (stated as the literal, which `vm_run` never unfolds), version 4
 or later and any fuel: if the run commits, `CommitSpec` holds (the checks passed, the signature
 verified, the new data is the old one with seqno + 1). -/
 theorem recvExternal_commit (data msg : Cell) (body : Slice) (bal val : Int) (c7 params : Array Value) (now : Int)
-    (hc70 : 0 < c7.size) (hc7 : c7[0]! = .tuple params) (hp : 3 < params.size)
+    (hc70 : 0 < c7.size) (hc7 : c7[0]! = .tuple params) (hp : 3 < params.size) (hl : params.size ≤ 255)
     (hnow : params[3]! = .int (.num now)) (hdata : data.special = false)
     (gm : Int) (gv : Nat) (hgv : 4 ≤ gv) (hgm : gm ≤ 9223372036854775807) (fuel : Nat) :
     CommitSpec data body now gv (VmState.runWith execInstr fuel
@@ -196,7 +197,7 @@ part with the stored key), and the message's subwallet and seqno are the stored 
 `valid_until` is after `now`. -/
 theorem recvExternal_commit_decode (data msg : Cell) (body : Slice) (bal val : Int) (c7 params : Array Value)
     (now : Int) (hc70 : 0 < c7.size) (hc7 : c7[0]! = .tuple params) (hp : 3 < params.size)
-    (hnow : params[3]! = .int (.num now)) (d : Wallet3.Data) (hd : Wallet3.Data.decode data = some d)
+    (hl : params.size ≤ 255) (hnow : params[3]! = .int (.num now)) (d : Wallet3.Data) (hd : Wallet3.Data.decode data = some d)
     (gm : Int) (gv : Nat) (hgv : 4 ≤ gv) (hgm : gm ≤ 9223372036854775807) (fuel : Nat) :
     let r := VmState.runWith execInstr fuel
       (computePhaseInit wallet3Code data (computePhaseStack bal val msg body true) c7 0 gm 10000 gv)
@@ -208,7 +209,7 @@ theorem recvExternal_commit_decode (data msg : Cell) (body : Slice) (bal val : I
   intro r hc
   obtain ⟨hdd, hsp⟩ := dataOf_of_decode hd
   obtain ⟨_, _, hsig, hsub, hnow', hseq, hc4⟩ :=
-    recvExternal_commit data msg body bal val c7 params now hc70 hc7 hp hnow hsp gm gv hgv hgm fuel hc
+    recvExternal_commit data msg body bal val c7 params now hc70 hc7 hp hl hnow hsp gm gv hgv hgm fuel hc
   rw [hdd] at hsig hsub hseq hc4
   exact ⟨hc4, verify_of_chkSignU hsig, hsub, hseq, hnow'⟩
 

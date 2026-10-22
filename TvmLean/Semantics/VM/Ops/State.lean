@@ -117,14 +117,18 @@ def tupleExtendSetIndex (t : Array Value) (idx : Nat) (v : Value) : Array Value 
     (tExt.set! idx v, newSize)
 
 def VM.generateRandu256 : VM Int := do
-  -- Mirrors `generate_randu256` from `crypto/vm/tonops.cpp`:
+  -- Mirrors `generate_randu256` from `crypto/vm/tonops.cpp` (537-566):
   -- SHA512(seed) where seed is a 256-bit unsigned integer, then:
   --   new_seed := hash[0:32], rand := hash[32:64].
+  -- `c7[0]` is read `as_tuple_range(255)` (539-542, stack.cpp:312-319): type_chk for a tuple of
+  -- more than 255 entries.
   let st ← get
   match st.regs.c7[0]? with
   | none =>
       throw .rangeChk
   | some (Value.tuple params) =>
+      if 255 < params.size then
+        throw .typeChk
       match params[6]? with
       | none =>
           throw .rangeChk

@@ -5,9 +5,10 @@ import TvmLean.Proofs.Exec.Eval
 
 In the format of `Proofs/Exec/Spec/Stack.lean`: the persistent data `c4` (`PUSHROOT`, `POPROOT`),
 `ACCEPT`, and the parameters of `c7` (`NOW`, `BALANCE`, `MYADDR`, `GETPARAM i` and its other
-aliases). A parameter is entry `i` of the tuple `c7[0]` (`SmartContractInfo.params`); the
-specifications take that tuple as a hypothesis on `c7` (`c7[0]! = .tuple params`, which
-`vm_run` finds among the hypotheses of the goal), so `c7` itself may stay unknown.
+aliases). A parameter is entry `i` of the tuple `c7[0]` (`SmartContractInfo.params`), a tuple of at most 255
+entries (C++ `get_param`, tonops.cpp:121-128, reads it `as_tuple_range(255)`: type_chk for a
+longer one); the specifications take that tuple as a hypothesis on `c7` (`c7[0]! = .tuple params`,
+which `vm_run` finds among the hypotheses of the goal), so `c7` itself may stay unknown.
 -/
 
 namespace TvmLean.Spec
@@ -45,66 +46,76 @@ is at most `GasLimits.infty` = 2^63 - 1 (it is a 64-bit amount): limit and base 
 
 /-- `NOW` = `GETPARAM 3` (C++ `exec_get_param`) when `c7` is the parameters tuple (as the compute
 phase makes it, `SmartContractInfo.toC7`): its entry 3 is pushed. -/
-@[vm_spec] theorem now (st : VmState) (params : Array Value) (hc7 : st.regs.c7 = #[.tuple params]) (hp : 3 < params.size) :
+@[vm_spec] theorem now (st : VmState) (params : Array Value) (hc7 : st.regs.c7 = #[.tuple params]) (hp : 3 < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .now)) st = (.ok (), { st with stack := st.stack.push params[3]! }) := by
-  vm_simp [hc7, hp]
+  vm_simp [hc7, hp, Nat.not_lt.mpr hl]
   done
 
 /-- `GETPARAM i` (C++ `exec_get_param`) when `c7[0]` is the tuple `params` of more than `i`
-entries: entry `i` is pushed. -/
+entries and at most 255: entry `i` is pushed. -/
 @[vm_spec] theorem getParam (st : VmState) (i : Nat) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : i < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : i < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp (.getParam i))) st = (.ok (), { st with stack := st.stack.push params[i]! }) := by
-  vm_simp [h0, hc7, hp]
+  vm_simp [h0, hc7, hp, Nat.not_lt.mpr hl]
 
 /-- `NOW` = `GETPARAM 3` with `c7[0]` a tuple `params` (any `c7`). -/
 @[vm_spec] theorem now' (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 3 < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 3 < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .now)) st = (.ok (), { st with stack := st.stack.push params[3]! }) := by
-  vm_simp [h0, hc7, hp]
+  vm_simp [h0, hc7, hp, Nat.not_lt.mpr hl]
 
 /-- `BALANCE` = `GETPARAM 7` (the pair `[grams, extra]`). -/
 @[vm_spec] theorem balance (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 7 < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 7 < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .balance)) st = (.ok (), { st with stack := st.stack.push params[7]! }) := by
-  vm_simp [h0, hc7, hp]
+  vm_simp [h0, hc7, hp, Nat.not_lt.mpr hl]
 
 /-- The parameter aliases of `GETPARAM` (C++ `exec_get_var_param` callers): `BLOCKLT` 4, `LTIME` 5,
 `RANDSEED` 6, `MYADDR` 8, `CONFIGROOT` 9, `MYCODE` 10, `INCOMINGVALUE` 11, `STORAGEFEES` 12. -/
 theorem pushC7Param (st : VmState) (i : Nat) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : i < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : i < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (VM.pushC7Param i) st = (.ok (), { st with stack := st.stack.push params[i]! }) := by
-  vm_simp [VM.pushC7Param, h0, hc7, hp]
+  vm_simp [VM.pushC7Param, h0, hc7, hp, Nat.not_lt.mpr hl]
 
 /-- `MYADDR` = `GETPARAM 8`. -/
 @[vm_spec] theorem myAddr (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 8 < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 8 < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .myAddr)) st = (.ok (), { st with stack := st.stack.push params[8]! }) := by
-  vm_simp [pushC7Param st 8 params h0 hc7 hp]
+  vm_simp [pushC7Param st 8 params h0 hc7 hp hl]
 
 /-- `LTIME` = `GETPARAM 5`. -/
 @[vm_spec] theorem lTime (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 5 < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 5 < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .lTime)) st = (.ok (), { st with stack := st.stack.push params[5]! }) := by
-  vm_simp [pushC7Param st 5 params h0 hc7 hp]
+  vm_simp [pushC7Param st 5 params h0 hc7 hp hl]
 
 /-- `BLOCKLT` = `GETPARAM 4`. -/
 @[vm_spec] theorem blockLt (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 4 < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 4 < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .blockLt)) st = (.ok (), { st with stack := st.stack.push params[4]! }) := by
-  vm_simp [pushC7Param st 4 params h0 hc7 hp]
+  vm_simp [pushC7Param st 4 params h0 hc7 hp hl]
 
 /-- `MYCODE` = `GETPARAM 10`. -/
 @[vm_spec] theorem myCode (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 10 < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 10 < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .myCode)) st = (.ok (), { st with stack := st.stack.push params[10]! }) := by
-  vm_simp [pushC7Param st 10 params h0 hc7 hp]
+  vm_simp [pushC7Param st 10 params h0 hc7 hp hl]
 
 /-- `INCOMINGVALUE` = `GETPARAM 11`. -/
 @[vm_spec] theorem incomingValue (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
-    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 11 < params.size) :
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 11 < params.size)
+    (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .incomingValue)) st = (.ok (), { st with stack := st.stack.push params[11]! }) := by
-  vm_simp [pushC7Param st 11 params h0 hc7 hp]
+  vm_simp [pushC7Param st 11 params h0 hc7 hp hl]
 
 /-- `COMMIT` (C++ `exec_commit`): `c4` and `c5` become the committed state if they are at most
 `max_data_depth` deep and of level 0, else cell_ov (`VmState.tryCommit`). -/

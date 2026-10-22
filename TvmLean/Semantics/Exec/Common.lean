@@ -110,14 +110,17 @@ def VM.execNullSwapIf (cond : Bool) (depth : Nat) (count : Nat) : VM Unit := do
   VM.push (.int (.num x))
 
 def VM.getUnpackedConfigTuple : VM (Array Value) := do
-  -- Mirrors C++ `get_unpacked_config_tuple(st)` (tonops.cpp):
+  -- Mirrors C++ `get_unpacked_config_tuple(st)` (tonops.cpp:131-142):
   --   t1 := tuple_index(c7, 0); t2 := tuple_index(t1, 14); return t2
+  -- each `as_tuple_range(255)` (stack.cpp:312-319): type_chk for a tuple of more than 255 entries
   match (← get).regs.c7[0]? with
   | none => throw .rangeChk
   | some (Value.tuple params) =>
+      if 255 < params.size then
+        throw .typeChk
       match params[14]? with
       | none => throw .rangeChk
-      | some (Value.tuple unpacked) => return unpacked
+      | some (Value.tuple unpacked) => if 255 < unpacked.size then throw .typeChk else return unpacked
       | some _ => throw .typeChk
   | some _ =>
       throw .typeChk

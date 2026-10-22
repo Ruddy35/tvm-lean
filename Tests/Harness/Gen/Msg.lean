@@ -110,8 +110,21 @@ private def sendC7 (myAddr : Value := myAddrBase) (balance : Value := bal) (inco
     (config : Value := goodConfig) : Array Value :=
   #[tup (sendParams myAddr balance incoming config)]
 
+/-- `sendC7` with the parameter tuple padded to `n` entries (nulls). -/
+private def sendC7Long (n : Nat) (config : Value := goodConfig) : Array Value :=
+  #[tup (sendParams myAddrBase bal bal config ++ Array.replicate (n - 18) .null)]
+
+/-- The unpacked config `goodConfig` padded to `n` entries (nulls). -/
+private def configLong (n : Nat) : Value :=
+  tup (#[.null, .null, .null, .null, fwdPrices 10000000 655360000 65536000000, fwdPrices 400000 26214400 2621440000,
+    .null] ++ Array.replicate (n - 7) .null)
+
 private def sendC7Pool : Array (String × Array Value) :=
   #[ ("base", sendC7),
+     -- a parameter tuple and an unpacked config of 255 entries are read (`get_param`,
+     -- `get_unpacked_config_tuple`: `as_tuple_range(255)`, tonops.cpp:121-142)
+     ("params-255", sendC7Long 255),
+     ("config-255", sendC7 (config := configLong 255)),
      ("mc-myaddr", sendC7 (myAddr := myAddrMc)),
      ("limits-2-cells", sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPrices 400000 26214400 2621440000)
         (sizeLimits 2))) ]
@@ -131,7 +144,11 @@ private def sendC7Errors : Array (String × Array Value) :=
         (sl (sizeLimitsBits 2 ++ #[true])))),
      ("config-short", sendC7 (config := tup #[.null, .null, .null, .null, fwdPrices 1 2 3, fwdPrices 1 2 3])),
      ("config-5", sendC7 (config := tup #[.null, .null, .null, .null, fwdPrices 1 2 3])),
-     ("config-not-tuple", sendC7 (config := iv 5)) ]
+     ("config-not-tuple", sendC7 (config := iv 5)),
+     -- of 256 entries: type_chk (`get_param(st, 8)`, tonops.cpp:2138; `get_unpacked_config_tuple`,
+     -- 2188, from version 6)
+     ("params-256", sendC7Long 256),
+     ("config-256", sendC7 (config := configLong 256)) ]
 
 /-- Size limits that apply (counted cells limited to 2): v1, v2 with and without
 `max_transaction_library_loads`, v3; and values that are not slices (the defaults apply). -/

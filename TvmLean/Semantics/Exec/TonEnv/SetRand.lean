@@ -13,6 +13,7 @@ def execInstrTonEnvSetRand (i : Instr) (next : VM Unit) : VM Unit := do
       match st.regs.c7[0]? with
       | none => throw .rangeChk
       | some (Value.tuple params) =>
+          -- `c7[0]` `as_tuple_range(255)` (tonops.cpp:599-602, stack.cpp:312-319)
           if decide (255 < params.size) then
             throw .typeChk
           let newSeed : Int ←

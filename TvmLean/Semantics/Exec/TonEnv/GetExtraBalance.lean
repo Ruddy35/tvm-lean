@@ -34,12 +34,14 @@ def execInstrTonEnvGetExtraBalance (i : Instr) (next : VM Unit) : VM Unit := do
       -- Mirrors C++ `exec_get_extra_currency_balance` (tonops.cpp).
       let id : Nat ← VM.popNatUpTo ((1 <<< 32) - 1)
 
-      -- Balance tuple `c7[0][7]`; `tuple_index` raises range_chk for a missing entry.
+      -- Balance tuple `c7[0][7]`; `tuple_index` raises range_chk for a missing entry. `c7[0]` and
+      -- the balance are each `as_tuple_range(255)` (tonops.cpp:393-401, stack.cpp:312-319): type_chk
+      -- for a tuple of more than 255 entries.
       VM.pushC7Param 7
       let balanceVal ← VM.pop
       let balanceTuple : Array Value ←
         match balanceVal with
-        | .tuple t => pure t
+        | .tuple t => if 255 < t.size then throw .typeChk else pure t
         | _ => throw .typeChk
 
       -- dict_root := balance[1]

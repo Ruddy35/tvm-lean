@@ -72,7 +72,10 @@ private def configC7Pool : Array (String × Array Value) :=
     ("config-not-dict", withRoot (.cell (Cell.mkOrdinary #[true] #[]))),
     ("config-int", withRoot (iv 9))]
 
-/-- The `c7` pool (contents of `c7`; `#[]` = the oracle's default). -/
+/-- The `c7` pool (contents of `c7`; `#[]` = the oracle's default). A parameter tuple of 255 entries
+is read; one of 256 is not (`get_param` and the other readers of `c7[0]` take it
+`as_tuple_range(255)`, tonops.cpp:121-128, stack.cpp:312-319: type_chk); `c7` itself may have more
+than 255 entries (`GETGLOB`, `SETGLOB`: `tuple_extend_index`, `tuple_extend_set_index`). -/
 def c7Pool : Array (String × Array Value) :=
   #[ ("default", #[]),
      ("full18", #[tup (params 18)]),
@@ -80,7 +83,26 @@ def c7Pool : Array (String × Array Value) :=
      ("short10", #[tup (params 10)]),
      ("empty-params", #[tup #[]]),
      ("c7-0-not-tuple", #[iv 5]),
-     ("wrong-types", #[tup paramsWrongTypes]) ]
+     ("wrong-types", #[tup paramsWrongTypes]),
+     ("params255", #[tup (params 255)]),
+     ("params256", #[tup (params 256)]),
+     ("c7-256", #[tup (params 18)] ++ (Array.range 255).map (fun k => iv (2000 + Int.ofNat k))) ]
+
+/-- `c7[0]` with its entry `k` replaced by a tuple of `n` entries, the first ones `xs`, then integers
+(the readers of an inner tuple of `c7[0]` take it `as_tuple_range(255)` or `as_tuple()`). -/
+private def c7WithLong (k n : Nat) (xs : Array Value) : Array Value :=
+  #[tup ((params 18).set! k (tup (xs ++ (Array.range (n - xs.size)).map (fun j => iv (3000 + Int.ofNat j)))))]
+
+/-- The previous blocks' tuple `c7[0][13]` of 255 and 256 entries (`exec_get_prev_blocks_info`,
+tonops.cpp:264-273: `as_tuple_range(255)`; `PREVBLOCKSINFOTUPLE` is `get_param(13)` and pushes it). -/
+private def prevC7Pool : Array (String × Array Value) :=
+  #[ ("prev255", c7WithLong 13 255 #[tup #[iv 1, iv 2], tup #[iv 3], tup #[]]),
+     ("prev256", c7WithLong 13 256 #[tup #[iv 1, iv 2], tup #[iv 3], tup #[]]) ]
+
+/-- The message's parameters `c7[0][17]` of 256 entries: `exec_get_in_msg_param` takes them
+`as_tuple()` (tonops.cpp:169), of any length. -/
+private def inMsgC7Pool : Array (String × Array Value) :=
+  #[ ("inmsg256", c7WithLong 17 256 #[]) ]
 
 private def cross (suite : String) (variants : Array (String × Instr)) (c7s : Array (String × Array Value))
     (stacks : Array (Array Value)) : Array OracleCase := Id.run do
@@ -144,6 +166,10 @@ private def ecC7Pool : Array (String × Array Value) :=
     #[ ("default", #[]), ("bal-short", c7WithBalance (tup #[iv 5000])),
        ("bal-int", c7WithBalance (tup #[iv 5000, iv 1])), ("bal-not-tuple", c7WithBalance (iv 5)),
        ("bal-long", c7WithBalance (tup #[iv 5000, ecDicts[1]!.2, iv 1])),
+       -- the balance of 255 and 256 entries (tonops.cpp:398: `as_tuple_range(255)`)
+       ("bal-255", c7WithBalance (tup (#[iv 5000, ecDicts[1]!.2] ++ Array.replicate 253 .null))),
+       ("bal-256", c7WithBalance (tup (#[iv 5000, ecDicts[1]!.2] ++ Array.replicate 254 .null))),
+       ("params-256", #[tup ((params 256).set! 7 (tup #[iv 5000, ecDicts[1]!.2]))]),
        ("params-short", #[tup (params 7)]), ("c7-empty", #[tup #[]]), ("c7-0-not-tuple", #[iv 5]) ]
 
 private def getExtraBalance : Instr := env .getExtraBalance
@@ -223,7 +249,18 @@ private def fwdPrices (lump bit cell : Nat) : BitString :=
 
 private def cfgC7 (entries : Array Value) : Array Value := #[tup ((params 18).set! 14 (tup entries))]
 
+/-- The unpacked config `c7[0][14]` of 255 and 256 entries (`get_unpacked_config_tuple`,
+tonops.cpp:131-142: `as_tuple_range(255)`; `UNPACKEDCONFIGTUPLE` is `get_param(14)` and pushes it). -/
+private def cfgLongC7Pool : Array (String × Array Value) :=
+  #[ ("cfg-255", c7WithLong 14 255 #[sl (storagePrices 1 500 1000 500000), sl (natToBits (2 ^ 32 - 239) 32),
+        sl (gasFlat 100 1000000 (gasDe 655360000)), sl (gasFlat 100 40000 (gasDe 26214400)),
+        sl (fwdPrices 10000000 655360000 65536000000), sl (fwdPrices 400000 26214400 2621440000), .null]),
+     ("cfg-256", c7WithLong 14 256 #[sl (storagePrices 1 500 1000 500000), sl (natToBits (2 ^ 32 - 239) 32),
+        sl (gasFlat 100 1000000 (gasDe 655360000)), sl (gasFlat 100 40000 (gasDe 26214400)),
+        sl (fwdPrices 10000000 655360000 65536000000), sl (fwdPrices 400000 26214400 2621440000), .null]) ]
+
 def cfgC7Pool : Array (String × Array Value) :=
+  cfgLongC7Pool ++
   #[ ("cfg-flat", cfgC7 #[sl (storagePrices 1 500 1000 500000), sl (natToBits (2 ^ 32 - 239) 32),
         sl (gasFlat 100 1000000 (gasDe 655360000)), sl (gasFlat 100 40000 (gasDe 26214400)),
         sl (fwdPrices 10000000 655360000 65536000000), sl (fwdPrices 400000 26214400 2621440000), .null]),
@@ -269,32 +306,32 @@ def casesFor (suite : String) : Array OracleCase :=
   | "MYCODE" => one .myCode
   | "INCOMINGVALUE" => one .incomingValue
   | "STORAGEFEES" => one .storageFees
-  | "PREVBLOCKSINFOTUPLE" => one .prevBlocksInfoTuple
-  | "PREVMCBLOCKS" => one .prevMcBlocks
-  | "PREVKEYBLOCK" => one .prevKeyBlock
-  | "PREVMCBLOCKS_100" => one .prevMcBlocks100
-  | "UNPACKEDCONFIGTUPLE" => one .unpackedConfigTuple
+  | "PREVBLOCKSINFOTUPLE" => cross suite #[(suite, env .prevBlocksInfoTuple)] (c7Pool ++ prevC7Pool) noArgs
+  | "PREVMCBLOCKS" => cross suite #[(suite, env .prevMcBlocks)] (c7Pool ++ prevC7Pool) noArgs
+  | "PREVKEYBLOCK" => cross suite #[(suite, env .prevKeyBlock)] (c7Pool ++ prevC7Pool) noArgs
+  | "PREVMCBLOCKS_100" => cross suite #[(suite, env .prevMcBlocks100)] (c7Pool ++ prevC7Pool) noArgs
+  | "UNPACKEDCONFIGTUPLE" => cross suite #[(suite, env .unpackedConfigTuple)] (c7Pool ++ cfgLongC7Pool) noArgs
   | "DUEPAYMENT" => one .duePayment
   | "GETPRECOMPILEDGAS" => one .getPrecompiledGas
   | "GLOBALID" => cross suite #[("globalid", env .globalId)] (c7Pool ++ cfgC7Pool) noArgs
   | "GASCONSUMED" => one .gasConsumed
   | "ACCEPT" => one .accept
   | "COMMIT" => one .commit
-  | "INMSGPARAMS" => cross suite #[("idx17", env (.getParam 17))] c7Pool noArgs
+  | "INMSGPARAMS" => cross suite #[("idx17", env (.getParam 17))] (c7Pool ++ inMsgC7Pool) noArgs
   | "GETPARAM" => cross suite (#[0, 1, 3, 6, 9, 15].map (fun k => (s!"k{k}", env (.getParam k)))) c7Pool noArgs
   | "GETPARAMLONG" => cross suite (#[16, 17, 18, 19, 20, 100].map (fun k => (s!"k{k}", env (.getParam k)))) c7Pool noArgs
   | "GETPARAMLONG2" => cross suite (#[127, 128, 200, 254].map (fun k => (s!"k{k}", env (.getParam k)))) c7Pool noArgs
-  | "INMSG_BOUNCE" => one (.inMsgParam 0)
-  | "INMSG_BOUNCED" => one (.inMsgParam 1)
-  | "INMSG_SRC" => one (.inMsgParam 2)
-  | "INMSG_FWDFEE" => one (.inMsgParam 3)
-  | "INMSG_LT" => one (.inMsgParam 4)
-  | "INMSG_UTIME" => one (.inMsgParam 5)
-  | "INMSG_ORIGVALUE" => one (.inMsgParam 6)
-  | "INMSG_VALUE" => one (.inMsgParam 7)
-  | "INMSG_VALUEEXTRA" => one (.inMsgParam 8)
-  | "INMSG_STATEINIT" => one (.inMsgParam 9)
-  | "INMSGPARAM" => cross suite (#[10, 11, 15].map (fun k => (s!"k{k}", env (.inMsgParam k)))) c7Pool noArgs
+  | "INMSG_BOUNCE" => cross suite #[(suite, env (.inMsgParam 0))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_BOUNCED" => cross suite #[(suite, env (.inMsgParam 1))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_SRC" => cross suite #[(suite, env (.inMsgParam 2))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_FWDFEE" => cross suite #[(suite, env (.inMsgParam 3))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_LT" => cross suite #[(suite, env (.inMsgParam 4))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_UTIME" => cross suite #[(suite, env (.inMsgParam 5))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_ORIGVALUE" => cross suite #[(suite, env (.inMsgParam 6))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_VALUE" => cross suite #[(suite, env (.inMsgParam 7))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_VALUEEXTRA" => cross suite #[(suite, env (.inMsgParam 8))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSG_STATEINIT" => cross suite #[(suite, env (.inMsgParam 9))] (c7Pool ++ inMsgC7Pool) noArgs
+  | "INMSGPARAM" => cross suite (#[10, 11, 15].map (fun k => (s!"k{k}", env (.inMsgParam k)))) (c7Pool ++ inMsgC7Pool) noArgs
   | "GETGLOB" => cross suite (#[1, 2, 3, 5, 31].map (fun k => (s!"k{k}", env (.getGlob k)))) c7Pool noArgs
   | "SETGLOB" => cross suite (#[1, 2, 5, 31].map (fun k => (s!"k{k}", env (.setGlob k)))) c7Pool
       #[#[iv 42], #[tup #[iv 1]], #[]]

@@ -73,11 +73,15 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
       -- is cell_und. The output action keeps `msgCell` itself.
       let msgRoot : Cell := (← VM.loadCellSlice msgCell).cell
 
+      -- C++ `get_param` (tonops.cpp:121-128): `c7[0]` as `as_tuple_range(255)` (stack.cpp:312-319),
+      -- type_chk for a tuple of more than 255 entries; then `tuple_index`, range_chk past its end
       let getParam (idx : Nat) : VM Value := do
         let st ← get
         if 0 < st.regs.c7.size then
           match st.regs.c7[0]! with
           | .tuple params =>
+              if 255 < params.size then
+                throw .typeChk
               if idx < params.size then
                 return params[idx]!
               else

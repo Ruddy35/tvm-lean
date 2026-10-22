@@ -4,11 +4,14 @@ import TvmLean.Semantics.Exec.TonEnv.GetParamAliases
 namespace TvmLean
 
 def VM.pushPrevBlocksInfo (idx : Nat) : VM Unit := do
-  -- Mirrors C++ `exec_get_prev_blocks_info` (tonops.cpp).
+  -- Mirrors C++ `exec_get_prev_blocks_info` (tonops.cpp:260-274): `c7[0]` and its entry 13 each
+  -- `as_tuple_range(255)` (stack.cpp:312-319), type_chk for a tuple of more than 255 entries.
   VM.pushC7Param 13
   let v ← VM.pop
   match v with
   | .tuple t =>
+      if 255 < t.size then
+        throw .typeChk
       if idx < t.size then
         VM.push (t[idx]!)
       else
