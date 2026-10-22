@@ -512,10 +512,11 @@ libraries of `compute_vm_libraries`, `max_data_depth`, c7 and, if the configurat
 are `td::uint64`, the VM's `long long` (`vm::GasLimits`, 1938, 1955): from 2^63 on, negative. -/
 def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed : BitString)
     (sl : SizeLimits) : VmState × Int :=
-  -- `prepare_vm_stack`: tick-tock gets the balance, the address, whether it is tock and -2
+  -- `prepare_vm_stack`: tick-tock gets the balance, the address (`import_bits` of its 256 bits, signed:
+  -- transaction.cpp:1463, bigint.hpp:644), whether it is tock and -2
   let stack : Stack :=
     if t.kind != .ord then
-      #[.int (.num (Int.ofNat t.balance)), .int (.num (Int.ofNat (bitsToNat t.account.addr))),
+      #[.int (.num (Int.ofNat t.balance)), .int (.num (bitsToIntSignedTwos t.account.addr)),
         .int (.num (if t.kind == .tock then -1 else 0)), .int (.num (-2))]
     else
       computePhaseStack (Int.ofNat t.balance) (Int.ofNat t.msgBalanceRemaining) t.inMsg t.inMsgBody t.inMsgExtern

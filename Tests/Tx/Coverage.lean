@@ -758,6 +758,19 @@ def gas64Cases (x : Ctx) : Array TxCase := Id.run do
   out := out.push (x.case "gas64/precompiled" (active accept (2 ^ 50)) msg (withPrecompiled high [(accept, 100)]))
   return out
 
+/-- The address on the stack of tick-tock (`prepare_vm_stack`, transaction.cpp:1463) is `import_bits` of
+its 256 bits, signed by default (bigint.hpp:644): an address of 2^255 or more is negative, and the
+`tt-stack` contract, which stores it with `STU 256`, fails its range check. -/
+def tickTockAddrCases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let hi := natToBits (0xF0 * 2 ^ 248 + 0x1234) 256
+  let code := asm ((tickTockPrograms.lookup "tt-stack").getD [])
+  for (aname, wc) in [("mc", (-1 : Int)), ("bc", 0)] do
+    for isTock in [false, true] do
+      out := out.push (x.tt s!"tick-tock/stack-addr/{aname}/{if isTock then "tock" else "tick"}"
+        (mkAccount wc hi (.active code data0) 1000000000 1700000000 0 1000) isTock)
+  return out
+
 end Cov
 
 open Cov in
@@ -775,7 +788,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [4, 5, 9, 16].contains v then out := out ++ Cov.gasOverrideCases x
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
-      Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x
+      Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x
   return out
 
 end Tests.Tx
