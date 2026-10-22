@@ -7,7 +7,8 @@ The action phase (`Tx.actionPhaseRun`) runs the actions of the action list one a
 `Tx.actionSendMsg`, `Tx.actionReserve`, `Tx.actionChangeLibrary`, `Tx.actionSetCode` (C++
 `try_action_send_msg`, `try_action_reserve_currency`, `try_action_change_library`,
 `try_action_set_code`). Only `SETCODE` changes the code the action phase installs (`ap.newCode`);
-no action changes the data, the status or the compute phase of the transaction (`ActKeep`). These
+no action changes the data, the status, the compute phase, the addresses or the fixed prefix length
+of the transaction (`ActKeep`). These
 are the frame properties the proof of the action phase needs; `actionSendMsg` is long, and its
 proof is run with `tx_vcg_close` (each join point proved once, in an auxiliary theorem).
 -/
@@ -16,34 +17,41 @@ namespace TvmLean.Tx
 
 open TvmLean.Proofs.TxTac
 
+/-- The addresses and the fixed prefix length of the transaction (only the compute phase changes
+them). -/
+@[reducible] def Tx.AddrKeep (t u : Tx) : Prop :=
+  u.myAddr = t.myAddr ∧ u.myAddrExact = t.myAddrExact ∧ u.newFixedPrefixLength = t.newFixedPrefixLength
+
 /-- What an action keeps of the transaction: everything but the balance, the messages and the
 library. -/
 @[reducible] def ActKeep (t u : Tx) : Prop :=
   t.Fixed u ∧ u.inMsgState = t.inMsgState ∧ u.useMsgState = t.useMsgState ∧
     u.wasActivated = t.wasActivated ∧ u.accStatus = t.accStatus ∧ u.newCode = t.newCode ∧
-    u.newData = t.newData ∧ u.computePhase = t.computePhase
+    u.newData = t.newData ∧ u.computePhase = t.computePhase ∧ t.AddrKeep u
 
 /-- The fields of a transaction `ActKeep` is about. -/
 def ActKeep.view (t : Tx) :=
   (t.account, t.kind, t.cfg, t.gv, t.globalLibs, t.inMsgState, t.useMsgState, t.wasActivated, t.accStatus,
-    t.newCode, t.newData, t.computePhase)
+    t.newCode, t.newData, t.computePhase, t.myAddr, t.myAddrExact, t.newFixedPrefixLength)
 
 theorem ActKeep.congr {t₀ z x : Tx} (h : ActKeep t₀ z) (e : ActKeep.view x = ActKeep.view z) :
     ActKeep t₀ x := by
   simp only [ActKeep.view, Prod.mk.injEq] at e
-  obtain ⟨e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12⟩ := e
-  obtain ⟨⟨h1, h2, h3, h4, h5⟩, h6, h7, h8, h9, h10, h11, h12⟩ := h
+  obtain ⟨e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13, e14, e15⟩ := e
+  obtain ⟨⟨h1, h2, h3, h4, h5⟩, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15⟩ := h
   exact ⟨⟨e1.trans h1, e2.trans h2, e3.trans h3, e4.trans h4, e5.trans h5⟩, e6.trans h6, e7.trans h7,
-    e8.trans h8, e9.trans h9, e10.trans h10, e11.trans h11, e12.trans h12⟩
+    e8.trans h8, e9.trans h9, e10.trans h10, e11.trans h11, e12.trans h12, e13.trans h13, e14.trans h14,
+    e15.trans h15⟩
 
 theorem ActKeep.of_view {t₀ x : Tx} (e : ActKeep.view x = ActKeep.view t₀) : ActKeep t₀ x :=
-  ActKeep.congr (z := t₀) ⟨⟨rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ e
+  ActKeep.congr (z := t₀) ⟨⟨rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ e
 
 theorem ActKeep.trans {t u v : Tx} (h1 : ActKeep t u) (h2 : ActKeep u v) : ActKeep t v := by
-  obtain ⟨⟨a1, a2, a3, a4, a5⟩, a6, a7, a8, a9, a10, a11, a12⟩ := h1
-  obtain ⟨⟨b1, b2, b3, b4, b5⟩, b6, b7, b8, b9, b10, b11, b12⟩ := h2
+  obtain ⟨⟨a1, a2, a3, a4, a5⟩, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15⟩ := h1
+  obtain ⟨⟨b1, b2, b3, b4, b5⟩, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15⟩ := h2
   exact ⟨⟨b1.trans a1, b2.trans a2, b3.trans a3, b4.trans a4, b5.trans a5⟩, b6.trans a6, b7.trans a7,
-    b8.trans a8, b9.trans a9, b10.trans a10, b11.trans a11, b12.trans a12⟩
+    b8.trans a8, b9.trans a9, b10.trans a10, b11.trans a11, b12.trans a12, b13.trans a13, b14.trans a14,
+    b15.trans a15⟩
 
 theorem newCode_congr {x z : ActionPhase} {c : Option Cell} (h : z.newCode = c) (e : x.newCode = z.newCode) :
     x.newCode = c := e.trans h

@@ -40,7 +40,7 @@ def NewCode (c5 : Cell) (old new : Option Cell) : Prop :=
 
 /-- What the action phase leaves: see the module docstring. -/
 def ActionResult (t₀ u : Tx) : Prop :=
-  t₀.Fixed u ∧ u.inMsgState = t₀.inMsgState ∧ u.useMsgState = t₀.useMsgState ∧
+  t₀.Fixed u ∧ t₀.AddrKeep u ∧ u.inMsgState = t₀.inMsgState ∧ u.useMsgState = t₀.useMsgState ∧
     u.wasActivated = t₀.wasActivated ∧
     (u.accStatus = t₀.accStatus ∨ u.accStatus = .deleted ∨ u.accStatus = .uninit) ∧
     ((u.newCode = t₀.newCode ∧ u.newData = t₀.newData) ∨
@@ -128,14 +128,16 @@ theorem actionIn_iff {c5 : Cell} {m : Nat} (hT : ∀ j < m, ¬Terminal (actionNo
 
 /-- The fields of a transaction `ActionResult` keeps as they were. -/
 def ARview (t : Tx) :=
-  (t.account, t.kind, t.cfg, t.gv, t.globalLibs, t.inMsgState, t.useMsgState, t.wasActivated)
+  (t.account, t.kind, t.cfg, t.gv, t.globalLibs, t.inMsgState, t.useMsgState, t.wasActivated, t.myAddr,
+    t.myAddrExact, t.newFixedPrefixLength)
 
 theorem AR_fail {t₀ T u : Tx} (hT : ActKeep t₀ T) (e : ARview u = ARview T) (hs : u.accStatus = T.accStatus)
     (hc : u.newCode = t₀.newCode) (hd : u.newData = t₀.newData) : ActionResult t₀ u := by
   simp only [ARview, Prod.mk.injEq] at e
-  obtain ⟨⟨h1, h2, h3, h4, h5⟩, h6, h7, h8, h9, h10, h11, h12⟩ := hT
-  obtain ⟨e1, e2, e3, e4, e5, e6, e7, e8⟩ := e
-  exact ⟨⟨e1.trans h1, e2.trans h2, e3.trans h3, e4.trans h4, e5.trans h5⟩, e6.trans h6, e7.trans h7,
+  obtain ⟨⟨h1, h2, h3, h4, h5⟩, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15⟩ := hT
+  obtain ⟨e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11⟩ := e
+  exact ⟨⟨e1.trans h1, e2.trans h2, e3.trans h3, e4.trans h4, e5.trans h5⟩,
+    ⟨e9.trans h13, e10.trans h14, e11.trans h15⟩, e6.trans h6, e7.trans h7,
     e8.trans h8, Or.inl (hs.trans h9), Or.inl ⟨hc, hd⟩⟩
 
 theorem AR_success {t₀ T u : Tx} {c5 : Cell} (hT : ActKeep t₀ T) (e : ARview u = ARview T)
@@ -143,9 +145,10 @@ theorem AR_success {t₀ T u : Tx} {c5 : Cell} (hT : ActKeep t₀ T) (e : ARview
     (h5 : t₀.computePhase.actions = some c5) (hd : u.newData = T.computePhase.newData)
     (hnc : NewCode c5 t₀.newCode u.newCode) : ActionResult t₀ u := by
   simp only [ARview, Prod.mk.injEq] at e
-  obtain ⟨⟨h1, h2, h3, h4, h5'⟩, h6, h7, h8, h9, h10, h11, h12⟩ := hT
-  obtain ⟨e1, e2, e3, e4, e5, e6, e7, e8⟩ := e
-  refine ⟨⟨e1.trans h1, e2.trans h2, e3.trans h3, e4.trans h4, e5.trans h5'⟩, e6.trans h6, e7.trans h7,
+  obtain ⟨⟨h1, h2, h3, h4, h5'⟩, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15⟩ := hT
+  obtain ⟨e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11⟩ := e
+  refine ⟨⟨e1.trans h1, e2.trans h2, e3.trans h3, e4.trans h4, e5.trans h5'⟩,
+    ⟨e9.trans h13, e10.trans h14, e11.trans h15⟩, e6.trans h6, e7.trans h7,
     e8.trans h8, ?_, Or.inr ⟨c5, h5, by rw [hd, h12], hnc⟩⟩
   rcases hs with hs | hs
   · exact Or.inl (hs.trans h9)
@@ -219,15 +222,16 @@ theorem actionPhaseRun_spec (t₀ : Tx) (sl : SizeLimits) :
   clear hb
   refine OKe_forIn_range m _ _ _ _ (APInv3 t₀ p.1 m) (fun b => ∃ r, b.1 = some r ∧ OKo (ActionResult t₀) r)
     ?_ ?_ ?_
-  · tx_prep [ActionPhase.newCode] [APInv3, ActKeep, Tx.Fixed]; (try dsimp only at *); grind
+  · tx_prep [ActionPhase.newCode] [APInv3, ActKeep, Tx.Fixed, Tx.AddrKeep]; (try dsimp only at *); grind
   · tx_compact
     intro k b hk hI
     tx_vcg
     all_goals try tx_specs [actionSetCode_spec, actionChangeLibrary_spec, actionReserve_spec, actionSendMsg_spec]
     all_goals
       tx_prep [ActionPhase.newCode, Tx.account, Tx.kind, Tx.cfg, Tx.gv, Tx.globalLibs, Tx.inMsgState,
-        Tx.accStatus, Tx.newCode, Tx.newData, Tx.useMsgState, Tx.wasActivated, Tx.computePhase]
-        [APInv3, ActKeep, Tx.Fixed, ActionResult, NewCode, OKo]
+        Tx.accStatus, Tx.newCode, Tx.newData, Tx.useMsgState, Tx.wasActivated, Tx.computePhase, Tx.myAddr,
+        Tx.myAddrExact, Tx.newFixedPrefixLength]
+        [APInv3, ActKeep, Tx.Fixed, Tx.AddrKeep, ActionResult, NewCode, OKo]
       (try dsimp only at *)
       grind
   intro b hb

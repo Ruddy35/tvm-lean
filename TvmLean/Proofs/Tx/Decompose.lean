@@ -46,13 +46,13 @@ def StorageCredit (pricing : Array StoragePrices) (gas : GasPrices) (needCredit 
     ((¬needCredit = true ∧ tc = t1) ∨ (needCredit = true ∧ t1.creditPhaseRun = .ok (some tc))))
 
 /-- The state `tf` of an ordinary transaction before `computeState` (with the size limits `sl` it
-writes the account with), and the phases that led to it: the start (`newTx`), the inbound message,
-the storage and credit phases, the compute phase, the action phase if the compute phase succeeded,
-the bounce phase if any. -/
+writes the account with), and the phases that led to it: the address (`stdAddressOf`), the start
+(`newTx`), the inbound message, the storage and credit phases, the compute phase, the action phase if
+the compute phase succeeded, the bounce phase if any. -/
 def EmulateFinal (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString) (libs : Option Cell)
     (tf : Tx) (sl : SizeLimits) : Prop :=
   ∃ cfg wc addr addrBits t0 pricing gas fwd t1 t2 t3 t4,
-    Config.decode configRoot = some cfg ∧
+    Config.decode configRoot = some cfg ∧ stdAddressOf addrBits = some (wc, addr) ∧
     newTx cfg shardAccount inMsg .ord wc addr addrBits lt now libs = .ok (t0, pricing, sl, gas, fwd) ∧
     t0.unpackInputMsg sl fwd = some (.ok t1) ∧
     (∃ needCredit, StorageCredit pricing gas needCredit t1 t2) ∧
@@ -76,12 +76,12 @@ theorem emulate_final (configRoot shardAccount inMsg : Cell) (now lt : Nat) (ran
   all_goals tx_solve
 
 /-- The state `tf` of a tick-tock transaction before `computeState` (with the size limits `sl`), and
-the phases that led to it: the start (`newTx`, no message), the storage phase, the compute phase,
-the action phase if the compute phase succeeded. -/
+the phases that led to it: the address (`stdAddressOf`), the start (`newTx`, no message), the
+storage phase, the compute phase, the action phase if the compute phase succeeded. -/
 def TickTockFinal (configRoot shardAccount : Cell) (isTock : Bool) (now lt : Nat) (randSeed : BitString)
     (libs : Option Cell) (tf : Tx) (sl : SizeLimits) : Prop :=
   ∃ cfg kind wc addr addrBits t0 pricing gas fwd t2 t3,
-    Config.decode configRoot = some cfg ∧
+    Config.decode configRoot = some cfg ∧ stdAddressOf addrBits = some (wc, addr) ∧
     newTx cfg shardAccount Cell.empty kind wc addr addrBits lt now libs = .ok (t0, pricing, sl, gas, fwd) ∧
     ((isTock = true ∧ kind = .tock) ∨ (¬isTock = true ∧ kind = .tick)) ∧
     t0.storagePhaseRun pricing gas false = some t2 ∧

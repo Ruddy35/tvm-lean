@@ -87,7 +87,7 @@ theorem effect_of_phases {t₀ t2 t3 t4 tf : Tx} {gas : GasPrices} {sl : SizeLim
   -- the state after the compute phase
   have hact3 : t3.accStatus = .active := by
     rcases ha with ⟨hsucc, hap⟩ | ⟨_, rfl⟩
-    · have ⟨_, _, _, _, hst, _⟩ := OKo_of (OKe_of (actionPhaseRun_spec t3 sl) hap) rfl
+    · have ⟨_, _, _, _, _, hst, _⟩ := OKo_of (OKe_of (actionPhaseRun_spec t3 sl) hap) rfl
       rcases hst with e | e | e
       · rw [← e]; exact hact4
       · rw [e] at hact4; cases hact4
@@ -101,7 +101,7 @@ theorem effect_of_phases {t₀ t2 t3 t4 tf : Tx} {gas : GasPrices} {sl : SizeLim
     · have hin4 : t4.inMsgState = t3.inMsgState ∧ t4.useMsgState = t3.useMsgState := by
         rcases ha with ⟨_, hap⟩ | ⟨_, rfl⟩
         · have := OKo_of (OKe_of (actionPhaseRun_spec t3 sl) hap) rfl
-          exact ⟨this.2.1, this.2.2.1⟩
+          exact ⟨this.2.2.1, this.2.2.2.1⟩
         · exact ⟨rfl, rfl⟩
       refine Or.inr ⟨si, ?_, huse.trans (hin4.2.trans huse3), hc3, hd3⟩
       have := (hb hact4).2.2.2.1
@@ -110,7 +110,7 @@ theorem effect_of_phases {t₀ t2 t3 t4 tf : Tx} {gas : GasPrices} {sl : SizeLim
       exact hsi
   refine ⟨t3.newCode, t3.newData, hsrc, ?_⟩
   rcases ha with ⟨hsucc, hap⟩ | ⟨_, rfl⟩
-  · have ⟨_, _, _, _, _, hcd⟩ := OKo_of (OKe_of (actionPhaseRun_spec t3 sl) hap) rfl
+  · have ⟨_, _, _, _, _, _, hcd⟩ := OKo_of (OKe_of (actionPhaseRun_spec t3 sl) hap) rfl
     rcases hcd with ⟨e1, e2⟩ | ⟨c5, h5, hd, hnc⟩
     · exact Or.inl ⟨hcode.trans e1, hdata.trans e2⟩
     · obtain ⟨code, st, hcode3, hstart, hcomm, hcred, hnd, hact5⟩ := hrun3 hsucc
@@ -127,7 +127,7 @@ theorem EmulateFinal.effect {configRoot shardAccount inMsg : Cell} {now lt : Nat
     {libs : Option Cell} {tf : Tx} {sl : SizeLimits}
     (h : EmulateFinal configRoot shardAccount inMsg now lt randSeed libs tf sl) :
     ∃ cfg wc addr t₀, StartsFrom shardAccount cfg wc addr .ord t₀ ∧ Effect t₀ tf := by
-  obtain ⟨cfg, wc, addr, addrBits, t0, pricing, gas, fwd, t1, t2, t3, t4, _, hnew, hin,
+  obtain ⟨cfg, wc, addr, addrBits, t0, pricing, gas, fwd, t1, t2, t3, t4, _, _, hnew, hin,
     ⟨nc, hsc⟩, hc, ha, hb⟩ := h
   have hstart := OKe_of (newTx_spec cfg shardAccount inMsg .ord wc addr addrBits lt now libs) hnew
   refine ⟨cfg, wc, addr, t0, hstart, ?_⟩
@@ -181,7 +181,7 @@ theorem TickTockFinal.effect {configRoot shardAccount : Cell} {isTock : Bool} {n
     {randSeed : BitString} {libs : Option Cell} {tf : Tx} {sl : SizeLimits}
     (h : TickTockFinal configRoot shardAccount isTock now lt randSeed libs tf sl) :
     ∃ cfg wc addr kind t₀, StartsFrom shardAccount cfg wc addr kind t₀ ∧ Effect t₀ tf := by
-  obtain ⟨cfg, kind, wc, addr, addrBits, t0, pricing, gas, fwd, t2, t3, _, hnew, _, hs, hc, ha⟩ := h
+  obtain ⟨cfg, kind, wc, addr, addrBits, t0, pricing, gas, fwd, t2, t3, _, _, hnew, _, hs, hc, ha⟩ := h
   have hstart := OKe_of (newTx_spec cfg shardAccount Cell.empty kind wc addr addrBits lt now libs) hnew
   refine ⟨cfg, wc, addr, kind, t0, hstart, ?_⟩
   obtain ⟨a, _, _, _, _, _, hu0, hw0, _, hs0, _, _, _⟩ := hstart

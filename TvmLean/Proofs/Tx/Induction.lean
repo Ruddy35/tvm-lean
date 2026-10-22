@@ -106,14 +106,14 @@ theorem emulateTickTock_step (configRoot sa : Cell) (isTock : Bool) (now lt : Na
 theorem TickTockFinal.inMsgState {configRoot sa : Cell} {isTock : Bool} {now lt : Nat} {seed : BitString}
     {libs : Option Cell} {tf : Tx} {sl : SizeLimits} (h : TickTockFinal configRoot sa isTock now lt seed libs tf sl) :
     tf.inMsgState = none := by
-  obtain ⟨cfg, kind, wc, addr, addrBits, t0, pricing, gas, fwd, t2, t3, _, hnew, _, hs, hc, ha⟩ := h
+  obtain ⟨cfg, kind, wc, addr, addrBits, t0, pricing, gas, fwd, t2, t3, _, _, hnew, _, hs, hc, ha⟩ := h
   have hstart := OKe_of (newTx_spec cfg sa Cell.empty kind wc addr addrBits lt now libs) hnew
   obtain ⟨a, _, _, _, _, _, hu0, hw0, _, hs0, hi0, _, _⟩ := hstart
   have ⟨⟨_, i2, cp2, _⟩, _, _, _, u2, w2, _⟩ := OKo_of (storagePhaseRun_spec t0 pricing gas false) hs
   have ⟨_, hin3, _, _⟩ := OKo_of (OKe_of (computePhaseRun_spec t2 gas sl seed (by rw [u2, hu0])
     (by rw [w2, hw0]) (by rw [cp2, hs0])) hc) rfl
   rcases ha with ⟨_, hap⟩ | ⟨_, rfl⟩
-  · have := (OKo_of (OKe_of (actionPhaseRun_spec t3 sl) hap) rfl).2.1
+  · have := (OKo_of (OKe_of (actionPhaseRun_spec t3 sl) hap) rfl).2.2.1
     rw [this, hin3, i2, hi0]
   · rw [hin3, i2, hi0]
 
