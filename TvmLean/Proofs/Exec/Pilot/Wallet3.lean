@@ -2,6 +2,7 @@ import TvmLean.Proofs.Exec.Tactic
 import TvmLean.Proofs.Contracts.Wallet3Code
 import TvmLean.Proofs.Contracts.Wallet3Spec
 import TvmLean.Semantics.Contract
+import TvmLean.Proofs.Contracts.Wallet3Run.Common
 
 /-!
 # Pilot: wallet v3's `recv_external`, by `vm_run`
@@ -36,10 +37,17 @@ after an 8-bit label:
 
 namespace TvmLean.Pilot.Wallet3
 
+-- the closed facts of the code by evaluation over the fast twins (`TvmLean/Proofs/Fast/`; the
+-- twins of the decoder and of `wallet3Code` are made in `Contracts/Wallet3Run/Common.lean`)
+set_option vm.fastFacts true
+
 open TvmLean.Contracts
 
 /-- `recv_external`: the leaf of the method dictionary of `wallet3Code` for the id -1. -/
 def recvExternal : Cell := wallet3Code.refs[0]!.refs[1]!
+
+set_option Elab.async false in
+fast_twin TvmLean.Pilot.Wallet3.recvExternal
 
 /-- The state in which `recv_external` starts on an external message with body `body` (the
 dispatcher has dropped the method id): the stack `balance, value, message, body` the dispatcher
