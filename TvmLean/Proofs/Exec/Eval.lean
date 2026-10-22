@@ -96,16 +96,42 @@ dsimproc unfoldModelRun (@ExceptT.run Excno (StateM VmState) _ _ _) := fun e => 
   | some m' => return .visit (mkAppN e.getAppFn (args.set! 3 m'.headBeta))
   | none => return .continue
 
+/-- Whether `e` mentions a hash (`Cell.hashBytes`, which the loads record): such a term is never
+evaluated. -/
+def mentionsHash (e : Expr) : Bool :=
+  (e.find? fun x => x.isConstOf ``Cell.hashBytes).isSome
+
+unsafe def evalBoolUnsafe (e : Expr) : MetaM Bool := evalExpr Bool (mkConst ``Bool) e
+
+/-- The value of a closed term of type `Bool` (native evaluation: only to find a result that is
+then proved). -/
+@[implemented_by evalBoolUnsafe] opaque evalBool (e : Expr) : MetaM Bool
+
+/-- `vm_decide_closed`: a closed proposition of the code (no free or meta variables, no hash),
+such as `c.special = false` for a cell of the code, decided by the kernel alone (an auxiliary
+lemma proved by `decide`, as `decide +kernel` makes); evaluated natively first, so that only a true
+one is given to the kernel. -/
+elab "vm_decide_closed" : tactic => Lean.Elab.Tactic.liftMetaTactic fun g => do
+  let p ← instantiateMVars (← g.getType)
+  if p.hasFVar || p.hasMVar || mentionsHash p then throwError "vm_decide_closed: not a closed fact"
+  unless ← evalBool (← mkDecide p) do throwError "vm_decide_closed: false"
+  let pf ← mkDecideProof p
+  let name ← mkAuxLemma [] p pf
+  g.assign (mkConst name)
+  return []
+
 end TvmLean.Exec
 
 namespace TvmLean
 
-/-- The discharger of `vm_simp`: a hypothesis, linear arithmetic, the reduction of projections of
-states written out. Nothing is decided by evaluation: a condition about a cell could need its hash
-(`VmState.registerCellLoad`), whose evaluation is out of reach. -/
+/-- The discharger of `vm_simp`: a hypothesis, linear arithmetic (at reducible transparency, so that
+comparing atoms never unfolds a definition of the model), the reduction of projections of
+states written out, and a closed fact of the code decided by the kernel (`vm_decide_closed`).
+Nothing that mentions a hash is decided (`VmState.registerCellLoad`: its evaluation is out of
+reach). -/
 macro "vm_disch" : tactic =>
-  `(tactic| first | with_reducible assumption | omega | (simp only [freeNestedContJump]; done) |
-    (simp only [freeNestedContJump]; omega))
+  `(tactic| first | with_reducible assumption | with_reducible omega | (simp only [freeNestedContJump]; done) |
+    (simp only [freeNestedContJump]; with_reducible omega) | vm_decide_closed)
 
 /-- `simp` that runs a VM program on a state (`Proofs/Exec/Eval.lean`): the dispatch of
 `execInstr`, the simp set `vm_run`, the conditions on the stack depth by `omega` (`vm_disch`).
@@ -116,7 +142,7 @@ syntax (name := vmSimp) "vm_simp" (" [" Lean.Parser.Tactic.simpArg,* "]")? (Lean
 macro_rules
   | `(tactic| vm_simp $[[$args,*]]? $[$loc]?) => do
     let args := args.getD ⟨#[]⟩
-    `(tactic| set_option maxRecDepth 100000 in simp (config := { contextual := true }) (disch := vm_disch) only [TvmLean.Exec.reduceExecInstrRun,
+    `(tactic| set_option maxRecDepth 100000 in simp (config := { contextual := true, maxSteps := 2000000 }) (disch := vm_disch) only [TvmLean.Exec.reduceExecInstrRun,
         TvmLean.Exec.unfoldModelRun, vm_run, Array.size_push,
         Array.pop_push, Array.size_pop, if_pos, if_neg, dif_pos, dif_neg, if_true, if_false, dite_true,
         dite_false, Bool.false_eq_true, Bool.true_eq_false, decide_true, decide_false, ne_eq,

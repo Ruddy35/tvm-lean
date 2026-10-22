@@ -1,5 +1,6 @@
 import TvmLean.Semantics
 import TvmLean.Proofs.Exec.Attr
+import TvmLean.Proofs.Contracts.Bits
 
 /-!
 # The VM monad, run on a state
@@ -66,6 +67,11 @@ def VM.bindRes (r : Except Excno α × VmState) (f : α → VM β) : Except Excn
     VM.bindRes (@dite (Id (Except Excno α × VmState)) c _ x y) f =
       if h : c then VM.bindRes (x h) f else VM.bindRes (y h) f := by
   split <;> rfl
+
+/-- A run continued by a pure step and then by `g`: `g` after the pure step. -/
+@[vm_run] theorem VM.bindRes_bindRes_pure {γ : Type} (r : Except Excno α × VmState) (h : α → β) (g : β → VM γ) :
+    VM.bindRes (VM.bindRes r (fun a => pure (h a))) g = VM.bindRes r (fun a => g (h a)) := by
+  rcases r with ⟨_ | a, st⟩ <;> rfl
 
 @[vm_run] theorem VM.run_bind (m : VM α) (f : α → VM β) (st : VmState) :
     ExceptT.run (m >>= f) st = VM.bindRes (ExceptT.run m st) f := by
@@ -399,6 +405,30 @@ gas at once), and the jump to the handler fails with stk_und if it expects more 
   split
   · simp [VM.bindRes_error]
   · simp only [VM.bindRes_ok, VM.run_bind, VM.run_get, VM.run_ite, VM.run_throw, VM.run_pure]
+
+/-! ## Cells -/
+
+@[vm_run] theorem VM.mkOrdinary_refs (b : BitString) (r : Array Cell) : (Cell.mkOrdinary b r).refs = r := rfl
+@[vm_run] theorem VM.mkOrdinary_bits (b : BitString) (r : Array Cell) : (Cell.mkOrdinary b r).bits = b := rfl
+@[vm_run] theorem VM.mkOrdinary_special (b : BitString) (r : Array Cell) : (Cell.mkOrdinary b r).special = false := rfl
+
+/-! ## Slices -/
+
+@[vm_run] theorem VM.ofCell_cell (c : Cell) : (Slice.ofCell c).cell = c := rfl
+@[vm_run] theorem VM.ofCell_bitPos (c : Cell) : (Slice.ofCell c).bitPos = 0 := rfl
+@[vm_run] theorem VM.ofCell_refPos (c : Cell) : (Slice.ofCell c).refPos = 0 := rfl
+
+/-- The bits read from a slice: as many as asked, or as are left. -/
+@[vm_run] theorem VM.readBits_size (s : Slice) (n : Nat) :
+    (s.readBits n).size = min (s.bitPos + n) s.cell.bits.size - s.bitPos := by
+  simp [Slice.readBits]
+
+/-- The number read from `n` bits of a slice is below `2 ^ n` (bounds for `omega`, added by
+`vm_load_bounds`). -/
+theorem VM.bitsToNat_readBits_lt (s : Slice) (n : Nat) : bitsToNat (s.readBits n) < 2 ^ n := by
+  have h := bitsToNat_lt (s.readBits n)
+  have hs : (s.readBits n).size ≤ n := by rw [VM.readBits_size]; omega
+  exact Nat.lt_of_lt_of_le h (Nat.pow_le_pow_right (by decide) hs)
 
 /-! ## Integers -/
 

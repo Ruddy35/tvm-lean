@@ -28,6 +28,10 @@ theorem VmState.runWith_succ' (exec : Instr → VM Unit) (fuel : Nat) (st : VmSt
   rw [VmState.runWith_succ]
   cases st.stepWith exec <;> rfl
 
+/-- A run out of fuel halts with `fatal` (`VmState.runWith`). -/
+theorem VmState.runWith_zero (exec : Instr → VM Unit) (st : VmState) :
+    st.runWith exec 0 = .halt Excno.fatal.toInt st := rfl
+
 theorem VmState.runCont_continue (exec : Instr → VM Unit) (fuel : Nat) (st : VmState) :
     VmState.runCont exec fuel (.continue st) = st.runWith exec fuel := rfl
 
@@ -128,6 +132,12 @@ theorem VmState.stepWith_unfold (exec : Instr → VM Unit) (st : VmState)
   split
   · rfl
   · simp only [VmState.stepRefusingWith, libraryStepReruns, VmState.with_libraries_self st hr hm]
+
+/-- Without `max_library_loads` (the compute phase sets it only when configuration parameter 43
+does), `VmState.stepWith` is the step. -/
+theorem VmState.stepWith_of_none (exec : Instr → VM Unit) (st : VmState) (h : st.maxLibraryLoads = none) :
+    st.stepWith exec = st.stepOnceWith exec := by
+  simp [VmState.stepWith, h]
 
 /-- `VmState.stepOnceWith_ordinary` with the entry's gas check as a case. -/
 theorem VmState.stepOnceWith_ordinary' (exec : Instr → VM Unit) (st : VmState) (code : Slice)
