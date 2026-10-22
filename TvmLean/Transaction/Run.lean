@@ -169,20 +169,33 @@ def ceilShr16 (x : Nat) : Nat := (x + 0xffff) / 0x10000
 def MsgPrices.fwdFees (p : MsgPrices) (cells bits : Nat) : Nat :=
   p.lumpPrice + ceilShr16 (p.bitPrice * bits + p.cellPrice * cells)
 
-/-- `compute_max_gas_threshold`. -/
-def GasPrices.maxGasThreshold (g : GasPrices) (gasLimit : Nat) : Nat :=
-  if gasLimit > g.flatGasLimit then ceilShr16 (g.gasPrice * (gasLimit - g.flatGasLimit)) + g.flatGasPrice
+/-- C++ `(long long)` of a `td::uint64`: the value modulo 2^64, less 2^64 from 2^63 on. -/
+def int64OfUInt64 (n : Nat) : Int :=
+  if n % 2 ^ 64 < 2 ^ 63 then Int.ofNat (n % 2 ^ 64) else Int.ofNat (n % 2 ^ 64) - 2 ^ 64
+
+/-- `compute_max_gas_threshold` (transaction.cpp:1268-1275): `gas_price256 * (gas_limit -
+flat_gas_limit)` multiplies by the `td::uint64` difference as `long long` (`operator*(RefInt256, long
+long)`, refint.h:42), negative from 2^63 on; `td::rshift(x, 16, 1)` rounds up. -/
+def GasPrices.maxGasThreshold (g : GasPrices) (gasLimit : Nat) : Int :=
+  if gasLimit > g.flatGasLimit then
+    -((-(Int.ofNat g.gasPrice * int64OfUInt64 (gasLimit - g.flatGasLimit))) / 0x10000) + g.flatGasPrice
   else g.flatGasPrice
 
-/-- `ComputePhaseConfig::gas_bought_for` with the gas limit `gasLimit`. -/
+/-- `ComputePhaseConfig::gas_bought_for` with the gas limit `gasLimit` (transaction.cpp:1294-1308,
+1395-1416). Below the threshold, which is then positive, the quotient is below `gas_limit -
+flat_gas_limit` < 2^63: `res->to_long()` (1305, 1414) is exact and the sum below 2^64. -/
 def GasPrices.gasBoughtFor (g : GasPrices) (gasLimit : Nat) (nanograms : Nat) : Nat :=
-  if nanograms ≥ g.maxGasThreshold gasLimit then gasLimit
+  if (nanograms : Int) ≥ g.maxGasThreshold gasLimit then gasLimit
   else if nanograms < g.flatGasPrice then 0
   else (nanograms - g.flatGasPrice) * 0x10000 / g.gasPrice + g.flatGasLimit
 
-/-- `ComputePhaseConfig::compute_gas_price`. -/
+/-- `ComputePhaseConfig::compute_gas_price` (transaction.cpp:1315-1318). C++ multiplies by `gas_used -
+flat_gas_limit` as `long long`: from 2^63 on the fee is negative, and the transaction then fails in
+`serialize` all the same (a gas used of 2^63 or more is no `VarUInteger 7`, 3937); the model charges
+nothing there. -/
 def GasPrices.gasPriceOf (g : GasPrices) (gasUsed : Nat) : Nat :=
   if gasUsed ≤ g.flatGasLimit then g.flatGasPrice
+  else if gasUsed - g.flatGasLimit ≥ 2 ^ 63 then 0
   else ceilShr16 (g.gasPrice * (gasUsed - g.flatGasLimit)) + g.flatGasPrice
 
 /-- `override_gas_limit`: accounts whose gas limit was raised (`(wc, addr)`, limit, from version,
@@ -495,7 +508,8 @@ def convertCodeCell (code : Cell) (gv : Nat) (libs : Array Cell) : Cell :=
 /-- The VM of the compute phase: `vm::VmState(code, global_version, stack, gas, flags = 1, data, ...)`
 (`computePhaseInit` of the converted code, the stack of `computePhaseStack` for a message) with the
 libraries of `compute_vm_libraries`, `max_data_depth`, c7 and, if the configuration sets it,
-`max_transaction_library_loads` as `max_library_loads` (transaction.cpp:1995-2002). -/
+`max_transaction_library_loads` as `max_library_loads` (transaction.cpp:1995-2002). The gas limits
+are `td::uint64`, the VM's `long long` (`vm::GasLimits`, 1938, 1955): from 2^63 on, negative. -/
 def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed : BitString)
     (sl : SizeLimits) : VmState × Int :=
   -- `prepare_vm_stack`: tick-tock gets the balance, the address, whether it is tock and -2
@@ -510,7 +524,7 @@ def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed
   let libs : Array Cell :=
     (if t.gv < 15 then #[t.inMsgLibrary, t.newLibrary].filterMap id else #[]) ++ t.globalLibs.toArray
   let st0 := computePhaseInit (convertCodeCell code t.gv libs) (t.newData.getD Cell.empty) stack #[t.c7 blockSeed]
-    (Int.ofNat gasLimit) (Int.ofNat gasMax) (Int.ofNat gasCredit) t.gv
+    (int64OfUInt64 gasLimit) (int64OfUInt64 gasMax) (int64OfUInt64 gasCredit) t.gv
   let st : VmState :=
     { st0 with libraries := libs, maxDataDepth := sl.maxVmDataDepth, maxLibraryLoads := sl.maxTransactionLibraryLoads }
   let fuel := (st.gas.stepBound) + 16
@@ -615,7 +629,8 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
   -- the exit code, the committed c4 and c5 and the gas used (`ComputeOutcome.ofHalt`)
   let out := ComputeOutcome.ofHalt ec stF (t.newData.getD Cell.empty)
   let exitCode := out.exitCode
-  let gasUsed := out.gasUsed.toNat
+  -- `cp.gas_used = std::min<long long>(gas.gas_consumed(), gas.gas_limit)`: a `td::uint64` (2016)
+  let gasUsed := (out.gasUsed % 2 ^ 64).toNat
   let accepted := stF.gas.gasCredit == 0
   let success := accepted && stF.cstate.committed
   let cp := t.computePhase

@@ -732,6 +732,32 @@ def serializeCases (x : Ctx) : Array TxCase := Id.run do
     (fwd (2 ^ 63 - 1) 0))
   return out
 
+/-- The gas limits of the compute phase are `td::uint64`, those of the VM `long long` (`vm::GasLimits`,
+transaction.cpp:1938, 1955); parameter 21 with gas limits of 2^63 or more, at a price of one nanoton
+per 2^16 gas, a balance of 2^50 and a message of one TON:
+* a gas limit of 2^64 - 2^20 above a flat limit of 100: `compute_max_gas_threshold` multiplies by
+  the difference as `long long` (1271, refint.h:42), negative, so the threshold is below the message's
+  value, which buys all the gas (1298): a gas limit of 2^64 - 2^20, negative for the VM, which runs out
+  of gas at once, and which `serialize` refuses (`VarUInteger 7`, 3937);
+* a gas limit of 2^63 + 2^20 above a flat limit of 2^20 + 1 (a difference below 2^63): the balance
+  buys all of it, the message about 2^46 gas; `ACCEPT` sets the VM's gas limit to the maximum,
+  negative (vm.cpp:414-419), the VM runs out of gas and `gas_used` (`std::min<long long>` as a
+  `td::uint64`, 2016) is the maximum, which `serialize` refuses; a code without `ACCEPT` runs as with
+  any limit; a precompiled code (parameter 45) runs with the configuration's gas limit (1955-1956),
+  negative: out of gas, which fails (2027-2030). -/
+def gas64Cases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let gas (limit : Nat) (flat : Nat × Nat) : Cell :=
+    withParam x.cfg 21 (Configs.gasExt 1 limit limit 10000 limit 100000000 1000000000 (some flat))
+  let msg := intMsg 0 a1 1000000000 false none #[]
+  let wide := gas (2 ^ 64 - 2 ^ 20) (100, 100)
+  let high := gas (2 ^ 63 + 2 ^ 20) (2 ^ 20 + 1, 100)
+  out := out.push (x.case "gas64/threshold" (active (asm []) (2 ^ 50)) msg wide)
+  out := out.push (x.case "gas64/accept" (active accept (2 ^ 50)) msg high)
+  out := out.push (x.case "gas64/no-accept" (active (asm []) (2 ^ 50)) msg high)
+  out := out.push (x.case "gas64/precompiled" (active accept (2 ^ 50)) msg (withPrecompiled high [(accept, 100)]))
+  return out
+
 end Cov
 
 open Cov in
@@ -749,7 +775,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [4, 5, 9, 16].contains v then out := out ++ Cov.gasOverrideCases x
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
-      Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x
+      Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x
   return out
 
 end Tests.Tx
