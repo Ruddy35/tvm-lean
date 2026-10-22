@@ -40,7 +40,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.WF.Exec.Flow, `TvmLean.Proofs.WF.Exec.Msg, `TvmLean.Proofs.WF.Exec.Exception,
     `TvmLean.Proofs.WF.Exec.Debug, `TvmLean.Proofs.WF.Exec.Tuple, `TvmLean.Proofs.WF.Exec.Misc,
     `TvmLean.Proofs.WF.Exec.TonEnv, `TvmLean.Proofs.WF.Exec.Crypto, `TvmLean.Proofs.WF.DictPrims,
-    `TvmLean.Proofs.Fast.Twin,
+    `TvmLean.Proofs.WF.Exec.Dict, `TvmLean.Proofs.Fast.Twin,
     `TvmLean.Proofs.Fast.Bits, `TvmLean.Proofs.Fast.Sha256, `TvmLean.Proofs.Fast.Sha512,
     `TvmLean.Proofs.Fast.Hash, `TvmLean.Proofs.Fast.Dispatch, `TvmLean.Proofs.Fast.Run,
     `TvmLean.Proofs.Fast.Checkpoint, `TvmLean.Proofs.Fast.Wallet3, `TvmLean.Proofs.Tx.Phases,
