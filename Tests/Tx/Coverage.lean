@@ -94,6 +94,18 @@ def merkleProofs (c : Cell) : Nat → Cell
     { bits := natToBits 3 8 ++ bytesToBits inner.hashBytes ++ natToBits inner.depth 16, refs := #[inner], special := true,
       levelMask := 0 }
 
+/-- A pruned branch of level 1 of the level-0 cell `c` (its hash and depth). -/
+def prunedOf (c : Cell) : Cell :=
+  { bits := natToBits 1 8 ++ natToBits 1 8 ++ bytesToBits c.hashBytes ++ natToBits c.depth 16, refs := #[], special := true,
+    levelMask := 1 }
+
+/-- A Merkle proof of `c` of any level (its hash and depth at level 0): of level one less. -/
+def merkleProofOf (c : Cell) : Cell :=
+  let (h, d) := match c.computeLevelInfo? with
+    | .ok info => (info.getHash 0, info.getDepth 0)
+    | .error _ => (#[], 0)
+  { bits := natToBits 3 8 ++ bytesToBits h ++ natToBits d 16, refs := #[c], special := true, levelMask := c.levelMask >>> 1 }
+
 /-- `n` nodes with nothing but the reference to the previous one. -/
 def chain (n : Nat) : Cell := (List.range n).foldl (fun c _ => Cell.mkOrdinary #[] #[c]) Cell.empty
 
@@ -566,6 +578,34 @@ def inMsgCases (x : Ctx) : Array TxCase := Id.run do
   out := out.push (x.case "in-msg/params-bounced" params (intMsgX dest 100000000 (bounced := true) (fwdFee := 12345)))
   return out
 
+/-- The emulator's inputs are bags of cells, and `std_boc_deserialize` refuses a root of non-zero
+level (crypto/vm/boc.cpp:975-977; emulator-extern.cpp:69, 383-387, 112-115, 120-123, 232-235): a
+message whose body has a pruned branch (internal, external), an account whose data has one (also for
+tick-tock), the emulator's libraries with one, a configuration with one (parameter 1000); the same
+under a Merkle proof (level 0) runs. (A body in a reference that is itself an exotic cell is loaded
+outside the VM, transaction.cpp:1031, and the emulator aborts: no case.) -/
+def levelCases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let acc := active accept
+  let dest := stdA 0 a1
+  let pr := prunedOf data1
+  let underPruned := Cell.mkOrdinary #[] #[pr]
+  out := out.push (x.case "level/msg-pruned" acc (intMsgX dest 100000000 (bodyRef := some pr)))
+  out := out.push (x.case "level/msg-under-pruned" acc (intMsgX dest 100000000 (bodyRef := some underPruned)))
+  let proof := Cell.mkOrdinary #[] #[merkleProofOf underPruned]
+  out := out.push (x.case "level/msg-proof" acc (intMsgX dest 100000000 (bodyRef := some proof)))
+  out := out.push (x.case "level/ext-pruned" acc (extMsgRef 0 a1 underPruned))
+  out := out.push (x.case "level/ext-proof" acc (extMsgRef 0 a1 proof))
+  for (dname, d) in [("pruned", underPruned), ("proof", proof)] do
+    let a := mkAccount 0 a1 (.active accept d) 1000000000 1700000000 0 1000
+    out := out.push (x.case s!"level/account-{dname}" a (intMsgX dest 100000000))
+    out := out.push (x.tt s!"level/account-{dname}/tick" (mkAccount (-1) x.cfgAddr (.active accept d) 1000000000 1700000000 0 1000))
+  out := out.push { x.case "level/libs-pruned" acc (intMsgX dest 100000000) with libs := globalLibsOf [pr] }
+  out := out.push { x.case "level/libs-proof" acc (intMsgX dest 100000000) with libs := globalLibsOf [merkleProofOf underPruned] }
+  out := out.push (x.case "level/config-pruned" acc (intMsgX dest 100000000) (withParam x.cfg 1000 underPruned))
+  out := out.push (x.case "level/config-proof" acc (intMsgX dest 100000000) (withParam x.cfg 1000 (merkleProofOf underPruned)))
+  return out
+
 /-- `Account::unpack` (transaction.cpp:206-530) of accounts the emulator accepts: an `addr_var` address
 (workchain 1000: `unpack_address` refuses it, 220-222), a `ShardAccount` whose logical time is not below
 the account's (493), a storage dictionary hash (276-277: kept from version 11 in the basechain while the
@@ -653,7 +693,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     let once := v == 9 || v == 16
     if once then
       out := out ++ Cov.configCases x ++ Cov.storageCreditCases x ++ Cov.computeCases x ++ Cov.actionListCases x false ++ Cov.sendCases x false ++
-        Cov.bounceCases x ++ Cov.inMsgCases x ++ Cov.accountCases x false
+        Cov.bounceCases x ++ Cov.inMsgCases x ++ Cov.levelCases x ++ Cov.accountCases x false
     if [4, 5, 9, 16].contains v then out := out ++ Cov.gasOverrideCases x
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++

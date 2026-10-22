@@ -43,6 +43,16 @@ def newTx (cfg : Config) (shardAccount inMsg : Cell) (kind : TxKind) (wc : Int) 
       newFixedPrefixLength := account.fixedPrefixLength, frozenHash := account.stateHash }
   return (t, pricing, sl, gas, fwd)
 
+/-- The emulator reads its inputs from bags of cells (`boc_b64_to_cell`, emulator-extern.cpp:15-18),
+and `std_boc_deserialize` refuses a root of non-zero level (crypto/vm/boc.cpp:975-977): the
+configuration (`decode_config`, emulator-extern.cpp:69, for `transaction_emulator_create`), the
+libraries (`transaction_emulator_set_libs`, 383-387), the message (112-115) and the shard account
+(120-123; of a tick-tock transaction 232-235). Whether all of them (`inMsg`: none for tick-tock) are of
+level 0. -/
+def inputsAtLevel0 (configRoot : Cell) (libs : Option Cell) (inMsg : Option Cell) (shardAccount : Cell) : Bool :=
+  configRoot.levelMask == 0 && (libs.all (·.levelMask == 0)) && (inMsg.all (·.levelMask == 0)) &&
+    shardAccount.levelMask == 0
+
 /-- The run of an ordinary transaction as the transaction emulator does it: the account at the
 address of the `ShardAccount` (or of the message's destination for `account_none`), the
 configuration `configRoot`, the time `now`, the logical time `lt`, the block's random seed
@@ -50,6 +60,9 @@ configuration `configRoot`, the time `now`, the logical time `lt`, the block's r
 account. -/
 def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString) (libs : Option Cell := none) :
     Outcome := Id.run do
+  -- the inputs as bags of cells (emulator-extern.cpp:69, 383-387, 112-115, 120-123; boc.cpp:975-977)
+  if !inputsAtLevel0 configRoot libs (some inMsg) shardAccount then
+    return .failed "bag of cells has a root with non-zero level"
   let some cfg := Config.decode configRoot | return .failed "config"
   -- the address: of the account, or of the message's destination
   let some (acc, _, _) := Reader.runExact (do return (← Reader.ref, ← Reader.bits 256, ← Reader.uint 64)) shardAccount
@@ -127,6 +140,9 @@ as the emulator runs it: no message, no credit, the storage phase without adjust
 value, the compute and action phases, no bounce. -/
 def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : Nat) (randSeed : BitString)
     (libs : Option Cell := none) : Outcome := Id.run do
+  -- the inputs as bags of cells (emulator-extern.cpp:69, 383-387, 232-235; boc.cpp:975-977)
+  if !inputsAtLevel0 configRoot libs none shardAccount then
+    return .failed "bag of cells has a root with non-zero level"
   let some cfg := Config.decode configRoot | return .failed "config"
   let some (acc, _, _) := Reader.runExact (do return (← Reader.ref, ← Reader.bits 256, ← Reader.uint 64)) shardAccount
     | return .failed "shard account"
