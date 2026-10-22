@@ -54,7 +54,10 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Spec.Dispatch, `TvmLean.Proofs.Exec.Spec.Crypto, `TvmLean.Proofs.Exec.Spec.Msg,
     `TvmLean.Proofs.Exec.Cont, `TvmLean.Proofs.Exec.Spec.Loop, `TvmLean.Proofs.Exec.Spec.Dict,
     `TvmLean.Proofs.Tx.Shape, `TvmLean.Proofs.Basic, `TvmLean.Proofs.All,
-    `TvmLean.Proofs.Contracts.Wallet3Run.Tactic]
+    `TvmLean.Proofs.Contracts.Wallet3Run.Tactic, `TvmLean.Proofs.Contracts.Wallet3Run.Common,
+    `TvmLean.Proofs.Contracts.Wallet3Run.Other, `TvmLean.Proofs.Contracts.Wallet3Run.Accepted,
+    `TvmLean.Proofs.Contracts.Wallet3Run.Signature, `TvmLean.Proofs.Contracts.Wallet3Run.External,
+    `TvmLean.Proofs.Contracts.Wallet3Run.ExternalOld]
   -- the kernel checks the proofs that follow every path through a phase of a transaction
   -- (`TvmLean.Proofs.Tx.Tactic`) on deeply nested terms: a larger thread stack than the default
   moreLeanArgs := #["--tstack=65536"]

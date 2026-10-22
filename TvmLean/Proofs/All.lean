@@ -80,6 +80,12 @@ import TvmLean.Proofs.Exec.Spec.Dict
 import TvmLean.Proofs.Tx.Shape
 import TvmLean.Proofs.Basic
 import TvmLean.Proofs.Contracts.Wallet3Run.Tactic
+import TvmLean.Proofs.Contracts.Wallet3Run.Common
+import TvmLean.Proofs.Contracts.Wallet3Run.Other
+import TvmLean.Proofs.Contracts.Wallet3Run.Accepted
+import TvmLean.Proofs.Contracts.Wallet3Run.Signature
+import TvmLean.Proofs.Contracts.Wallet3Run.External
+import TvmLean.Proofs.Contracts.Wallet3Run.ExternalOld
 
 /-!
 # All proof modules together
