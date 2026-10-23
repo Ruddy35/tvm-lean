@@ -491,6 +491,15 @@ wallet ext, restricted wallet v1 и v2, автоматический DNS — 188
 `scripts/server/verify-split.sh`; план волн — `docs/audit/README.md`, раздел 4, и
 `docs/audit/spec-coverage.md`.
 
+Незаконченное на момент заморозки (локальные ветки этого окружения; ничего не собрано полностью):
+
+| Ветка | Последний коммит | Что | Продолжить |
+|---|---|---|---|
+| `worktree-agent-a6406cae2fc152d5e` | `daea889` (WIP) | волна 0: импорт всех `vm_spec` в `Check/Tactic.lean`; `k ≤ globalVersion` из гипотезы в `stepCode` (`omegaFrom?`, `stepOnceWith_instrOld'/Ver'`); приватные определения модели в `unfoldableModelDef`; `VmState.callTo_eq` | собрать `Check.Tactic`, затем `Proofs.All`; проверить wallet v3/v2/simple wallet через `contract-check`; разбить на 4 коммита; пересчитать опись |
+| `worktree-agent-a60490db609592f0d` | `d75d43a` (WIP) поверх `293a3c2`, `d01e233`, `cb1b794` | средство: неизвестные словари (ближайший/первый/последний ключ как карта), загрузки ячеек по исходам (`Havoc.lean`, убрал зависание `CALLDICT`), вызовы, параметры конфигурации, инварианты циклов (`-- contract-check: loop k Q`); simple-wallet-ext доказан (768 с) | счётчик `REPEAT` в правиле цикла (регресс `repeat-const`, `loop-in-loop`); `*XARGS`/`RETARGS`, `BRK`-циклы, `c5`/`c7`; спецификация `DICTUREMMIN`; приёмка highload v1/v2, restricted v1 |
+| `worktree-agent-ad8344eabb8942a70` | `2b5fb87` (WIP) поверх `302ee34`, `fddf554`, `7d26a95`, `e42c442` | TON Storage средством: точки расширения (`check_extra_step`, наборы `check_close`, `check_run_simp`), замыкатели (`check_omega_rel`), длинные пути, `Check/Framed.lean`, `Forget.lean`; каждая операция `recv_internal` доказывается общими `check_paths` из `examples/storage.lean` (от состояния после диспетчера) | полный прогон `contract-check` для TON Storage (~1–1,5 ч, `LEAN_NUM_THREADS=6`), `Proofs.All`; после волны 0 убрать `Check.callTo_retCont`; затем волна 3 |
+| `worktree-agent-a3adb88ddd4d3b8a5` | `bfac4c9` (WIP) | скорость `vm_run` после переполнения газа: simproc `int64WrapEval` (`int64Wrap x = x` при доказанном диапазоне) | профиль `Pilot.Wallet3` на сервере (скрипты профилирования были во временном каталоге сессии); замеры по модулям до/после |
+
 ### 9.1. Серверы сборки и сверки
 
 Три одинаковых сервера (с 2026-10-22; прежний сервер выведен): 16 ядер (Xeon E5-1660 v3, Haswell),
