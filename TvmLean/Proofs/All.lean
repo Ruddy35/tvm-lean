@@ -128,6 +128,7 @@ import TvmLean.Proofs.Check.Loops
 import TvmLean.Proofs.Check.Contracts.Wallet3
 import TvmLean.Proofs.Check.Contracts.Wallet2
 import TvmLean.Proofs.Check.Contracts.SimpleWallet
+import TvmLean.Proofs.Check.Contracts.SimpleWalletExt
 import TvmLean.Proofs.Exec.Framed
 import TvmLean.Proofs.Exec.FramedDict
 import TvmLean.Proofs.Exec.Spec.MsgAddr
