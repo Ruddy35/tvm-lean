@@ -1,0 +1,112 @@
+// The probes of tools/spec-coverage (spec_coverage.py patterns): one small code per control-flow
+// pattern, run by `ran_case` (TvmLean/Proofs/Check/Tactic.lean) from the start of an external
+// message with the invariant `True`: the pattern is handled when every path of the run reaches its
+// end. Prints one line per probe, "name base64-BOC"; tools/spec-coverage/probes.txt is its output:
+//   fift -I <ton>/crypto/fift/lib -s tools/spec-coverage/probes.fif > tools/spec-coverage/probes.txt
+// The stack at the start: balance, message value, message cell, body slice, -1 (external).
+"Asm.fif" include
+
+{ type space 0 boc+>B B>base64 type cr } : put   // ( cell name -- )
+
+// the baseline
+<{ NOP }>c "nop" put
+
+// jumps and calls of ordinary continuations
+<{ <{ 1 INT }> PUSHCONT EXECUTE DROP }>c "callx" put
+<{ <{ 1 INT DROP }> PUSHCONT JMPX }>c "jmpx" put
+<{ 1 INT 2 INT <{ ADD }> PUSHCONT 2 1 CALLXARGS DROP }>c "callxargs" put
+<{ 1 INT 2 INT <{ ADD DROP }> PUSHCONT 2 JMPXARGS }>c "jmpxargs" put
+<{ <{ 1 INT 2 INT 1 RETARGS }> PUSHCONT 0 1 CALLXARGS DROP }>c "retargs" put
+<{ 1 INT <{ ADD }> PUSHCONT 1 1 SETCONTARGS 2 INT SWAP EXECUTE DROP }>c "closure-call" put
+<{ 1 INT <{ ADD DROP }> PUSHCONT 1 1 SETCONTARGS 2 INT SWAP JMPX }>c "closure-jump" put
+<{ <{ DROP }> PUSHCONT CALLCC }>c "callcc" put
+<{ <{ 2DROP }> PUSHCONT 0 0 CALLCCARGS }>c "callccargs" put
+<b <{ NOP }>c ref, b> "implicit-jmpref" put
+<{ <{ 1 INT DROP }>c CALLREF }>c "callref" put
+<{ <{ NOP }>c JMPREF }>c "jmpref" put
+<{ -1 INT <{ NOP }>c IFJMPREF }>c "ifjmpref" put
+<{ DROP DROP DROP 1 INT AND <{ NOP }> PUSHCONT <{ NOP }> PUSHCONT IFELSE }>c "ifelse-unknown" put
+<{ <{ NOP }> PUSHCONT c1 POP RETALT }>c "retalt" put
+
+// loops: constant and unknown counts, with and without a value carried on the stack
+<{ 3 INT <{ NOP }> PUSHCONT REPEAT }>c "repeat-const" put
+<{ DROP DROP DROP 255 INT AND <{ NOP }> PUSHCONT REPEAT }>c "repeat-unknown" put
+<{ DROP DROP DROP 255 INT AND 0 INT SWAP <{ INC }> PUSHCONT REPEAT DROP }>c "repeat-data" put
+<{ 0 INT <{ INC DUP 3 INT GEQ }> PUSHCONT UNTIL DROP }>c "until-const" put
+<{ DROP DROP DROP 255 INT AND <{ DEC DUP 0 INT LEQ }> PUSHCONT UNTIL DROP }>c "until-data" put
+<{ DROP DROP DROP 255 INT AND <{ DUP 0 INT GREATER }> PUSHCONT <{ DEC }> PUSHCONT WHILE DROP }>c "while-data" put
+<{ <{ NOP }> PUSHCONT AGAIN }>c "again" put
+<{ <{ RETALT }> PUSHCONT AGAINBRK }>c "againbrk" put
+<{ DROP DROP DROP 255 INT AND REPEATEND NOP }>c "repeatend" put
+<{ DROP DROP DROP 255 INT AND UNTILEND DEC DUP 0 INT LEQ }>c "untilend" put
+<{ DROP DROP DROP 255 INT AND <{ DUP 0 INT GREATER }> PUSHCONT WHILEEND DEC }>c "whileend" put
+<{ AGAINEND NOP }>c "againend" put
+<{ DROP DROP DROP 255 INT AND <{ DUP 7 INT EQUAL <{ RETALT }> PUSHCONT IFJMP DEC }> PUSHCONT REPEATBRK }>c "repeatbrk" put
+<{ DROP DROP DROP 255 INT AND <{ DEC DUP 0 INT LEQ }> PUSHCONT UNTILBRK DROP }>c "untilbrk" put
+<{ DROP DROP DROP 255 INT AND <{ DUP 0 INT GREATER }> PUSHCONT <{ DEC }> PUSHCONT WHILEBRK DROP }>c "whilebrk" put
+<{ DROP DROP DROP 3 INT AND <{ 3 INT <{ NOP }> PUSHCONT REPEAT }> PUSHCONT REPEAT }>c "loop-in-loop" put
+
+// exceptions
+<{ 100 THROW }>c "throw" put
+<{ 5 INT 100 THROWARG }>c "throwarg" put
+<{ DROP DROP DROP 1 INT AND 100 THROWIF }>c "throwif-unknown" put
+<{ <{ 100 THROW }> PUSHCONT <{ 2DROP }> PUSHCONT TRY }>c "try-throw" put
+<{ <{ NOP }> PUSHCONT <{ 2DROP }> PUSHCONT TRY }>c "try-nothrow" put
+<{ 1 INT <{ DROP 100 THROW }> PUSHCONT <{ 2DROP }> PUSHCONT 1 0 TRYARGS }>c "tryargs" put
+<{ DROP DROP DROP 255 INT AND 100 INT LESS 101 THROWIFNOT }>c "throwifnot-unknown" put
+
+// procedures and the method dispatch (Fift's PROGRAM: SETCP0, DICTPUSHCONST, DICTIGETJMPZ)
+PROGRAM{
+  DECLPROC recv_internal
+  DECLPROC recv_external
+  DECLPROC helper
+  helper PROC:<{ 1 INT DROP }>
+  recv_internal PROC:<{ DROP }>
+  recv_external PROC:<{ helper CALLDICT }>
+}END>c "calldict" put
+PROGRAM{
+  DECLPROC recv_internal
+  DECLPROC recv_external
+  DECLPROC helper
+  helper PROC:<{ 1 INT DROP }>
+  recv_internal PROC:<{ DROP }>
+  recv_external PROC:<{ helper JMPDICT }>
+}END>c "jmpdict" put
+PROGRAM{
+  DECLPROC recv_internal
+  DECLPROC recv_external
+  DECLPROC helper
+  helper PROC:<{ 1 INT DROP }>
+  recv_internal PROC:<{ DROP }>
+  recv_external PROC:<{ helper PREPAREDICT EXECUTE }>
+}END>c "preparedict" put
+
+// the child VM, the codepage
+<{ 0 INT x{71} PUSHSLICE 0 RUNVM 2DROP }>c "runvm" put
+<{ 1 SETCP NOP }>c "setcp1" put
+<{ 0 INT SETCPX }>c "setcpx" put
+
+// actions and registers
+<{ <b b> PUSHREF 0 INT SENDRAWMSG }>c "sendrawmsg" put
+<{ 0 INT 0 INT RAWRESERVE }>c "rawreserve" put
+<{ <b b> PUSHREF 0 INT SENDMSG DROP }>c "sendmsg" put
+<{ <{ NOP }>c PUSHREF SETCODE }>c "setcode" put
+<{ <{ NOP }>c PUSHREF 0 INT SETLIBCODE }>c "setlibcode" put
+<{ 0 INT 0 INT CHANGELIB }>c "changelib" put
+<{ <b b> PUSHREF c4 POP }>c "c4-update" put
+<{ <b b> PUSHREF c5 POP }>c "c5-update" put
+<{ c7 PUSH c7 POP }>c "c7-update" put
+<{ 1 INT 1 SETGLOB 1 GETGLOB DROP }>c "setglob" put
+<{ COMMIT 100 THROW }>c "commit" put
+<{ ACCEPT }>c "accept" put
+<{ 10000 INT SETGASLIMIT }>c "setgaslimit" put
+
+// dictionaries the run does not know (read from the message body), the configuration, c7
+<{ DROP LDDICT DROP 5 INT SWAP 32 INT DICTUGET }>c "dictget-unknown" put
+<{ DROP LDDICT DROP x{} PUSHSLICE 5 INT ROT 32 INT DICTUSET DROP }>c "dictset-unknown" put
+<{ DROP LDDICT DROP 0 INT SWAP 32 INT DICTUGETNEXT }>c "dictgetnext-unknown" put
+<{ DROP LDDICT DROP 32 INT DICTUMIN }>c "dictmin-unknown" put
+<{ 9 INT CONFIGPARAM }>c "configparam" put
+<{ 9 INT CONFIGOPTPARAM DROP }>c "configoptparam" put
+<{ NOW DROP }>c "now" put
+<{ GASCONSUMED DROP }>c "gasconsumed-v4" put

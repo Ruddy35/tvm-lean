@@ -70,10 +70,40 @@ kind of transaction, the code position (cell, bit, instruction), the exit code, 
 and the goal left. `--only runs_ext,...` checks some kinds of transaction only, `--cut N` sets
 how often a path is cut into auxiliary theorems.
 
+`--precheck` prints, before a proof, which instructions and control-flow patterns of the code
+symbolic execution does not cover (`tools/spec-coverage`, below).
+
 `tools/contract-check/examples/` has the invariants of wallet v3, wallet v2 and the simple wallet
 (the code and the key never change), and a false one of wallet v3 (the seqno is always 0: `NOT
 PROVED`, the path of an accepted external message). The modules TvmLean/Proofs/Check/Contracts/*.lean
 were generated from them (`--out` there). The script's docstring has the details.
+
+## What symbolic execution covers: instructions, patterns, a contract's code
+
+```sh
+python3 tools/spec-coverage/spec_coverage.py patterns --jobs 5 --save        # --regen: probes.txt by fift
+python3 tools/spec-coverage/spec_coverage.py inventory --deep --jobs 12 --save --raw inv.tsv
+python3 tools/spec-coverage/spec_coverage.py precheck --save                 # the codes of contracts.txt
+python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md docs/audit/spec-coverage.md
+tools/contract-check/contract-check list:tools/txoracle/contracts.txt#wallet3.code --precheck
+```
+
+`inventory`: every one of the 919 instruction forms of the decoder (the opcode ranges of
+`third_party/tvm-specification`), sampled over its arguments and decoded by the model, classified in
+the environment of `tools/contract-check` (`tools/spec-coverage/SpecCoverage.lean`, run by
+`lake env lean`): a `vm_spec` lemma that `vm_step` uses for it, or its handler, statically (the VM
+programs it runs: computed by a `vm_run` lemma, unfolded, or blocking) and, with `--deep`, by running
+it on a symbolic stack of its signature; the lemmas of `TvmLean/Proofs/Exec/` that contract-check does
+not import are counted apart. Writes the table per family (`docs/audit/spec-coverage.md`) and the
+result per form (`tools/spec-coverage/forms.json`). `patterns`: the control-flow patterns (calls with
+closure data, loops, `TRY`, `CALLDICT`, `RUNVM`, actions, unknown dictionaries, configuration
+reads, ...), each tried by small codes (`probes.fif`) run by `ran_case`; results in
+`probe-results.json`. `precheck` (or `contract-check <code> --precheck`): the code reachable from a
+contract's code (implicit `JMPREF`, `PUSHCONT`, `CALLREF`, `IF*REF`, the procedures of
+`DICTPUSHCONST`) disassembled and classified, with the patterns it uses: the gaps before a proof
+starts (`--save`: the summaries of the codes of `tools/txoracle/contracts.txt` for the document).
+The Lean side needs the proof library's modules of `TvmLean/Proofs/Exec/` built (some 2 GB of
+memory per process); `--deep` takes about an hour with 12 processes on a 16-core server.
 
 ## Oracle parity sweeps (Lean vs Fift runvmx)
 
