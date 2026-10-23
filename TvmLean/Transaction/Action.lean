@@ -421,10 +421,18 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
         newFunds := newFunds + t.msgBalanceRemaining - t.computePhase.gasFees - ap.actionFine
         if newFunds < 0 then return skip ap 37
       funds := min funds newFunds
-    if funds < maxCells * finePerCell then
+    -- `funds->cmp(max_cells * fine_per_cell) < 0` (2854): the product a `td::uint64` (modulo 2^64), compared
+    -- as `long long`; then `(funds / fine_per_cell)->to_long()` (2855), exact there (below 2^31)
+    if funds < int64OfUInt64 (maxCells * finePerCell) then
       maxCells := (funds / finePerCell).toNat
   let (cells, bits, depth) := refsStorage ([init, body] ++ valueRoot) maxCells
-  let fine := if t.gv ≥ 4 && !t.account.isSpecial then finePerCell * Nat.min maxCells cells else 0
+  -- `fine_per_cell * min(max_cells, cells)`, a `td::uint64` (2874-2875)
+  let fine := if t.gv ≥ 4 && !t.account.isSpecial then finePerCell * Nat.min maxCells cells % 2 ^ 64 else 0
+  -- `collect_fine` (2876-2883) and `fail_action_fine += fine` (3148) take the fine as `long long`: compared
+  -- with the balance by `cmp`, the smaller taken (`to_long()`), added and subtracted by `operator+=` and
+  -- `operator-=` with a `long long` (`refIntAddLong`). Below 2^63 - 2^52 that is exact; a fine at or above
+  -- (at least 2^17 cells at the highest cell price) can make the fines negative: not modelled
+  if fine ≥ 2 ^ 63 - 2 ^ 52 then throw "a fine of 2^63 - 2^52 or more (long long in collect_fine)"
   let collectFine (ap : ActionPhase) : ActionPhase :=
     let f := Nat.min fine ap.remainingBalance
     { ap with actionFine := ap.actionFine + f, remainingBalance := ap.remainingBalance - f }

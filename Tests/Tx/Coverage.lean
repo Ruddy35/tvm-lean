@@ -924,6 +924,21 @@ def lt64Cases (x : Ctx) : Array TxCase := Id.run do
     lt := 0 }
   return out
 
+/-- The fine of a message that fails is computed in `td::uint64` and compared as `long long`
+(transaction.cpp:2823-2883): `fine64/cmp-wrap`, a cell price of 2^64 - 1 (a fine of 2^46 - 1 per cell) and
+`max_msg_cells` 2^18 (parameter 43): `max_cells * fine_per_cell` is 2^64 - 2^18, -2^18 as `long long`
+(2854), so the funds are never below it and `max_cells` stays 2^18 (the product whole would cut it to 0
+and fail the message with 40); the message, with its body in a reference, then costs 2^48 + 1, more than
+its value of 10^6 (mode 0): 37, the balance taken as the fine. -/
+def fine64Cases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let cfg := withParam (withParam x.cfg 25 (Configs.msgPrices 1 0 (2 ^ 64 - 1) 98304 21845 21845)) 43
+    (Configs.limitsV1 (({} : W).uint 1 8) (2 ^ 21) (2 ^ 18) 1000 512 65535 512).cell
+  let leaf : Cell := Cell.mkOrdinary (natToBits 5 8) #[]
+  let send : Cell := asm (sendRaw (relaxedX (stdA 0 src0) 1000000 (bodyRef := some leaf)) 0)
+  out := out.push (x.case "fine64/cmp-wrap" (active send) (intMsg 0 a1 1000000000 false none #[]) cfg)
+  return out
+
 /-- `SETGASLIMIT` below the gas consumed (`exec_set_gas_generic`, tonops.cpp:70-74) is out of gas with the
 limits as they were: the gas used is the gas consumed (`std::min` with the old limit, transaction.cpp:
 2016), and the credit of an external message stays (not accepted, 2017). `PUSHINT 1 SETGASLIMIT` on an
@@ -961,7 +976,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
       Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x ++
       Cov.setGasLimitCases x ++ Cov.gasWrapCases x ++ Cov.flatGasCases x ++ Cov.fwd64Cases x ++
-      Cov.storage64Cases x ++ Cov.lt64Cases x
+      Cov.storage64Cases x ++ Cov.lt64Cases x ++ Cov.fine64Cases x
   return out
 
 end Tests.Tx
