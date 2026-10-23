@@ -477,6 +477,20 @@ wallet ext, restricted wallet v1 и v2, автоматический DNS — 188
 
 ## 9. Окружение
 
+### 9.0. Заморозка 2026-10-23
+
+Работа приостановлена по решению владельца; три сервера сборки и сверки удаляются. Состояние:
+`formal-tvm` = `0866014` (последняя полная проверка, все версии 0..16); голова
+`claude/bold-turing-6i3ctb` = `79e1a6e` (поверх — только опись покрытия символьного исполнения
+`tools/spec-coverage` и документы). Незаконченная работа помощников — в их локальных ветках
+`worktree-agent-*` (коммиты «WIP: …»), в GitHub её нет: волна 0 покрытия (импорт всех `vm_spec` в
+`contract-check`, версия из гипотезы в `stepCode`, приватные определения модели, `VmState.callTo`),
+волны 1–2 (управление и словари в `contract-check`), TON Storage через `contract-check` и скорость
+`vm_run` после переполнения газа. Продолжение: новые серверы — `scripts/server/provision.sh`,
+`scripts/server/build-cpp-reference.sh` (`TON_ARCH` под их процессор), проверка —
+`scripts/server/verify-split.sh`; план волн — `docs/audit/README.md`, раздел 4, и
+`docs/audit/spec-coverage.md`.
+
 ### 9.1. Серверы сборки и сверки
 
 Три одинаковых сервера (с 2026-10-22; прежний сервер выведен): 16 ядер (Xeon E5-1660 v3, Haswell),
