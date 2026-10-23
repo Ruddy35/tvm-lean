@@ -175,28 +175,41 @@ def int64OfUInt64 (n : Nat) : Int :=
 
 /-- `compute_max_gas_threshold` (transaction.cpp:1268-1275): `gas_price256 * (gas_limit -
 flat_gas_limit)` multiplies by the `td::uint64` difference as `long long` (`operator*(RefInt256, long
-long)`, refint.h:42), negative from 2^63 on; `td::rshift(x, 16, 1)` rounds up. -/
+long)`, refint.h:42), negative from 2^63 on; `td::rshift(x, 16, 1)` rounds up; the flat price is added
+as `long long` (`td::make_bigint`, bigint.hpp:2573: negative from 2^63 on, 1271), but returned whole
+when the limit is within the flat one (`td::make_refint`, 1273). -/
 def GasPrices.maxGasThreshold (g : GasPrices) (gasLimit : Nat) : Int :=
   if gasLimit > g.flatGasLimit then
-    -((-(Int.ofNat g.gasPrice * int64OfUInt64 (gasLimit - g.flatGasLimit))) / 0x10000) + g.flatGasPrice
+    -((-(Int.ofNat g.gasPrice * int64OfUInt64 (gasLimit - g.flatGasLimit))) / 0x10000) + int64OfUInt64 g.flatGasPrice
   else g.flatGasPrice
 
+/-- `td::BigInt256::to_long()` (bigint.hpp:1072-1092): the value if it is a `long long`, else -2^63
+(also for NaN). -/
+def bigIntToLong (x : Int) : Int :=
+  if -2 ^ 63 ≤ x ∧ x < 2 ^ 63 then x else -2 ^ 63
+
 /-- `ComputePhaseConfig::gas_bought_for` with the gas limit `gasLimit` (transaction.cpp:1294-1308,
-1395-1416). Below the threshold, which is then positive, the quotient is below `gas_limit -
-flat_gas_limit` < 2^63: `res->to_long()` (1305, 1414) is exact and the sum below 2^64. -/
+1395-1416): the flat price as `long long`, compared (`cmp(RefInt256, long long)`, exact, 1301) and
+subtracted (`operator-(RefInt256, long long)`, `refIntAddLong` of its negation, 1304), the quotient
+rounded down (`td::div`; by a gas price of 0 it is NaN), `res->to_long() + flat_gas_limit` a
+`td::uint64` (1305). With a flat price below 2^63 - 2^52 all is exact and the quotient below
+`gas_limit - flat_gas_limit`. -/
 def GasPrices.gasBoughtFor (g : GasPrices) (gasLimit : Nat) (nanograms : Nat) : Nat :=
   if (nanograms : Int) ≥ g.maxGasThreshold gasLimit then gasLimit
-  else if nanograms < g.flatGasPrice then 0
-  else (nanograms - g.flatGasPrice) * 0x10000 / g.gasPrice + g.flatGasLimit
+  else if (nanograms : Int) < int64OfUInt64 g.flatGasPrice then 0
+  else
+    let res : Int := if g.gasPrice = 0 then -2 ^ 63
+      else bigIntToLong (refIntAddLong nanograms (int64Wrap (-int64OfUInt64 g.flatGasPrice)) * 0x10000 / g.gasPrice)
+    ((res + g.flatGasLimit) % 2 ^ 64).toNat
 
-/-- `ComputePhaseConfig::compute_gas_price` (transaction.cpp:1315-1318). C++ multiplies by `gas_used -
-flat_gas_limit` as `long long`: from 2^63 on the fee is negative, and the transaction then fails in
-`serialize` all the same (a gas used of 2^63 or more is no `VarUInteger 7`, 3937); the model charges
-nothing there. -/
-def GasPrices.gasPriceOf (g : GasPrices) (gasUsed : Nat) : Nat :=
+/-- `ComputePhaseConfig::compute_gas_price` (transaction.cpp:1315-1318): within the flat limit the flat
+price whole (`td::make_refint`, 1316); above it the price times `gas_used - flat_gas_limit` as `long
+long` (refint.h:42, negative from 2^63 on), rounded up, plus the flat price as `long long` (negative
+from 2^63 on) by `operator+(RefInt256, long long)` (`refIntAddLong`, 1317). -/
+def GasPrices.gasPriceOf (g : GasPrices) (gasUsed : Nat) : Int :=
   if gasUsed ≤ g.flatGasLimit then g.flatGasPrice
-  else if gasUsed - g.flatGasLimit ≥ 2 ^ 63 then 0
-  else ceilShr16 (g.gasPrice * (gasUsed - g.flatGasLimit)) + g.flatGasPrice
+  else refIntAddLong (-((-(Int.ofNat g.gasPrice * int64OfUInt64 (gasUsed - g.flatGasLimit))) / 0x10000))
+    (int64OfUInt64 g.flatGasPrice)
 
 /-- `override_gas_limit`: accounts whose gas limit was raised (`(wc, addr)`, limit, from version,
 until). -/
@@ -534,12 +547,23 @@ def Tx.runVm (t : Tx) (code : Cell) (gasLimit gasMax gasCredit : Nat) (blockSeed
   | .continue stF => (stF, Excno.fatal.toInt)
 
 
+/-- The gas fees of an accepted message are negative (a flat gas price of 2^63 or more,
+`GasPrices.gasPriceOf`; special accounts pay nothing): C++ takes them, the balance grows
+(transaction.cpp:2065-2067), and `serialize` refuses them (`gas_fees:Grams`, 3935): the emulator
+fails. -/
+def Tx.gasFeesNegative (t : Tx) (gas : GasPrices) (cp : ComputePhase) : Bool :=
+  cp.accepted && !t.account.isSpecial && decide (gas.gasPriceOf cp.gasUsed < 0)
+
 /-- The end of the compute phase once the VM ran: an accepted message pays for its gas (a special
-account pays nothing). -/
+account pays nothing; `Tx.gasFeesNegative` is checked before). Fees above the balance (only with a
+flat gas price of 2^63 or more, whole within the flat limit, which the threshold takes as `long long`)
+are not modelled: C++ `balance -= cp.gas_fees` leaves no balance (`CurrencyCollection::operator-=`,
+block.cpp:1321-1329: `grams` null) and `td::sgn` of it (2072) dereferences null, which aborts the
+emulator. -/
 def Tx.payGas (t : Tx) (gas : GasPrices) (cp : ComputePhase) : Except String (Tx × ComputePhase) := do
   if !cp.accepted then return (t, cp)
   if t.account.isSpecial then return (t, { cp with gasFees := 0 })
-  let fees := gas.gasPriceOf cp.gasUsed
+  let fees := (gas.gasPriceOf cp.gasUsed).toNat
   if fees > t.balance then throw "gas fees above balance"
   return ({ t with totalFees := t.totalFees + fees, balance := t.balance - fees }, { cp with gasFees := fees })
 
@@ -609,6 +633,7 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
       let cp0 := { t.computePhase with exitCode := ~~~ Excno.fatal.toInt, vmSteps := 0, gasUsed := 0, accepted,
                                        success := false, exitArg := if t.kind != .ord then -2 else if t.inMsgExtern then -1 else 0 }
       let t0 := if accepted && t.useMsgState then { t with wasActivated := true, accStatus := .active } else t
+      if t0.gasFeesNegative gas cp0 then return none
       let (t1, cp1) ← t0.payGas gas cp0
       return some { t1 with computePhase := cp1 }
   let precompiled : Option Nat :=
@@ -649,6 +674,7 @@ def Tx.computePhaseRun (t : Tx) (gas : GasPrices) (sl : SizeLimits) (blockSeed :
     match stF.stack.back? with
     | some (.int (.num v)) => if -2 ^ 31 ≤ v ∧ v < 2 ^ 31 then cp := { cp with exitArg := v }
     | _ => pure ()
+  if t.gasFeesNegative gas cp then return none
   let (t', cp') ← t.payGas gas cp
   t := t'
   cp := cp'

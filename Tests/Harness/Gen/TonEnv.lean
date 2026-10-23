@@ -280,7 +280,18 @@ def cfgC7Pool : Array (String × Array Value) :=
      -- forwarding prices, `util::get_{gas,msg}_prices`; the global id)
      ("cfg-ints", cfgC7 #[iv 1, iv 2, iv 3, iv 4, iv 5, iv 6, iv 7]),
      ("cfg-nulls", cfgC7 #[.null, .null, .null, .null, .null, .null, .null]),
-     ("cfg-cells", cfgC7 (Array.replicate 7 (.cell (Cell.mkOrdinary (fwdPrices 1 2 3) #[])))) ]
+     ("cfg-cells", cfgC7 (Array.replicate 7 (.cell (Cell.mkOrdinary (fwdPrices 1 2 3) #[])))),
+     -- flat gas prices of 2^63 or more, which `compute_gas_price` adds as `long long` above the flat
+     -- limit (mc-config.h:363-367) and returns whole within it; gas prices of 2^63 or more (whole)
+     ("cfg-flat-high", cfgC7 #[sl (storagePrices 1 500 1000 500000), sl (natToBits 5 32),
+        sl (gasFlat 100 (2 ^ 63 + 5) (gasDe 655360000)), sl (gasFlat 100 (2 ^ 64 - 1) (gasDe 26214400)),
+        sl (fwdPrices 1 2 3), sl (fwdPrices 4 5 6), .null]),
+     ("cfg-flat-max", cfgC7 #[sl (storagePrices 1 500 1000 500000), sl (natToBits 5 32),
+        sl (gasFlat 1000000 (2 ^ 63 - 1) (gasDe 655360000)), sl (gasFlat 0 (2 ^ 63) (gasDe 26214400)),
+        sl (fwdPrices 1 2 3), sl (fwdPrices 4 5 6), .null]),
+     ("cfg-price-high", cfgC7 #[sl (storagePrices 1 500 1000 500000), sl (natToBits 5 32),
+        sl (gasFlat 100 (2 ^ 64 - 1) (gasDe (2 ^ 64 - 1))), sl (gasDd (2 ^ 63 + 1)),
+        sl (fwdPrices 1 2 3), sl (fwdPrices 4 5 6), .null]) ]
 
 /-- Random seeds `c7[0][6]` that are not integers, negative (range_chk: no TVM integer reaches 2^256),
 the largest, and a parameter tuple without
@@ -362,9 +373,9 @@ def casesFor (suite : String) : Array OracleCase :=
   | "REWRITEVARADDR" => cross suite #[("rw", env (.rewriteVarAddr false))] #[("default", #[])] (addrPool.map (fun a => #[a]))
   | "REWRITEVARADDRQ" => cross suite #[("rwq", env (.rewriteVarAddr true))] #[("default", #[])] (addrPool.map (fun a => #[a]))
   | "GETGASFEE" => cross suite #[("fee", env .getGasFee)] (c7Pool ++ cfgC7Pool)
-      ((#[0, 1, 1000, 1000000, -1, 2 ^ 63] : Array Int).flatMap (fun g => #[#[iv g, iv 0], #[iv g, iv (-1)]]) ++ #[#[iv 1], #[]])
+      ((#[0, 1, 1000, 1000000, -1, 2 ^ 63, 2 ^ 63 - 1] : Array Int).flatMap (fun g => #[#[iv g, iv 0], #[iv g, iv (-1)]]) ++ #[#[iv 1], #[]])
   | "GETGASFEESIMPLE" => cross suite #[("fee", env .getGasFeeSimple)] (c7Pool ++ cfgC7Pool)
-      ((#[0, 1, 1000, 1000000, -1, 2 ^ 63] : Array Int).flatMap (fun g => #[#[iv g, iv 0], #[iv g, iv (-1)]]) ++ #[#[iv 1], #[]])
+      ((#[0, 1, 1000, 1000000, -1, 2 ^ 63, 2 ^ 63 - 1] : Array Int).flatMap (fun g => #[#[iv g, iv 0], #[iv g, iv (-1)]]) ++ #[#[iv 1], #[]])
   | "GETSTORAGEFEE" => cross suite #[("fee", env .getStorageFee)] (c7Pool ++ cfgC7Pool)
       #[#[iv 1, iv 100, iv 3600, iv 0], #[iv 10, iv 10000, iv 86400, iv (-1)], #[iv 0, iv 0, iv 0, iv 0],
         #[iv (-1), iv 1, iv 1, iv 0], #[iv (2 ^ 63), iv 1, iv 1, iv 0], #[iv 1, iv 1, iv 1], #[]]

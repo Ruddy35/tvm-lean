@@ -800,6 +800,47 @@ def gasWrapCases (x : Ctx) : Array TxCase := Id.run do
     (withPrecompiled (gas 1 (2 ^ 63) 10000 (100, 100)) [(accept, 100)]))
   return out
 
+/-- A flat gas price of 2^63 or more (parameter 21, `gas_flat_pfx`), which C++ takes as `long long` in
+the threshold (transaction.cpp:1271), the purchase (1301, 1304) and the price (1317), but whole within
+the flat limit (1273, 1316); an internal message of one TON to `ACCEPT`, 31 gas:
+* `flat64/threshold`: a flat price of 2^63 + 5 and limit of 100 under a gas limit of 10^6 at one
+  nanoton per gas, an account of 2^64 nanotons: the threshold is negative, the message buys all the
+  gas; the 31 gas cost the flat price whole, which the account pays;
+* `flat64/fee-negative`: the same with a flat limit of 10 and a balance of one TON: the fee is negative
+  (1317), C++ takes it and `serialize` refuses it (`gas_fees:Grams`, 3935);
+* `flat64/bought-wrap`: a gas limit of 50 within the flat limit of 100: the threshold is the flat
+  price whole (1273), above the value, which is not below the flat price as `long long` (1301): the
+  quotient (1304) is no `long long`, `to_long()` is -2^63 and the gas bought 2^63 + 100 (1305),
+  negative for the VM, out of gas at once; the gas used is no `VarUInteger 7`: C++ fails;
+* `flat64/bought-zero-price`: the same at a gas price of 0 (a quotient of NaN, `to_long()` -2^63);
+* `flat64/max`: a flat price of 2^63 - 1 (and a limit of 100): the value buys no gas;
+* `flat64/fee-low-digit`: a flat price of 2^63 - 1 above a flat limit of 0, a message of 2^63 + 10^9
+  nanotons to an account of 2^64: the message buys all the gas, and the 31 gas cost 31 plus the flat
+  price by `operator+(RefInt256, long long)`, whose `normalize` overflows (the lowest digit, 31 +
+  2^63 - 1, plus 2^51 leaves 64 bits, bigint.hpp:706-730): 2^64 less, a negative fee, which
+  `serialize` refuses: C++ fails (the sum whole, 2^63 + 30, the account would pay);
+* `flat64/bought-low-digit`: a flat price of 2^63 + 5 (limit 100) at a gas price of 2^64 - 1, an
+  account of 2^64 + 2^62: the purchase subtracts the flat price as `long long` by `operator-(RefInt256,
+  long long)` (1304), whose `normalize` overflows: 2^64 less, the flat price whole. The message buys
+  2^64 - 32668 gas (a negative quotient), the balance 49252: the gas limit is 49252 (with the sum
+  exact, 32868 and 114788); `ACCEPT` within the flat limit costs the flat price whole.
+The flat price whole above a balance below 2^63 is no case: C++ `balance -= cp.gas_fees` leaves no
+balance (block.cpp:1321-1329) and `td::sgn` of it (2072) aborts the emulator. -/
+def flatGasCases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let gas (price limit : Nat) (flat : Nat × Nat) : Cell :=
+    withParam x.cfg 21 (Configs.gasExt price limit limit 10000 limit 100000000 1000000000 (some flat))
+  let msg := intMsg 0 a1 1000000000 false none #[]
+  out := out.push (x.case "flat64/threshold" (active accept (2 ^ 64)) msg (gas 65536 1000000 (100, 2 ^ 63 + 5)))
+  out := out.push (x.case "flat64/fee-negative" (active accept) msg (gas 65536 1000000 (10, 2 ^ 63 + 5)))
+  out := out.push (x.case "flat64/bought-wrap" (active accept) msg (gas 1 50 (100, 2 ^ 63 + 5)))
+  out := out.push (x.case "flat64/bought-zero-price" (active accept) msg (gas 0 50 (100, 2 ^ 63 + 5)))
+  out := out.push (x.case "flat64/max" (active accept) msg (gas 65536 1000000 (100, 2 ^ 63 - 1)))
+  out := out.push (x.case "flat64/fee-low-digit" (active accept (2 ^ 64)) (intMsg 0 a1 (2 ^ 63 + 1000000000) false none #[])
+    (gas 65536 1000000 (0, 2 ^ 63 - 1)))
+  out := out.push (x.case "flat64/bought-low-digit" (active accept (2 ^ 64 + 2 ^ 62)) msg (gas (2 ^ 64 - 1) 1000000 (100, 2 ^ 63 + 5)))
+  return out
+
 /-- `SETGASLIMIT` below the gas consumed (`exec_set_gas_generic`, tonops.cpp:70-74) is out of gas with the
 limits as they were: the gas used is the gas consumed (`std::min` with the old limit, transaction.cpp:
 2016), and the credit of an external message stays (not accepted, 2017). `PUSHINT 1 SETGASLIMIT` on an
@@ -836,7 +877,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
       Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x ++
-      Cov.setGasLimitCases x ++ Cov.gasWrapCases x
+      Cov.setGasLimitCases x ++ Cov.gasWrapCases x ++ Cov.flatGasCases x
   return out
 
 end Tests.Tx
