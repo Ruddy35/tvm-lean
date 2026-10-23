@@ -126,6 +126,8 @@ import TvmLean.Proofs.Contracts.StorageRun.Withdraw
 import TvmLean.Proofs.Contracts.StorageRun.ProofEnd
 import TvmLean.Proofs.Contracts.StorageRun.Proof
 import TvmLean.Proofs.Contracts.StorageRun.Ops
+import TvmLean.Proofs.Contracts.StorageRun.Sender
+import TvmLean.Proofs.Contracts.StorageRun.Internal
 
 /-!
 # All proof modules together
