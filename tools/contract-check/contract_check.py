@@ -14,10 +14,16 @@ to check:
     -- contract-check: invariant Stored key sub      (the predicate, applied to the parameters)
     -- contract-check: params (key sub : Nat)         (its parameters, as binders; optional)
     -- contract-check: hints Data.encode, Data.WF    (simp lemmas and definitions to unfold; optional)
+    -- contract-check: loop 5 Cleanup key            (a loop invariant; optional, any number of them)
 
 The hints are what the run and the closers need to read the data: the definition that writes the
 data as a cell (`Data.encode`, unfolded so that the run reads its fields), definitions to unfold in
 the invariant (`Data.WF`), lemmas (decode/encode facts).
+
+A `loop k Q` line gives a loop invariant: at a loop head whose top `k` stack entries satisfy `Q`
+(a predicate on `k` values, the deepest first, in which the parameters may appear), the loop rule
+lets those entries change in any way that keeps `Q` (`check_loop_user`); without one (or where none
+holds at the head) a loop may change only its top entry, the action list and the counters.
 
 contract-check generates one Lean module (`--out`, default a temporary file) with
 
@@ -106,7 +112,10 @@ def parse_inv(text: str) -> tuple[list[str], str, dict[str, str]]:
     for line in text.splitlines():
         m = DIRECTIVE.match(line)
         if m:
-            directives[m.group(1)] = m.group(2)
+            if m.group(1) == "loop":
+                directives.setdefault("loops", []).append(m.group(2).strip())
+            else:
+                directives[m.group(1)] = m.group(2)
             continue
         if in_header and line.startswith("import "):
             imports.append(line.strip())
@@ -159,6 +168,12 @@ def generate(args: argparse.Namespace) -> tuple[str, str]:
     pnames = binder_names(params)
     P = d["invariant"]
     hints = d.get("hints", "")
+    loops = ""
+    for spec in d.get("loops", []):
+        km = re.match(r"(\d+)\s+(.+)$", spec)
+        if not km:
+            raise SystemExit(f"contract-check: a loop line is `loop <k> <predicate>`, not `{spec}`")
+        loops += f" (loop {km.group(1)} := {km.group(2)})"
     papp = " ".join(pnames)
     try:
         inv_rel = os.path.relpath(Path(args.inv).resolve(), REPO)
@@ -167,7 +182,7 @@ def generate(args: argparse.Namespace) -> tuple[str, str]:
     if inv_rel.startswith(".."):
         inv_rel = Path(args.inv).name
     header_imports = ["import TvmLean.Boc", "import TvmLean.Proofs.Contracts.CellLiteral",
-                      "import TvmLean.Proofs.Check.Tactic"]
+                      "import TvmLean.Proofs.Check.Tactic", "import TvmLean.Proofs.Check.Loops"]
     for imp in imports:
         if imp not in header_imports:
             header_imports.append(imp)
@@ -224,7 +239,7 @@ set_option maxRecDepth 100000 in
 /-- **Every committed run keeps the invariant** (the obligation of `Reachable.code_fixed`). -/
 theorem preserves{pbind} : ∀ data c4 c5, {Pfull} data → Ran code data c4 c5 →
     {Pfull} (some c4) ∧ ∀ c, ¬ActionIn c5 (.setCode c) := by
-  ran_preserves [{hints}]
+  ran_preserves [{hints}]{loops}
 """)
     else:
         out.append("/-! ## The runs, one theorem per kind of transaction -/\n")
@@ -244,7 +259,7 @@ set_option maxRecDepth 100000 in{cut_opt}
 /-- The runs of {desc}: a run that commits keeps the invariant. -/
 theorem {thm}{pbind} : {binders}
     RunsKeep code {Pfull} ({stack}) {g} := by
-  ran_case [{hints}]
+  ran_case [{hints}]{loops}
 """)
         args_app = (" " + papp) if papp else ""
         if only is not None:
@@ -394,22 +409,26 @@ def main() -> None:
     env.setdefault("LEAN_NUM_THREADS", "2")
     t0 = time.time()
     log = out.with_suffix(".log")
+    print(f"contract-check: checking; the checker's output goes to {log} as it runs", flush=True)
     # its own process group, so that a timeout stops the checker under `--wrap` too
-    proc = subprocess.Popen(cmd, cwd=REPO, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, start_new_session=True)
-    try:
-        output, _ = proc.communicate(timeout=args.timeout)
-    except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        output, _ = proc.communicate()
+    with open(log, "w") as logf:
+        proc = subprocess.Popen(cmd, cwd=REPO, env=env, stdout=logf, stderr=subprocess.STDOUT,
+                                text=True, start_new_session=True)
+        try:
+            proc.wait(timeout=args.timeout)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            timed_out = True
+    output = log.read_text(errors="replace")
+    if timed_out:
         dt = time.time() - t0
-        log.write_text(output)
         tail = "\n".join(output.splitlines()[-20:])
         print(f"NOT PROVED ({dt:.0f} s): {ns}: stopped after {args.timeout} s (the checker's output: {log})"
               f"\n\n{tail}")
         sys.exit(1)
     dt = time.time() - t0
-    log.write_text(output)
     ok, msg = report(output, ns, text, partial_check=bool(args.only))
     if ok and proc.returncode == 0:
         what = f"{ns}.{{{args.only}}}" if args.only else f"{ns}.reachable"
