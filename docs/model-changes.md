@@ -147,6 +147,16 @@ fuzz на нескольких версиях; новые случаи орак�
 |---|---|---|
 | `Exec/TonEnv/{Now,GetParam,GetParamAliases,Balance,GetPrecompiledGas,InMsgParam,PrevBlocksInfo,GetExtraBalance}.lean`, `Exec/Common.lean` (`getUnpackedConfigTuple`), `VM/Ops/State.lean` (`generateRandu256`), `Exec/Msg/SendMsg.lean` | кортеж параметров `c7[0]` длиннее 255 элементов — `type_chk` у каждого его читателя (`GETPARAM`, `GETPARAMLONG`, `NOW` и остальные псевдонимы, `INMSGPARAMS`, `INMSG_*`, `CONFIGDICT`, `CONFIGPARAM`, `CONFIGOPTPARAM`, `GLOBALID`, `GETPRECOMPILEDGAS`, `GETGASFEE` и прочие цены, `PREVMCBLOCKS` и др., `GETEXTRABALANCE`, `RANDU256`, `RAND`, `SENDMSG`); так же для распакованной конфигурации `c7[0][14]`, кортежа прошлых блоков `c7[0][13]` и баланса `c7[0][7]` в `GETEXTRABALANCE` (раньше модель читала кортеж любой длины; `SETRAND` и `ADDRAND` уже проверяли). Сам `c7` и параметры входящего сообщения `c7[0][17]` длиной не ограничены | `get_param`, `get_unpacked_config_tuple` (tonops.cpp:121-142), 264-273, 393-401, 537-542, 2138; `as_tuple_range` (stack.cpp:312-319) |
 
+### 1.8. Газ и сборы за пределами 64 бит (2026-10-22)
+
+Газ VM, цены газа и сборы за пересылку C++ считает в `long long` и `td::uint64` без проверок
+диапазона; конфигурации с лимитами и ценами около 2^63–2^64 выводят их за его пределы. Случаи
+каждого исправления — в `Tests/Tx/Coverage.lean` и в пулах оракула (сообщения коммитов).
+
+| Файл | Что изменено | Основание в C++ |
+|---|---|---|
+| `Exec/TonEnv/SetGasLimit.lean` | `SETGASLIMIT` с лимитом ниже израсходованного газа — нехватка газа при прежних лимитах: кредит остаётся (внешнее сообщение не принято), `gas_used` — минимум израсходованного и старого лимита. Раньше модель меняла лимиты (`change_gas_limit`: кредит снят, лимит новый), и проверка газа в конце шага находила его отрицательным: внешнее сообщение считалось принятым и платило, у внутреннего `gas_used` был новым лимитом | `exec_set_gas_generic` (tonops.cpp:70-74); transaction.cpp:2016-2017 |
+
 ## 2. Тотальность (поведение не меняется)
 
 Цель — чтобы все определения модели были тотальными и вычислимыми ядром Lean, без `partial` и без

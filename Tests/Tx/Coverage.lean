@@ -771,6 +771,24 @@ def tickTockAddrCases (x : Ctx) : Array TxCase := Id.run do
         (mkAccount wc hi (.active code data0) 1000000000 1700000000 0 1000) isTock)
   return out
 
+/-- `SETGASLIMIT` below the gas consumed (`exec_set_gas_generic`, tonops.cpp:70-74) is out of gas with the
+limits as they were: the gas used is the gas consumed (`std::min` with the old limit, transaction.cpp:
+2016), and the credit of an external message stays (not accepted, 2017). `PUSHINT 1 SETGASLIMIT` on an
+internal and an external message; from version 4 (`GASCONSUMED`) the new limit at and one below the gas
+consumed when `SETGASLIMIT` has been charged (`GASCONSUMED`, `ADDINT`, `SETGASLIMIT`: 26 gas each). -/
+def setGasLimitCases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let setGas : Instr := .tonEnvOp .setGasLimit
+  let low := asm [.pushInt (.num 1), setGas]
+  out := out.push (x.case "setgaslimit/below/int" (active low) (intMsg 0 a1 1000000000 false none #[]))
+  out := out.push (x.case "setgaslimit/below/ext" (active low) (extMsg 0 a1 none #[]))
+  if x.v ≥ 4 then
+    for (name, k) in [("at-consumed", (52 : Int)), ("below-consumed", 51)] do
+      let code := asm [.tonEnvOp .gasConsumed, .addInt k, setGas]
+      out := out.push (x.case s!"setgaslimit/{name}/int" (active code) (intMsg 0 a1 1000000000 false none #[]))
+      out := out.push (x.case s!"setgaslimit/{name}/ext" (active code) (extMsg 0 a1 none #[]))
+  return out
+
 end Cov
 
 open Cov in
@@ -788,7 +806,8 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [4, 5, 9, 16].contains v then out := out ++ Cov.gasOverrideCases x
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
-      Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x
+      Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x ++
+      Cov.setGasLimitCases x
   return out
 
 end Tests.Tx
