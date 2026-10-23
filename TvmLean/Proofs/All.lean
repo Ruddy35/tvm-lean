@@ -112,6 +112,7 @@ import TvmLean.Proofs.Check.Contracts.SimpleWallet
 import TvmLean.Proofs.Exec.Framed
 import TvmLean.Proofs.Exec.FramedDict
 import TvmLean.Proofs.Exec.Spec.MsgAddr
+import TvmLean.Proofs.Exec.Spec.MsgExt
 import TvmLean.Proofs.Contracts.StorageCode
 import TvmLean.Proofs.Contracts.StorageData
 
