@@ -1087,8 +1087,6 @@ def md_escape(s: str) -> str:
 
 REASON_RU = {
     "outside the model, no vm_run lemma": "вне модели, нет леммы vm_run",
-    "private definition of the model: unfoldModelRun unfolds only names under TvmLean":
-        "private-определение: unfoldModelRun его не разворачивает",
     "recursive, no vm_run lemma": "рекурсивно, нет леммы vm_run",
     "jump/call, no vm_run lemma": "переход/вызов, нет леммы vm_run",
     "the analysis ran out of heartbeats": "анализ не уложился в heartbeats",

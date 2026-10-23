@@ -247,9 +247,8 @@ structure Found where
 
 /-- Why the program `c` is neither computed by a lemma of `vm_run` nor unfolded. -/
 def blockReason (c : Name) : MetaM String := do
-  if (`_private.TvmLean).isPrefixOf c then
-    return "private definition of the model: unfoldModelRun unfolds only names under TvmLean"
-  if !(`TvmLean).isPrefixOf c then return "outside the model, no vm_run lemma"
+  if !(`TvmLean).isPrefixOf c && !TvmLean.Exec.isModelPrivate c then
+    return "outside the model, no vm_run lemma"
   if c == ``VM.jump || c == ``VM.call || c == ``VM.callComputeStacks then return "jump/call, no vm_run lemma"
   match (← getEnv).find? c with
   | some (.defnInfo _) => return "recursive, no vm_run lemma"

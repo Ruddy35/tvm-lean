@@ -176,6 +176,61 @@ theorem VmState.stepOnceWith_instr' (exec : Instr → VM Unit) (st : VmState) (c
     exact VmState.stepOnceWith_instr exec st code rest saved cregs i n hcc (by simpa using h) hcp
       (by rw [hbits]; exact hb) (by rw [hver]; exact hk) hdec
 
+/-- The step of an instruction whose opcode needs a global version `k` above the state's (C++
+`OpcodeInstrWithVersion::dispatch`, opctable.cpp:457-461): `gasPerInstr` charged, then an invalid
+opcode raised (`VmState.codeStep`), with the entry's gas check as a case. -/
+theorem VmState.stepOnceWith_instrOld' (exec : Instr → VM Unit) (st : VmState) (code : Slice)
+    (saved : Continuation) (cregs : OrdCregs) (b k : Nat)
+    (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty)
+    (hcp : st.cp = 0)
+    (hbits : code.bitsRemaining = b) (hb : b ≠ 0)
+    (hver : cp0RequiredVersion code.opcode24 = k) (hk : ¬k ≤ st.globalVersion) :
+    st.stepOnceWith exec =
+      if (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut then
+        ((st.applyCregsCdata cregs OrdCdata.empty).countJump).outOfGasHalt
+      else if ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
+          gasPerInstr).gasExhaustedNow then
+        ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
+          gasPerInstr).outOfGasHalt
+      else ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
+          gasPerInstr).raiseException Excno.invOpcode.toInt := by
+  rw [VmState.stepOnceWith_ordinary' exec st code saved cregs hcc]
+  congr 1
+  unfold VmState.codeStep
+  rw [if_neg (by rw [hbits]; simpa using hb),
+    if_pos (And.intro (by rw [VmState.enter_cp]; exact hcp)
+      (by rw [VmState.enter_globalVersion, hver]; omega))]
+
+/-- The step of an instruction when the global version is not known (a variable `gv`): the
+instruction's step if the version `k` its opcode needs is reached (`VmState.stepOnceWith_instr'`),
+else the invalid opcode (`VmState.stepOnceWith_instrOld'`), as an `if` on `k ≤ gv`. -/
+theorem VmState.stepOnceWith_instrVer' (exec : Instr → VM Unit) (st : VmState) (code rest : Slice)
+    (saved : Continuation) (cregs : OrdCregs) (i : Instr) (n b k gv : Nat)
+    (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty)
+    (hcp : st.cp = 0)
+    (hbits : code.bitsRemaining = b) (hb : b ≠ 0)
+    (hver : cp0RequiredVersion code.opcode24 = k) (hgv : st.globalVersion = gv)
+    (hdec : decodeCp0WithBits code = .ok (i, n, rest)) :
+    st.stepOnceWith exec =
+      if k ≤ gv then
+        if (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut then
+          ((st.applyCregsCdata cregs OrdCdata.empty).countJump).outOfGasHalt
+        else VmState.instrStep exec i ((st.enter cregs (.plain rest)).consumeGas (instrGas i n))
+      else if (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut then
+        ((st.applyCregsCdata cregs OrdCdata.empty).countJump).outOfGasHalt
+      else if ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
+          gasPerInstr).gasExhaustedNow then
+        ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
+          gasPerInstr).outOfGasHalt
+      else ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
+          gasPerInstr).raiseException Excno.invOpcode.toInt := by
+  subst hgv
+  split
+  · exact VmState.stepOnceWith_instr' exec st code rest saved cregs i n b k hcc hcp hbits hb hver
+      (by assumption) hdec
+  · exact VmState.stepOnceWith_instrOld' exec st code saved cregs b k hcc hcp hbits hb hver
+      (by assumption)
+
 /-- `VmState.stepOnceWith_implicitRet` with the entry's gas check as a case. -/
 theorem VmState.stepOnceWith_implicitRet' (exec : Instr → VM Unit) (st : VmState) (code : Slice)
     (saved : Continuation) (cregs : OrdCregs)
