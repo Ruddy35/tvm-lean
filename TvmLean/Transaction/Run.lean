@@ -165,9 +165,11 @@ inductive Outcome where
 /-- `td::rshift(x, 16, 1)`: division by 2^16 rounding up. -/
 def ceilShr16 (x : Nat) : Nat := (x + 0xffff) / 0x10000
 
-/-- `MsgPrices::compute_fwd_fees`. -/
+/-- `MsgPrices::compute_fwd_fees` (transaction.cpp:2432-2438): a `td::uint64`, the lump price plus the
+low 64 bits (`.lo()`) of the `td::uint128` `(bit_price * bits + cell_price * cells + 0xffff) >> 16`,
+modulo 2^64. -/
 def MsgPrices.fwdFees (p : MsgPrices) (cells bits : Nat) : Nat :=
-  p.lumpPrice + ceilShr16 (p.bitPrice * bits + p.cellPrice * cells)
+  (p.lumpPrice + (p.bitPrice * bits + p.cellPrice * cells + 0xffff) % 2 ^ 128 / 0x10000 % 2 ^ 64) % 2 ^ 64
 
 /-- C++ `(long long)` of a `td::uint64`: the value modulo 2^64, less 2^64 from 2^63 on. -/
 def int64OfUInt64 (n : Nat) : Int :=

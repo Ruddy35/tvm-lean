@@ -841,6 +841,44 @@ def flatGasCases (x : Ctx) : Array TxCase := Id.run do
   out := out.push (x.case "flat64/bought-low-digit" (active accept (2 ^ 64 + 2 ^ 62)) msg (gas (2 ^ 64 - 1) 1000000 (100, 2 ^ 63 + 5)))
   return out
 
+/-- Forwarding fees as C++ computes them, `td::uint64` (`compute_fwd_fees`, transaction.cpp:2432-2438:
+modulo 2^64; the IHR fee the low 64 bits of `fwd * ihr_factor >> 16`, 2469-2476), under parameter 25
+with prices near 2^64:
+* `fwd64/send-high`: a contract sends a message whose computed fee is 2^63 + 5: as `long long`
+  below the message's fee of 0 (2911-2913), it is not charged;
+* `fwd64/send-wrap`: a lump price of 2^64 - 1 and 3 per cell, the body in a reference: the fee is
+  (2^64 + 2) modulo 2^64 = 2;
+* `fwd64/ihr-high`, `fwd64/ihr-wrap`: before version 11, a message with IHR (`ihr_disabled` 0), sent
+  with mode 1 (the fees paid apart from the value), and an IHR factor of 2^32 - 1: a lump price of
+  2^48 + 1 makes an IHR fee of 2^63 or more, not charged (2914-2916); 2^48 + 2^16 + 1 an IHR fee of
+  2^64 + 65534, modulo 2^64 65534: the account pays the forwarding fee and that;
+* `fwd64/import-wrap`: an inbound external message with its body in a reference, its import fee
+  (973-980) (2^64 + 2) modulo 2^64;
+* `fwd64/bounce-wrap`: a bounce in the new format (from version 12, `extra_flags` 1), the original
+  body and information in references (2 cells at 1 each): (2^64 + 1) modulo 2^64 = 1, and the bounce
+  is made (3450-3460); before version 12 the fee is 2^64 - 1, which C++ compares as `long long`
+  (3460), takes, and fails at the bounced message's value, below zero (3481). -/
+def fwd64Cases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let fwd (lump bit cell ihr : Nat) : Cell := withParam x.cfg 25 (Configs.msgPrices lump bit cell ihr 21845 21845)
+  let send (ihr : Bool) (body : Option Cell) (mode : Nat := 0) : Cell :=
+    asm (sendRaw (relaxedX (stdA 0 src0) 1000000 (ihrDisabled := !ihr) (bodyRef := body)) mode)
+  let msg := intMsg 0 a1 1000000000 false none #[]
+  let leaf : Cell := Cell.mkOrdinary (natToBits 5 8) #[]
+  out := out.push (x.case "fwd64/send-high" (active (send false none) (2 ^ 50)) msg (fwd (2 ^ 63 + 5) 0 0 0))
+  out := out.push (x.case "fwd64/send-wrap" (active (send false (some leaf)) (2 ^ 50)) msg (fwd (2 ^ 64 - 1) 0 (3 * 65536) 0))
+  if x.v < 11 then
+    out := out.push (x.case "fwd64/ihr-high" (active (send true none 1) (2 ^ 50)) msg (fwd (2 ^ 48 + 1) 0 0 (2 ^ 32 - 1)))
+    out := out.push (x.case "fwd64/ihr-wrap" (active (send true none 1) (2 ^ 50)) msg
+      (fwd (2 ^ 48 + 2 ^ 16 + 1) 0 0 (2 ^ 32 - 1)))
+  let ext : Cell :=
+    let w : W := ((({} : W).uint 2 2).uint 0 2).bitStr (Account.mkAddr 0 none a1).bits |>.grams 0
+    (((w.bool false).bool true).ref leaf).cell
+  out := out.push (x.case "fwd64/import-wrap" (active accept (2 ^ 50)) ext (fwd (2 ^ 64 - 1) 0 (3 * 65536) 0))
+  out := out.push (x.case "fwd64/bounce-wrap" (active (asm [.throw 42])) (intMsgX (stdA 0 a1) 100000000 (bounce := true)
+    (extraFlags := gramsBits 1) (body := natToBits 5 300)) (fwd (2 ^ 64 - 1) 0 65536 0))
+  return out
+
 /-- `SETGASLIMIT` below the gas consumed (`exec_set_gas_generic`, tonops.cpp:70-74) is out of gas with the
 limits as they were: the gas used is the gas consumed (`std::min` with the old limit, transaction.cpp:
 2016), and the credit of an external message stays (not accepted, 2017). `PUSHINT 1 SETGASLIMIT` on an
@@ -877,7 +915,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
       Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x ++
-      Cov.setGasLimitCases x ++ Cov.gasWrapCases x ++ Cov.flatGasCases x
+      Cov.setGasLimitCases x ++ Cov.gasWrapCases x ++ Cov.flatGasCases x ++ Cov.fwd64Cases x
   return out
 
 end Tests.Tx

@@ -431,10 +431,15 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
   if cells > maxCells && maxCells < sl.maxMsgCells then return skip (collectFine ap) 40
   if bits > sl.maxMsgBits || cells > maxCells then return skip (collectFine ap) 40
   if depth > 2 then return skip (collectFine ap) 40
+  -- `compute_fwd_ihr_fees` (transaction.cpp:2469-2476): `td::uint64`s, the IHR fee the low 64 bits of
+  -- `fwd * ihr_factor >> 16`
   let fwdC := if t.account.isSpecial then 0 else prices.fwdFees cells bits
-  let ihrC := if t.account.isSpecial || ihrDisabled then 0 else prices.fwdFees cells bits * prices.ihrPriceFactor / 0x10000
-  if fwdFee < fwdC then fwdFee := fwdC
-  if ihrC ≠ 0 && ihrFee < ihrC then ihrFee := ihrC
+  let ihrC := if t.account.isSpecial || ihrDisabled then 0
+    else prices.fwdFees cells bits * prices.ihrPriceFactor / 0x10000 % 2 ^ 64
+  -- a fee of the message is raised to the computed one if it is below 2^63 and below the computed one
+  -- taken as `long long` (2911-2916): a computed fee of 2^63 or more is never charged
+  if fwdFee < 2 ^ 63 && (fwdFee : Int) < int64OfUInt64 fwdC then fwdFee := fwdC
+  if ihrC ≠ 0 && ihrFee < 2 ^ 63 && (ihrFee : Int) < int64OfUInt64 ihrC then ihrFee := ihrC
   let lt := ap.endLt
   let mut t := t
   let mut feesCollected := 0
@@ -689,8 +694,13 @@ def Tx.bouncePhaseRun (t : Tx) : Except String (Option Tx) := do
   let fwd := prices.fwdFees cells bits
   let fine := (t.actionPhase.map (·.actionFine)).getD 0
   let msgBalance : Int := Int.ofNat t.msgBalanceRemaining - t.computePhase.gasFees - fine
-  if msgBalance < 0 || msgBalance < fwd then
+  -- no funds (3459-3460): a balance below zero, or one of 64 signed bits below the fee as `long long`
+  if msgBalance < 0 || (msgBalance < 2 ^ 63 && msgBalance < int64OfUInt64 fwd) then
     return some { t with bouncePhase := some { ok := false, msgCells := cells, msgBits := bits, fwdFees := fwd } }
+  -- the message's value `msg_balance - fwd_fees` and its `fwd_fee` (the fee less the part collected,
+  -- `t_Grams.store_long` of a `long long`) must store (3478-3484, `FAIL_UNLESS`): else the bounce
+  -- phase fails, and so does the transaction
+  if msgBalance < fwd || fwd - fwd * prices.firstFrac / 0x10000 ≥ 2 ^ 63 then return none
   let some balanceExtra ← liftDict (extraSub t.balanceExtra t.msgExtra) | return none
   let t : Tx := { t with balance := t.balance - msgBalance.toNat, balanceExtra }
   let value := msgBalance.toNat - fwd

@@ -78,6 +78,11 @@ private def fwdPrices (lump bit cell : Nat) : Value :=
   sl (natToBits 0xea 8 ++ natToBits lump 64 ++ natToBits bit 64 ++ natToBits cell 64 ++ natToBits 98304 32 ++
     natToBits 21845 16 ++ natToBits 21845 16)
 
+/-- `msg_forward_prices#ea` with the IHR factor `ihr`. -/
+private def fwdPricesI (lump bit cell ihr : Nat) : Value :=
+  sl (natToBits 0xea 8 ++ natToBits lump 64 ++ natToBits bit 64 ++ natToBits cell 64 ++ natToBits ihr 32 ++
+    natToBits 21845 16 ++ natToBits 21845 16)
+
 /-- size_limits_config#01 with `max_msg_cells` cells. -/
 private def sizeLimitsBits (maxCells : Nat) : BitString :=
   natToBits 1 8 ++ natToBits 65535 32 ++ natToBits maxCells 32 ++ natToBits 1000 32 ++ natToBits 512 16 ++
@@ -125,6 +130,13 @@ private def sendC7Pool : Array (String × Array Value) :=
      -- `get_unpacked_config_tuple`: `as_tuple_range(255)`, tonops.cpp:121-142)
      ("params-255", sendC7Long 255),
      ("config-255", sendC7 (config := configLong 255)),
+     -- forwarding prices near 2^64: the fees are `td::uint64`s, modulo 2^64 (tonops.cpp:2264-2276):
+     -- a lump price of 2^63 + 5; 2^64 - 1 and 1 per cell (wraps with a cell counted); before version
+     -- 11 the IHR fee (a message with IHR) the low 64 bits of `fwd * ihr_factor >> 16`
+     ("prices-high", sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPricesI (2 ^ 63 + 5) 0 0 98304) .null)),
+     ("prices-wrap", sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPricesI (2 ^ 64 - 1) 0 65536 98304) .null)),
+     ("prices-ihr-wrap", sendC7 (config := unpackedConfig (fwdPrices 1 2 3)
+        (fwdPricesI (2 ^ 48 + 2 ^ 16 + 1) 0 0 (2 ^ 32 - 1)) .null)),
      ("mc-myaddr", sendC7 (myAddr := myAddrMc)),
      ("limits-2-cells", sendC7 (config := unpackedConfig (fwdPrices 1 2 3) (fwdPrices 400000 26214400 2621440000)
         (sizeLimits 2))) ]
@@ -232,7 +244,10 @@ private def sendMsgPool : Array (String × Cell) :=
         #[false] ++ grams 0 ++ grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, true, true]) #[leaf 13]),
      ("body-ref-extra-ref", Cell.mkOrdinary (#[false, true, true, false] ++ natToBits 0 2 ++ addrStd 0 0x1234 ++ grams 100 ++
         #[false] ++ grams 0 ++ grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, true]) #[leaf 13, leaf 14]),
-     ("ext-out", extOutMsg) ]
+     ("ext-out", extOutMsg),
+     -- IHR not disabled (ihr_disabled 0): its fee counts before version 11
+     ("ihr-enabled", Cell.mkOrdinary (#[false, false, true, false] ++ natToBits 0 2 ++ addrStd 0 0x1234 ++ grams 100 ++
+        #[false] ++ grams 0 ++ grams 0 ++ natToBits 0 64 ++ natToBits 0 32 ++ #[false, true]) #[leaf 15]) ]
 
 /-- `MYADDR` slices: parse_addr_workchain (tonops.cpp) does not validate them: an anycast is
 skipped only if its depth (5 bits, consumed anyway) is at most 30 and its prefix is there, the

@@ -2,6 +2,17 @@ import TvmLean.Semantics.Exec.Common
 
 namespace TvmLean
 
+/-- The forwarding fee of `SENDMSG` (`compute_fees`, tonops.cpp:2265-2270), a `td::uint64`: the lump price
+plus the low 64 bits (`.lo()`) of the `td::uint128` `(bit_price * bits + cell_price * cells + 0xffff)
+>> 16`, modulo 2^64. -/
+def sendMsgFwdFee (lumpPrice bitPrice cellPrice : Int) (cells bits : Nat) : Int :=
+  (lumpPrice + (bitPrice * Int.ofNat bits + cellPrice * Int.ofNat cells + 0xffff) % 2 ^ 128 / 2 ^ 16 % 2 ^ 64) % 2 ^ 64
+
+/-- The IHR fee of `SENDMSG` (tonops.cpp:2275), a `td::uint64`: the low 64 bits of `fwd_fee * ihr_factor
+>> 16`. -/
+def sendMsgIhrFee (fwdFee : Int) (ihrFactor : Nat) : Int :=
+  fwdFee * Int.ofNat ihrFactor / 2 ^ 16 % 2 ^ 64
+
 /-- C++ `VmStorageStat::add_storage` (boc.cpp) on the cells of `todo` (a stack: the last one is
 visited first): depth-first, references in order, each distinct cell (by hash) loaded and counted
 once, stopping at the first new cell beyond `maxCells`. Terminates by the lexicographic measure
@@ -431,14 +442,13 @@ def execInstrMsgSendMsg (i : Instr) (next : VM Unit) : VM Unit := do
         let bytes : Nat := (bl + 7) / 8
         return 4 + bytes * 8
 
-      -- C++ `compute_fees` (tonops.cpp:2266-2289): IHR is disabled by the message or, from version
-      -- 11, always; its fee is `fwd_fee * ihr_factor / 2^16`. Before version 14 the user's fees
-      -- count if larger.
+      -- C++ `compute_fees` (tonops.cpp:2264-2286): IHR is disabled by the message or, from version
+      -- 11, always; the fees are `td::uint64`s (`sendMsgFwdFee`, `sendMsgIhrFee`). Before version 14
+      -- the user's fees count if larger.
       let ihrDisabled : Bool := parsedMsg.ihrDisabled || gv ≥ 11
       let computeFees (cellsN bitsN : Nat) : Int × Int :=
-        let feeX : Int := bitPrice * Int.ofNat bitsN + cellPrice * Int.ofNat cellsN
-        let fwdFeeShort : Int := lumpPrice + ceilDivPow2 feeX 16
-        let ihrFeeShort : Int := if ihrDisabled then 0 else (fwdFeeShort * Int.ofNat ihrFactor) / intPow2 16
+        let fwdFeeShort : Int := sendMsgFwdFee lumpPrice bitPrice cellPrice cellsN bitsN
+        let ihrFeeShort : Int := if ihrDisabled then 0 else sendMsgIhrFee fwdFeeShort ihrFactor
         if gv < 14 then
           (max fwdFeeShort parsedMsg.userFwdFee,
             if ihrDisabled then ihrFeeShort else max ihrFeeShort parsedMsg.userIhrFee)
