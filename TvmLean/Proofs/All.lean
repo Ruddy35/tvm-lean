@@ -132,6 +132,7 @@ import TvmLean.Proofs.Check.Attr
 import TvmLean.Proofs.Check.Closers
 import TvmLean.Proofs.Check.Forget
 import TvmLean.Proofs.Check.Framed
+import TvmLean.Proofs.Check.Contracts.SimpleWalletExt
 import TvmLean.Proofs.Exec.Framed
 import TvmLean.Proofs.Exec.FramedDict
 import TvmLean.Proofs.Exec.FramedConfig
