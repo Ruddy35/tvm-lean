@@ -10,7 +10,7 @@ def VmState.consumeGas (st : VmState) (amount : Int) : VmState :=
 before, it only subtracts, and the `gas.check()` that ends the step finds it (vm.h:203-209,
 vm.cpp:485). -/
 def VmState.gasExhaustedNow (st : VmState) : Bool :=
-  st.globalVersion ≥ 4 && decide (st.gas.gasRemaining < 0)
+  st.globalVersion ≥ 4 && decide (st.gas.remaining < 0)
 
 /-- C++ `VmState::register_chksgn_call` (vm.h:434-443): from version 4 the first `chksgn_free_count`
 checks are free, their price counted as free gas (`consume_free_gas`); before, checks are not

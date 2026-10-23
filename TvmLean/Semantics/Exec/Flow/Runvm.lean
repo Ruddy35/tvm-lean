@@ -165,7 +165,7 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
 
   -- Run on the provided parent state as the VM state.
   set (parent.consumeGas runvmGasPrice)
-  if decide ((← get).gas.gasRemaining < 0) then
+  if decide ((← get).gas.remaining < 0) then
     throw .outOfGas
 
   -- Pop args in the same order as C++ `exec_runvm_common`.
@@ -232,7 +232,7 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
     childStack := childStack.set! (stackSize - 1 - i) v
 
   modify fun st => st.consumeStackGas stackSize
-  if decide ((← get).gas.gasRemaining < 0) then
+  if decide ((← get).gas.remaining < 0) then
     throw .outOfGas
 
   -- C++ `init_cregs`: `push_0` is honored only when `same_c3` is set.
@@ -252,7 +252,7 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
     | some c => { childRegs2 with c4 := c }
 
   -- `exec_runvm_common` clamps the child's limits by the gas left (contops.cpp:260-261)
-  let parentRem0 : Int := (← get).gas.gasRemaining
+  let parentRem0 : Int := (← get).gas.remaining
 
   -- C++ `run_child_vm`: with isolated gas the parent pays its free gas now and its counters restart;
   -- the child starts with the parent's counters; from version 10 its gas limits are clamped again by
@@ -264,7 +264,7 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
   let parentAfterPops ← get
 
   let parentRem : Int :=
-    if parentAfterPops.globalVersion ≥ 10 then parentAfterPops.gas.gasRemaining else parentRem0
+    if parentAfterPops.globalVersion ≥ 10 then parentAfterPops.gas.remaining else parentRem0
   let gasMax : Int := min gasMax1 parentRem
   let gasLimit : Int := min gasLimit0 parentRem
   let childGas : GasLimits := GasLimits.ofLimits gasLimit gasMax 0
@@ -290,7 +290,8 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
   let mut resCode : Int := ~~~ childExit
 
   let childConsumed : Int := childFinal.gas.gasConsumed
-  let pay : Int := min childConsumed (childFinal.gas.gasLimit + 1)
+  -- `consume_gas(std::min(child_state.gas_consumed(), child_state.gas.gas_limit + 1))` (vm.cpp:788), `long long`
+  let pay : Int := min childConsumed (int64Wrap (childFinal.gas.gasLimit + 1))
   let mut parentAfter : VmState := parentAfterPops.consumeGas pay
   parentAfter := { parentAfter with
     steps := parentAfter.steps + childFinal.steps
@@ -302,7 +303,7 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
     freeGasConsumed := childFinal.freeGasConsumed
     loadedCells := if isolateGas then parentAfter.loadedCells else childFinal.loadedCells }
   -- `consume_gas` of the child's gas: out of gas at once, with the payment counted
-  if decide (parentAfter.gas.gasRemaining < 0) then
+  if decide (parentAfter.gas.remaining < 0) then
     set parentAfter
     throw .outOfGas
 
@@ -324,7 +325,7 @@ def runChildVm (childExec : Instr → VM Unit) (parent : VmState) (mode : Nat) :
 
   -- C++ `restore_parent_vm`: charge stack gas for returned value count before pushes.
   parentAfter := parentAfter.consumeStackGas retCnt
-  if decide (parentAfter.gas.gasRemaining < 0) then
+  if decide (parentAfter.gas.remaining < 0) then
     set parentAfter
     throw .outOfGas
 
@@ -382,7 +383,7 @@ def execInstrNested : Nat → Instr → VM Unit
 /-- `RUNVM` and `RUNVMX` of the VM: the child gets at most the gas left, so it runs at depth
 `gas left / runvmGasPrice + 1` (`execInstrNested`). -/
 def execInstrFlowRunvm (i : Instr) (next : VM Unit) : VM Unit := do
-  let depth := (← get).gas.gasRemaining.toNat / runvmGasPrice.toNat + 1
+  let depth := (← get).gas.remaining.toNat / runvmGasPrice.toNat + 1
   execInstrFlowRunvmWith (execInstrNested depth) i next
 
 end TvmLean

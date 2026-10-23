@@ -184,7 +184,6 @@ theorem VmState.WF.outOfGasHalt {st : VmState} (h : st.WF) : st.outOfGasHalt.sta
 
 theorem VmState.WF.jumped {st : VmState} (h : st.WF) : (VmState.jumped st).state.WF := by
   unfold VmState.jumped
-  dsimp only
   split
   · exact ((VmState.countJump_WF st).mpr h).outOfGasHalt
   · exact (VmState.countJump_WF st).mpr h
@@ -329,7 +328,6 @@ theorem VmState.WF.stepOnceWith {exec : Instr → VM Unit} (hexec : ExecWF exec)
   unfold VmState.stepOnceWith
   split
   · -- quit
-    dsimp only
     split
     · exact ((VmState.countJump_WF st).mpr h).outOfGasHalt
     · exact (VmState.countJump_WF st).mpr h

@@ -285,10 +285,10 @@ theorem VM.run_loadOrd_cons (c : Cell) (cs : List Cell) (st : VmState) :
   simp only [VM.run_loadOrd, List.isEmpty_cons, Bool.not_false, Bool.true_and, VmState.loadsAfter,
     VmState.loadsUntilOut]
   by_cases hx : (st.registerCellLoad c).gasExhaustedNow = true
-  · rw [if_pos (VmState.gasExhaustedNow_loadsAfter cs hx), if_pos hx, if_pos hx]
+  · simp only [hx, if_true]
   · rw [if_neg hx, if_neg hx]
     cases cs with
-    | nil => simp [VmState.loadsAfter, hx]
+    | nil => simp [VmState.loadsAfter, VmState.loadsUntilOut, hx]
     | cons d ds => simp only [List.isEmpty_cons, Bool.not_false, Bool.true_and]
 
 theorem DictTail.dropFirstRootLoad_cons (c : Cell) (rest : Array Cell) :

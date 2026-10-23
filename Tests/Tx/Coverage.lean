@@ -771,6 +771,35 @@ def tickTockAddrCases (x : Ctx) : Array TxCase := Id.run do
         (mkAccount wc hi (.active code data0) 1000000000 1700000000 0 1000) isTock)
   return out
 
+/-- The VM's gas in `long long` (`GasLimits`, vm.h:34-80) leaving its range under parameter 21 with gas
+limits of 2^63 or so, where C++ wraps around (two's complement):
+* `gas-wrap/credit-high`: an external message under gas limits of 2^64 - 2^20 and a gas credit of
+  2^63 + 5: the message buys no gas (a limit of 0), the credit is -2^63 + 5 for the VM
+  (transaction.cpp:1938), which starts out of gas, but nothing checks the gas before the first
+  charge (vm.cpp:438-475); `ACCEPT`'s 26 gas (vm.h:61) wrap it around to 2^63 - 21 and `ACCEPT`
+  runs: the limit becomes the maximum, -2^20 for the VM (vm.cpp:414-419), the gas left negative, out
+  of gas at the end of the step, accepted; the gas used (the minimum with the limit, transaction.cpp:
+  2016) is no `VarUInteger 7` (3937): C++ fails;
+* `gas-wrap/credit-sum`: an external message at a gas price of 0 (all gas for any balance), a gas
+  limit of 2^63 - 1 and a credit of 2^62: the sum (vm.h:43) is -2^62 - 1 for the VM, out of gas at
+  its first charge from version 4 (not accepted); before version 4 `ACCEPT` runs and moves the gas
+  left back into range (vm.h:50-53), and the gas limit of 2^63 - 1 is no `VarUInteger 7`: C++ fails;
+* `gas-wrap/precompiled`: a precompiled code (parameter 45) runs with the configuration's gas limit,
+  2^63, which is -2^63 for the VM (transaction.cpp:1955-1956): its first charge makes the gas left
+  2^63 - 26, the code runs to its end and the transaction is made with the gas usage of the
+  configuration (2027-2030). -/
+def gasWrapCases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let gas (price limit credit : Nat) (flat : Nat × Nat) : Cell :=
+    withParam x.cfg 21 (Configs.gasExt price limit limit credit limit 100000000 1000000000 (some flat))
+  out := out.push (x.case "gas-wrap/credit-high" (active accept (2 ^ 50)) (extMsg 0 a1 none #[])
+    (gas 1 (2 ^ 64 - 2 ^ 20) (2 ^ 63 + 5) (100, 100)))
+  out := out.push (x.case "gas-wrap/credit-sum" (active accept (2 ^ 50)) (extMsg 0 a1 none #[])
+    (gas 0 (2 ^ 63 - 1) (2 ^ 62) (100, 0)))
+  out := out.push (x.case "gas-wrap/precompiled" (active accept (2 ^ 50)) (intMsg 0 a1 1000000000 false none #[])
+    (withPrecompiled (gas 1 (2 ^ 63) 10000 (100, 100)) [(accept, 100)]))
+  return out
+
 /-- `SETGASLIMIT` below the gas consumed (`exec_set_gas_generic`, tonops.cpp:70-74) is out of gas with the
 limits as they were: the gas used is the gas consumed (`std::min` with the old limit, transaction.cpp:
 2016), and the credit of an external message stays (not accepted, 2017). `PUSHINT 1 SETGASLIMIT` on an
@@ -807,7 +836,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
       Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x ++
-      Cov.setGasLimitCases x
+      Cov.setGasLimitCases x ++ Cov.gasWrapCases x
   return out
 
 end Tests.Tx

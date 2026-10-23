@@ -23,17 +23,23 @@ def VmState.countJump (st : VmState) : VmState :=
   let st := { st with chainJumps := n }
   if n > freeNestedContJump ∧ st.globalVersion ≥ 9 then st.consumeGas 1 else st
 
+/-- The jump `VmState.countJump` counts runs out of gas: only a jump it charges checks the gas
+(`consume_gas(1)`, vm.h:391-393), out of gas if that leaves it negative. A jump it does not charge
+checks nothing: the VM may start with negative gas (its limits as `long long`, transaction.cpp:1938,
+1955), which only its first charge finds (vm.cpp:438-475: a step charges its instruction first). -/
+def VmState.jumpRanOut (st : VmState) : Bool :=
+  decide (st.chainJumps + 1 > freeNestedContJump) && decide (st.globalVersion ≥ 9) && st.countJump.gasExhaustedNow
+
 /-- The step jumped from a continuation that is not ordinary to `st.cc`, in the same `jump_to`. -/
 def VmState.jumped (st : VmState) : StepResult :=
-  let st := st.countJump
-  if st.gasExhaustedNow then st.outOfGasHalt else .continue st
+  if st.jumpRanOut then st.countJump.outOfGasHalt else .continue st.countJump
 
 /-- Gas ran out entering a continuation in a step that starts with the state `before`: the stack
 gas of the jump is checked at once from version 4, else by the `gas.check()` that ends the step
 that jumped. A step starts out of gas only before version 4, after the jump to the exception
 handler (`VmState.raiseException`), which no check follows: the handler's first instruction runs. -/
 def VmState.ranOutEntering (before after : VmState) : Bool :=
-  decide (after.gas.gasRemaining < 0) && decide (0 ≤ before.gas.gasRemaining)
+  decide (after.gas.remaining < 0) && decide (0 ≤ before.gas.remaining)
 
 /-- C++ `adjust_jump_cont` (vm.cpp:259-260), run by every jump (`jump`, and `jump_to` for each
 continuation of a chain): a continuation expecting more arguments than the stack holds is not
@@ -94,7 +100,7 @@ instruction runs. The jump to `c2` starts a new chain of jumps. -/
 def VmState.raiseException (st : VmState) (e : Int) : StepResult :=
   let st := { st with steps := st.steps + 1 }
   let stExc := (st.throwException e).consumeGas exceptionGasPrice
-  if decide (stExc.gas.gasRemaining < 0) then
+  if decide (stExc.gas.remaining < 0) then
     stExc.outOfGasHalt
   else if stExc.excHandlerNeedsMoreArgs then
     .halt (~~~ Excno.stkUnd.toInt) stExc
@@ -147,8 +153,7 @@ def VmState.stepOnceWith (exec : Instr → VM Unit) (st : VmState) : StepResult 
   match st.cc with
   | .quit n =>
       -- C++ `QuitCont::jump`: the VM ends with exit code `~n`
-      let st := st.countJump
-      if st.gasExhaustedNow then st.outOfGasHalt else .halt (~~~ n) st
+      if st.jumpRanOut then st.countJump.outOfGasHalt else .halt (~~~ n) st.countJump
   | .excQuit =>
       let action : VM Int := do
         -- Match `pop_smallint_range(0xffff)` behavior closely enough for MVP.
@@ -165,8 +170,7 @@ def VmState.stepOnceWith (exec : Instr → VM Unit) (st : VmState) : StepResult 
         match res with
         | .ok n => n
         | .error e => e.toInt
-      let st' := st'.countJump
-      if st'.gasExhaustedNow then st'.outOfGasHalt else .halt (~~~ n) st'
+      if st'.jumpRanOut then st'.countJump.outOfGasHalt else .halt (~~~ n) st'.countJump
   | .whileCond cond body after =>
       -- C++ `WhileCont::jump[_w]` at the end of the condition: on true run `body`, installing the
       -- loop as `c0` unless `body` has `c0`; on false jump to `after`
@@ -234,31 +238,31 @@ def VmState.stepOnceWith (exec : Instr → VM Unit) (st : VmState) : StepResult 
         st2.outOfGasHalt
       else
         -- entering an ordinary continuation is the last jump of its chain (C++ `OrdCont::jump`)
-        let st2 := st2.countJump
-        if st2.gasExhaustedNow then st2.outOfGasHalt else
+        let st3 := st2.countJump
+        if st2.jumpRanOut then st3.outOfGasHalt else
         -- Closure stack / nargs are applied once on entry.
         let cdata' : OrdCdata := { cdata with stack := #[], nargs := -1 }
         -- a step of C++ `VmState::step`: the next instruction, the implicit `RET` or `JMPREF`
-        let st : VmState := { st2 with cc := .ordinary code saved OrdCregs.empty cdata', chainJumps := 0,
-                                       steps := st2.steps + 1 }
+        let st : VmState := { st3 with cc := .ordinary code saved OrdCregs.empty cdata', chainJumps := 0,
+                                       steps := st3.steps + 1 }
         if code.bitsRemaining == 0 then
           if code.refsRemaining == 0 then
             -- Implicit RET.
             let st0 := st.consumeGas implicitRetGasPrice
-            if decide (st0.gas.gasRemaining < 0) then
+            if decide (st0.gas.remaining < 0) then
               st0.outOfGasHalt
             else
               let (res, st1) := (VM.ret).run st0
               match res with
               | .ok _ =>
                   -- `gas.check()` ends the step (the stack gas of the jump to `c0`)
-                  if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else .continue st1
+                  if decide (st1.gas.remaining < 0) then st1.outOfGasHalt else .continue st1
               | .error e =>
                   st1.raiseException e.toInt
           else
             -- Implicit JMPREF to the first reference.
             let st0 := st.consumeGas implicitJmpRefGasPrice
-            if decide (st0.gas.gasRemaining < 0) then
+            if decide (st0.gas.remaining < 0) then
               st0.outOfGasHalt
             else
               if code.refPos < code.cell.refs.size then
@@ -271,7 +275,7 @@ def VmState.stepOnceWith (exec : Instr → VM Unit) (st : VmState) : StepResult 
                   match (libraryResolveLoads st1.libraries st1.globalVersion refCell st1.librariesRefused).2 with
                   | .ok root =>
                       -- `gas.check()` ends the step (the load, before version 4)
-                      if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else
+                      if decide (st1.gas.remaining < 0) then st1.outOfGasHalt else
                       .continue { st1 with cc := .ordinary (Slice.ofCell root) (.quit 0) OrdCregs.empty OrdCdata.empty }
                   | .error e => st1.raiseException e.toInt
               else
@@ -318,7 +322,7 @@ def VmState.stepOnceWith (exec : Instr → VM Unit) (st : VmState) : StepResult 
                 let (res, st1) := (exec instr).run stGas
                 match res with
                 | .ok _ =>
-                    if decide (st1.gas.gasRemaining < 0) then
+                    if decide (st1.gas.remaining < 0) then
                       -- C++ gas.check() after step → VmNoGas → propagates to run(),
                       -- bypassing throw_exception.  No exception_gas charged.
                       st1.outOfGasHalt
@@ -381,12 +385,13 @@ def VmState.stepWith (exec : Instr → VM Unit) (st : VmState) : StepResult :=
   else
     st.stepRefusingWith exec #[] libraryStepReruns
 
-/-- Steps within which a VM with gas `g` halts, the fuel for a VM that only gas bounds (the child
-of `RUNVM`): every step charges gas (an instruction, an implicit `RET` or `JMPREF`, an exception)
-except the free jumps of a chain, at most `freeNestedContJump` in a row, and at most
-`max (gasLimit + gasCredit) gasMax` gas is charged before the VM runs out of gas. -/
-def GasLimits.stepBound (g : GasLimits) : Nat :=
-  (freeNestedContJump + 1) * ((max (g.gasLimit + g.gasCredit) g.gasMax).toNat + 2)
+/-- Steps within which a VM halts, the fuel for a VM that only gas bounds (the child of `RUNVM`, the
+VM of the compute phase): every step charges gas (an instruction, an implicit `RET` or `JMPREF`, an
+exception) except the free jumps of a chain, at most `freeNestedContJump` in a row, and less than
+2^65 gas is charged before the gas left, a `long long` (`GasLimits.remaining`, which wraps around
+under limits of 2^63 or so), is below zero at a check. -/
+def GasLimits.stepBound (_g : GasLimits) : Nat :=
+  (freeNestedContJump + 1) * (2 ^ 65 + 2)
 
 /-- C++ `VmState::run` with `run_inner`: step until the VM halts, then `try_commit` after exit code 0
 or 1 (`(res | 1) == -1`); `fuel` bounds the number of steps. -/

@@ -6,15 +6,16 @@ import TvmLean.Proofs.Exec.Dict.Map
 A dictionary update on a symbolic dictionary loads the nodes on the key's path and creates the
 nodes it rebuilds: a list of cells and a number of creations that are terms, not literals. The
 model charges them one at a time (`VM.registerCellLoadList`, `VM.chargeCellCreates`), each charge
-out of gas at once from version 4 (`VmState.gasExhaustedNow`). The gas only decreases, so a list of
-charges runs out of gas iff the last one does, at the first one that does:
+out of gas at once from version 4 (`VmState.gasExhaustedNow`). A list of charges runs out of gas iff
+one of them does, at the first one that does; the last one alone does not tell, as the gas left is a
+C++ `long long` that wraps around (`GasLimits.remaining`):
 
-* `VM.loadOrd cells` (the loads of ordinary cells, `VM.run_registerCellLoadList_ord`): the state
-  after all the loads (`VmState.loadsAfter`: the loaded cells `cellsLoadedAfterList`, the gas
-  `cellLoadGasList`, terms of the cells), or out of gas at the first load that exhausts it
-  (`VmState.loadsUntilOut`);
-* `VM.run_chargeCellCreates`: `n` creations, the gas of all of them, or out of gas at the first
-  one that exhausts it (`VmState.createsUntilOut`).
+* `VM.loadOrd cells` (the loads of ordinary cells, `VM.run_registerCellLoadList_ord`): out of gas
+  at the first load that exhausts it (`VmState.loadsUntilOut`), or the state after all the loads
+  (`VmState.loadsAfter`: the loaded cells `cellsLoadedAfterList`, the gas `cellLoadGasList`, terms
+  of the cells);
+* `VM.run_chargeCellCreates`: `n` creations, out of gas at the first one that exhausts it
+  (`VmState.createsUntilOut`), or the gas of all of them.
 
 The states are written as the state with its gas and loaded cells changed (`VmState.loadsAfter_eq`,
 `VmState.loadsUntilOut_eq`, `VmState.createsUntilOut_eq`), so that `vm_run` keeps stepping.
@@ -36,13 +37,13 @@ def VmState.loadsUntilOut (st : VmState) : List Cell → VmState
 /-- The loads of the ordinary cells `cells`, in order (`VM.registerCellLoadList` of ordinary cells,
 `VM.run_registerCellLoadList_ord`). -/
 def VM.loadOrd (cells : List Cell) : VM Unit := ExceptT.mk fun st =>
-  if (!cells.isEmpty && (st.loadsAfter cells).gasExhaustedNow) = true then
+  if (!cells.isEmpty && (st.loadsUntilOut cells).gasExhaustedNow) = true then
     (.error .outOfGas, st.loadsUntilOut cells)
   else (.ok (), st.loadsAfter cells)
 
 @[vm_run] theorem VM.run_loadOrd (cells : List Cell) (st : VmState) :
     ExceptT.run (VM.loadOrd cells) st =
-      if (!cells.isEmpty && (st.loadsAfter cells).gasExhaustedNow) = true then
+      if (!cells.isEmpty && (st.loadsUntilOut cells).gasExhaustedNow) = true then
         (.error .outOfGas, st.loadsUntilOut cells)
       else (.ok (), st.loadsAfter cells) := rfl
 
@@ -59,20 +60,6 @@ theorem VmState.registerCellLoad_gasRemaining (st : VmState) (c : Cell) :
   simp only [GasLimits.consume]
   omega
 
-/-- A load never gives gas back: once out of gas, out of gas after it. -/
-theorem VmState.gasExhaustedNow_registerCellLoad {st : VmState} (c : Cell) (h : st.gasExhaustedNow = true) :
-    (st.registerCellLoad c).gasExhaustedNow = true := by
-  have h1 := VmState.registerCellLoad_gasRemaining st c
-  have h2 := VmState.registerCellLoad_gv st c
-  simp only [VmState.gasExhaustedNow, Bool.and_eq_true, decide_eq_true_eq] at h ⊢
-  omega
-
-theorem VmState.gasExhaustedNow_loadsAfter {st : VmState} (cells : List Cell) (h : st.gasExhaustedNow = true) :
-    (st.loadsAfter cells).gasExhaustedNow = true := by
-  induction cells generalizing st with
-  | nil => exact h
-  | cons c cs ih => exact ih (VmState.gasExhaustedNow_registerCellLoad c h)
-
 /-- **The loads of a list of ordinary cells**, in closed form. -/
 theorem VM.run_registerCellLoadList_ord (cells : List Cell) (h : ∀ c ∈ cells, c.special = false) (st : VmState) :
     ExceptT.run (VM.registerCellLoadList cells) st = ExceptT.run (VM.loadOrd cells) st := by
@@ -82,10 +69,10 @@ theorem VM.run_registerCellLoadList_ord (cells : List Cell) (h : ∀ c ∈ cells
     rw [VM.run_registerCellLoadList_cons, VM.run_registerCellLoad_ordinary c st (h c (by simp)), VM.run_loadOrd]
     simp only [VmState.loadsAfter, VmState.loadsUntilOut, List.isEmpty_cons, Bool.not_false, Bool.true_and]
     by_cases hx : (st.registerCellLoad c).gasExhaustedNow = true
-    · rw [if_pos hx, if_pos (VmState.gasExhaustedNow_loadsAfter cs hx), if_pos hx]; rfl
+    · simp only [hx, if_true]; rfl
     · rw [if_neg hx, if_neg hx, VM.bindRes_ok, ih (fun x hx' => h x (List.mem_cons_of_mem _ hx')), VM.run_loadOrd]
       cases cs with
-      | nil => simp [VmState.loadsAfter, hx]
+      | nil => simp [VmState.loadsAfter, VmState.loadsUntilOut, hx]
       | cons d ds => simp only [List.isEmpty_cons, Bool.not_false, Bool.true_and]
 
 /-! ## The states, written out -/
@@ -219,12 +206,6 @@ theorem VmState.createsUntilOut_fields (st : VmState) (n : Nat) :
   unfold createsOutGas
   exact VmState.createsUntilOut_fields st n
 
-theorem VmState.gasExhaustedNow_consumeGas {st : VmState} {a : Int} (ha : 0 ≤ a) (h : st.gasExhaustedNow = true) :
-    (st.consumeGas a).gasExhaustedNow = true := by
-  simp only [VmState.gasExhaustedNow, VmState.consumeGas, GasLimits.consume, Bool.and_eq_true,
-    decide_eq_true_eq] at h ⊢
-  omega
-
 theorem VmState.consumeGas_consumeGas (st : VmState) (a b : Int) :
     (st.consumeGas a).consumeGas b = st.consumeGas (a + b) := by
   simp only [VmState.consumeGas, GasLimits.consume_consume]
@@ -232,13 +213,13 @@ theorem VmState.consumeGas_consumeGas (st : VmState) (a b : Int) :
 /-- **`n` cell creations** (C++ `register_cell_create`, each out of gas at once), in closed form. -/
 @[vm_run] theorem VM.run_chargeCellCreates (n : Nat) (st : VmState) :
     ExceptT.run (VM.chargeCellCreates n) st =
-      if (n != 0 && (st.consumeGas (n * cellCreateGasPrice)).gasExhaustedNow) = true then
+      if (n != 0 && (st.createsUntilOut n).gasExhaustedNow) = true then
         (.error .outOfGas, st.createsUntilOut n)
       else (.ok (), st.consumeGas (n * cellCreateGasPrice)) := by
   have key : ∀ (l : List Nat) (st : VmState),
       ExceptT.run (forIn l PUnit.unit fun _ _ => do
           VM.consumeGas cellCreateGasPrice; pure (ForInStep.yield PUnit.unit) : VM PUnit) st =
-        if (l.length != 0 && (st.consumeGas (l.length * cellCreateGasPrice)).gasExhaustedNow) = true then
+        if (l.length != 0 && (st.createsUntilOut l.length).gasExhaustedNow) = true then
           (.error .outOfGas, st.createsUntilOut l.length)
         else (.ok PUnit.unit, st.consumeGas (l.length * cellCreateGasPrice)) := by
     intro l
@@ -252,14 +233,7 @@ theorem VmState.consumeGas_consumeGas (st : VmState) (a b : Int) :
       simp only [List.forIn_cons, VM.run_bind, VM.run_consumeGas]
       by_cases hx : (st.consumeGas cellCreateGasPrice).gasExhaustedNow = true
       · rw [if_pos hx]
-        have hx' : (st.consumeGas ((l.length + 1 : Nat) * cellCreateGasPrice)).gasExhaustedNow = true := by
-          have : ((l.length + 1 : Nat) : Int) * cellCreateGasPrice =
-              cellCreateGasPrice + (l.length : Int) * cellCreateGasPrice := by
-            simp only [cellCreateGasPrice]; omega
-          rw [this, ← VmState.consumeGas_consumeGas]
-          exact VmState.gasExhaustedNow_consumeGas (by simp [cellCreateGasPrice]; omega) hx
-        simp only [List.length_cons, hx', Bool.and_true, VM.bindRes_error]
-        simp only [VmState.createsUntilOut, hx, if_true]
+        simp only [List.length_cons, VmState.createsUntilOut, hx, if_true, Bool.and_true, VM.bindRes_error]
         rfl
       · rw [if_neg hx, VM.bindRes_ok]
         simp only [VM.run_pure, VM.bindRes_ok]
@@ -269,10 +243,7 @@ theorem VmState.consumeGas_consumeGas (st : VmState) (a b : Int) :
         rw [e]
         simp only [List.length_cons, VmState.createsUntilOut, hx, Bool.false_eq_true, if_false]
         by_cases hl : l.length = 0
-        · have hx' : (st.consumeGas (↑(l.length + 1) * cellCreateGasPrice)).gasExhaustedNow = false := by
-            rw [hl]; simpa [cellCreateGasPrice] using hx
-          simp [hl]
-          intro h; exact absurd h hx
+        · simp [hl, VmState.createsUntilOut, hx]
         · have h1 : (l.length != 0) = true := by simpa using hl
           have h2 : (l.length + 1 != 0) = true := by simp
           simp only [h1, h2, Bool.true_and]

@@ -120,7 +120,7 @@ as `c0` of their body only if it does not. -/
 /-- The end of a step that jumped from a continuation that is not ordinary (a loop's, `quit`) to
 another (`VmState.jumped`): the jump counted, out of gas at once if it costs gas it does not have. -/
 @[vm_run] theorem VmState.jumped_eq (st : VmState) :
-    st.jumped = if st.countJump.gasExhaustedNow then st.countJump.outOfGasHalt else .continue st.countJump := rfl
+    st.jumped = if st.jumpRanOut then st.countJump.outOfGasHalt else .continue st.countJump := rfl
 
 /-- The step that enters an ordinary continuation (`VmState.enter`), for any saved registers. Of low
 priority: without saved registers it is `VmState.enter_empty`. -/

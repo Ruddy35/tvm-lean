@@ -101,8 +101,8 @@ def VmState.stepTrace (st : VmState) (step : Nat) : TraceEntry × StepResult :=
      cp := st.cp
      cc_before := VmState.ccSummary st.cc
      cc_after := VmState.ccSummary stAfter.cc
-     gas_before := st.gas.gasRemaining
-     gas_after := stAfter.gas.gasRemaining
+     gas_before := st.gas.remaining
+     gas_after := stAfter.gas.remaining
      stack_before := stackStr st.stack
      stack_after := stackStr stAfter.stack },
    res)

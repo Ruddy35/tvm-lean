@@ -64,7 +64,7 @@ theorem StepResult.mapState_ite (f : VmState → VmState) (c : Prop) [Decidable 
 `gas.check()` after it, or the exception handled. -/
 def VmState.instrEnd (r : Except Excno Unit × VmState) : StepResult :=
   match r with
-  | (.ok _, st1) => if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else .continue st1
+  | (.ok _, st1) => if decide (st1.gas.remaining < 0) then st1.outOfGasHalt else .continue st1
   | (.error e, st1) => if e = .outOfGas then st1.outOfGasHalt else st1.raiseException e.toInt
 
 theorem VmState.instrStep_eq (exec : Instr → VM Unit) (i : Instr) (st : VmState) :
@@ -78,7 +78,7 @@ theorem VmState.instrStep_eq (exec : Instr → VM Unit) (i : Instr) (st : VmStat
 
 theorem VmState.instrEnd_ok (st : VmState) :
     VmState.instrEnd (.ok (), st) =
-      if decide (st.gas.gasRemaining < 0) then st.outOfGasHalt else .continue st := rfl
+      if decide (st.gas.remaining < 0) then st.outOfGasHalt else .continue st := rfl
 
 theorem VmState.instrEnd_error (e : Excno) (st : VmState) :
     VmState.instrEnd (.error e, st) = if e = .outOfGas then st.outOfGasHalt else st.raiseException e.toInt := rfl
@@ -100,12 +100,12 @@ theorem VmState.instrEnd_dite (c : Prop) [Decidable c] (x : c → Except Excno U
 /-- How the step of an implicit `RET` ends once `VM.ret` ran with result `r` (`VmState.retStep`). -/
 def VmState.retEnd (r : Except Excno Unit × VmState) : StepResult :=
   match r with
-  | (.ok _, st1) => if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else .continue st1
+  | (.ok _, st1) => if decide (st1.gas.remaining < 0) then st1.outOfGasHalt else .continue st1
   | (.error e, st1) => st1.raiseException e.toInt
 
 theorem VmState.retStep_eq (st : VmState) :
     VmState.retStep st =
-      if decide (st.gas.gasRemaining < 0) then st.outOfGasHalt else VmState.retEnd (ExceptT.run VM.ret st) := by
+      if decide (st.gas.remaining < 0) then st.outOfGasHalt else VmState.retEnd (ExceptT.run VM.ret st) := by
   unfold VmState.retStep VmState.retEnd
   split
   · rfl
@@ -113,7 +113,7 @@ theorem VmState.retStep_eq (st : VmState) :
     cases r <;> rfl
 
 theorem VmState.retEnd_ok (st : VmState) :
-    VmState.retEnd (.ok (), st) = if decide (st.gas.gasRemaining < 0) then st.outOfGasHalt else .continue st := rfl
+    VmState.retEnd (.ok (), st) = if decide (st.gas.remaining < 0) then st.outOfGasHalt else .continue st := rfl
 
 theorem VmState.retEnd_error (e : Excno) (st : VmState) :
     VmState.retEnd (.error e, st) = st.raiseException e.toInt := rfl
@@ -143,7 +143,7 @@ theorem VmState.stepOnceWith_ordinary' (exec : Instr → VM Unit) (st : VmState)
     (saved : Continuation) (cregs : OrdCregs)
     (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty) :
     st.stepOnceWith exec =
-      if ((st.applyCregsCdata cregs OrdCdata.empty).countJump).gasExhaustedNow then
+      if (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut then
         ((st.applyCregsCdata cregs OrdCdata.empty).countJump).outOfGasHalt
       else VmState.codeStep exec code (st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)) := by
   split
@@ -167,7 +167,7 @@ theorem VmState.stepOnceWith_instr' (exec : Instr → VM Unit) (st : VmState) (c
     (hver : cp0RequiredVersion code.opcode24 = k) (hk : k ≤ st.globalVersion)
     (hdec : decodeCp0WithBits code = .ok (i, n, rest)) :
     st.stepOnceWith exec =
-      if ((st.applyCregsCdata cregs OrdCdata.empty).countJump).gasExhaustedNow then
+      if (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut then
         ((st.applyCregsCdata cregs OrdCdata.empty).countJump).outOfGasHalt
       else VmState.instrStep exec i ((st.enter cregs (.plain rest)).consumeGas (instrGas i n)) := by
   split
@@ -182,7 +182,7 @@ theorem VmState.stepOnceWith_implicitRet' (exec : Instr → VM Unit) (st : VmSta
     (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty)
     (hbits : code.bitsRemaining = 0) (hrefs : code.refsRemaining = 0) :
     st.stepOnceWith exec =
-      if ((st.applyCregsCdata cregs OrdCdata.empty).countJump).gasExhaustedNow then
+      if (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut then
         ((st.applyCregsCdata cregs OrdCdata.empty).countJump).outOfGasHalt
       else VmState.retStep ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
         implicitRetGasPrice) := by
@@ -195,7 +195,7 @@ theorem VmState.stepOnceWith_implicitJmpRef' (exec : Instr → VM Unit) (st : Vm
     (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty)
     (hbits : code.bitsRemaining = 0) (hrefs : code.refsRemaining = r) (hr : r ≠ 0) :
     st.stepOnceWith exec =
-      if ((st.applyCregsCdata cregs OrdCdata.empty).countJump).gasExhaustedNow then
+      if (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut then
         ((st.applyCregsCdata cregs OrdCdata.empty).countJump).outOfGasHalt
       else VmState.jmpRefStep code ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
         implicitJmpRefGasPrice) := by

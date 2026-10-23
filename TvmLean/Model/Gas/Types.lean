@@ -42,8 +42,25 @@ def GasLimits.ofLimits (limit max credit : Int) : GasLimits :=
     gasRemaining := base
     gasBase := base }
 
+/-- C++ `long long` of an integer: two's complement, the integer modulo 2^64 in [-2^63, 2^63). -/
+def int64Wrap (x : Int) : Int := (x + 2 ^ 63) % 2 ^ 64 - 2 ^ 63
+
+/-! C++ keeps the gas in `long long` (`GasLimits`, crypto/vm/vm.h:34-80): the constructor adds the limit
+and the credit (vm.h:43), `consume` and `try_consume` subtract (57, 61), `change_base` adds the
+difference of the bases (51), `gas_consumed` subtracts (47). Under limits of 2^63 or so (a
+configuration's gas limits as `long long`, transaction.cpp:1938, 1955) these leave the range of
+`long long`, which C++ does not check (signed overflow; the reference build wraps around). The model
+keeps the exact sums in `gasRemaining` and `gasBase`, which C++ holds modulo 2^64 (`gas_base` is set
+only to values in range), and reads them as C++ does: `GasLimits.remaining` (`gas_remaining`, which
+every gas check compares with 0) and `GasLimits.gasConsumed`. -/
+
+/-- C++ `gas_remaining` (`long long`): the exact gas left, `int64Wrap`. -/
+def GasLimits.remaining (g : GasLimits) : Int :=
+  int64Wrap g.gasRemaining
+
+/-- C++ `gas_consumed()` (vm.h:46-48): `gas_base - gas_remaining` in `long long`. -/
 def GasLimits.gasConsumed (g : GasLimits) : Int :=
-  g.gasBase - g.gasRemaining
+  int64Wrap (g.gasBase - g.gasRemaining)
 
 def GasLimits.changeBase (g : GasLimits) (newBase : Int) : GasLimits :=
   { g with gasRemaining := g.gasRemaining + (newBase - g.gasBase), gasBase := newBase }

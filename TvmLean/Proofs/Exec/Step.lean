@@ -41,7 +41,7 @@ def VmState.instrStep (exec : Instr → VM Unit) (i : Instr) (st : VmState) : St
   if st.gasExhaustedNow then st.outOfGasHalt else
   let (res, st1) := (exec i).run st
   match res with
-  | .ok _ => if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else .continue st1
+  | .ok _ => if decide (st1.gas.remaining < 0) then st1.outOfGasHalt else .continue st1
   | .error e => if e = .outOfGas then st1.outOfGasHalt else st1.raiseException e.toInt
 
 /-- The state of the step that enters an ordinary continuation with the saved registers `cregs`
@@ -60,17 +60,17 @@ abbrev Continuation.plain (code : Slice) : Continuation :=
 out of gas (`consume_gas_chk`), else `VM.ret` runs and the `gas.check()` after it may end the VM
 out of gas; an exception is handled by `VmState.raiseException`. -/
 def VmState.retStep (st : VmState) : StepResult :=
-  if decide (st.gas.gasRemaining < 0) then st.outOfGasHalt else
+  if decide (st.gas.remaining < 0) then st.outOfGasHalt else
   let (res, st1) := (VM.ret).run st
   match res with
-  | .ok _ => if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else .continue st1
+  | .ok _ => if decide (st1.gas.remaining < 0) then st1.outOfGasHalt else .continue st1
   | .error e => st1.raiseException e.toInt
 
 /-- How the step of an implicit `JMPREF` to the first reference of `code` ends once its gas is
 charged on `st` (`VmState.stepOnceWith`): the reference is loaded (`load_cell_slice_ref`, a library
 cell runs its library's root) and becomes the code of the current continuation. -/
 def VmState.jmpRefStep (code : Slice) (st : VmState) : StepResult :=
-  if decide (st.gas.gasRemaining < 0) then st.outOfGasHalt else
+  if decide (st.gas.remaining < 0) then st.outOfGasHalt else
   if code.refPos < code.cell.refs.size then
     let refCell := code.cell.refs[code.refPos]!
     let (st1, exhausted) := st.registerCellLoads (.cell refCell :: (st.libraryLoads refCell).toList)
@@ -79,7 +79,7 @@ def VmState.jmpRefStep (code : Slice) (st : VmState) : StepResult :=
     else
       match (libraryResolveLoads st1.libraries st1.globalVersion refCell st1.librariesRefused).2 with
       | .ok root =>
-          if decide (st1.gas.gasRemaining < 0) then st1.outOfGasHalt else
+          if decide (st1.gas.remaining < 0) then st1.outOfGasHalt else
           .continue { st1 with cc := .ordinary (Slice.ofCell root) (.quit 0) OrdCregs.empty OrdCdata.empty }
       | .error e => st1.raiseException e.toInt
   else
@@ -142,7 +142,7 @@ the gas exhausted, the step runs its code (`VmState.codeStep`) in the state that
 theorem VmState.stepOnceWith_ordinary (exec : Instr → VM Unit) (st : VmState) (code : Slice)
     (saved : Continuation) (cregs : OrdCregs)
     (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty)
-    (hgas : ((st.applyCregsCdata cregs OrdCdata.empty).countJump).gasExhaustedNow = false) :
+    (hgas : (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut = false) :
     st.stepOnceWith exec =
       VmState.codeStep exec code (st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)) := by
   unfold VmState.stepOnceWith
@@ -174,7 +174,7 @@ with the code advanced (`VmState.enter`), ending as `VmState.instrStep` says. -/
 theorem VmState.stepOnceWith_instr (exec : Instr → VM Unit) (st : VmState) (code rest : Slice)
     (saved : Continuation) (cregs : OrdCregs) (i : Instr) (n : Nat)
     (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty)
-    (hgas : ((st.applyCregsCdata cregs OrdCdata.empty).countJump).gasExhaustedNow = false)
+    (hgas : (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut = false)
     (hcp : st.cp = 0)
     (hbits : code.bitsRemaining ≠ 0)
     (hver : cp0RequiredVersion code.opcode24 ≤ st.globalVersion)
@@ -193,7 +193,7 @@ references): C++ `VmState::step` charges `implicit_ret_gas_price` and returns (`
 theorem VmState.stepOnceWith_implicitRet (exec : Instr → VM Unit) (st : VmState) (code : Slice)
     (saved : Continuation) (cregs : OrdCregs)
     (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty)
-    (hgas : ((st.applyCregsCdata cregs OrdCdata.empty).countJump).gasExhaustedNow = false)
+    (hgas : (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut = false)
     (hbits : code.bitsRemaining = 0) (hrefs : code.refsRemaining = 0) :
     st.stepOnceWith exec =
       VmState.retStep ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
@@ -207,7 +207,7 @@ reference: C++ `VmState::step` charges `implicit_jmpref_gas_price` and jumps to 
 theorem VmState.stepOnceWith_implicitJmpRef (exec : Instr → VM Unit) (st : VmState) (code : Slice)
     (saved : Continuation) (cregs : OrdCregs)
     (hcc : st.cc = .ordinary code saved cregs OrdCdata.empty)
-    (hgas : ((st.applyCregsCdata cregs OrdCdata.empty).countJump).gasExhaustedNow = false)
+    (hgas : (st.applyCregsCdata cregs OrdCdata.empty).jumpRanOut = false)
     (hbits : code.bitsRemaining = 0) (hrefs : code.refsRemaining ≠ 0) :
     st.stepOnceWith exec =
       VmState.jmpRefStep code ((st.enter cregs (.ordinary code saved OrdCregs.empty OrdCdata.empty)).consumeGas
@@ -233,9 +233,11 @@ theorem VmState.enter_empty (st : VmState) (cc : Continuation) (h : st.chainJump
     st.enter OrdCregs.empty cc = { st with cc := cc, chainJumps := 0, steps := st.steps + 1 } := by
   simp only [VmState.enter, VmState.applyCregsCdata_empty, VmState.countJump_of_lt st h]
 
-theorem VmState.gasExhaustedNow_enterCheck_empty (st : VmState) (h : st.chainJumps < freeNestedContJump) :
-    ((st.applyCregsCdata OrdCregs.empty OrdCdata.empty).countJump).gasExhaustedNow = st.gasExhaustedNow := by
-  simp only [VmState.applyCregsCdata_empty, VmState.countJump_of_lt st h, VmState.gasExhaustedNow]
+/-- A jump in a chain of fewer than `freeNestedContJump` jumps is not charged, so it checks no gas. -/
+theorem VmState.jumpRanOut_of_lt (st : VmState) (h : st.chainJumps < freeNestedContJump) :
+    st.jumpRanOut = false := by
+  have h' : ¬ (st.chainJumps + 1 > freeNestedContJump) := by omega
+  simp [VmState.jumpRanOut, h']
 
 /-! ## The libraries refused by `max_library_loads` -/
 
