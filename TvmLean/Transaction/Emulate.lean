@@ -89,14 +89,18 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
   let needCredit := !external
   -- storage and credit phases, credit first unless the message bounces
   let credit (t : Tx) : Except String (Option Tx) := if needCredit then t.creditPhaseRun else .ok (some t)
+  -- the storage phase aborts the emulator on a negative payment (`Tx.storageAborts`)
   let t? : Except String (Option Tx) :=
     if t.bounceEnabled then
+      if t.storageAborts pricing then .error "storage phase: a negative storage payment (C++ aborts)" else
       match t.storagePhaseRun pricing gas false with
       | none => .ok none
       | some t => credit t
     else
       match credit t with
-      | .ok (some t) => .ok (t.storagePhaseRun pricing gas needCredit)
+      | .ok (some t) =>
+          if t.storageAborts pricing then .error "storage phase: a negative storage payment (C++ aborts)"
+          else .ok (t.storagePhaseRun pricing gas needCredit)
       | r => r
   let t ← match t? with
     | .error e => return .unsupported e
@@ -154,6 +158,7 @@ def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : N
       addrBits lt now libs with
     | .ok r => pure r
     | .error e => return .failed e
+  if t.storageAborts pricing then return .unsupported "storage phase: a negative storage payment (C++ aborts)"
   let some t := t.storagePhaseRun pricing gas false | return .failed "storage phase"
   let t ← match t.computePhaseRun gas sl randSeed with
     | .error e => return .unsupported e

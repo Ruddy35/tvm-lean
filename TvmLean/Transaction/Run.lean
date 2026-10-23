@@ -162,9 +162,6 @@ inductive Outcome where
 
 /-! ## Fees and gas (`ComputePhaseConfig`, `MsgPrices`) -/
 
-/-- `td::rshift(x, 16, 1)`: division by 2^16 rounding up. -/
-def ceilShr16 (x : Nat) : Nat := (x + 0xffff) / 0x10000
-
 /-- `MsgPrices::compute_fwd_fees` (transaction.cpp:2432-2438): a `td::uint64`, the lump price plus the
 low 64 bits (`.lo()`) of the `td::uint128` `(bit_price * bits + cell_price * cells + 0xffff) >> 16`,
 modulo 2^64. -/
@@ -234,24 +231,49 @@ def Tx.gasBoughtFor (t : Tx) (g : GasPrices) (nanograms : Nat) : Nat :=
 
 /-! ## Storage phase -/
 
-/-- `StoragePrices::compute_storage_fees`. -/
-def storageFees (now lastPaid : Nat) (special mc : Bool) (used : StorageUsed) (pricing : Array StoragePrices) : Nat :=
-  if now ≤ lastPaid ∨ lastPaid = 0 ∨ special ∨ pricing.isEmpty ∨ now ≤ pricing[0]!.validSince then 0
+/-- One period of `add_partial_storage_payment` (transaction.cpp:757-774): the cells and the bits
+(`td::BigInt256` of `(long long)`) times their prices, which `mul_short` takes as `long long` (negative
+from 2^63 on), summed and times the length of the period, exactly. -/
+def storagePartial (used : StorageUsed) (mc : Bool) (p : StoragePrices) (delta : Nat) : Int :=
+  let (cp, bp) := if mc then (p.mcCellPrice, p.mcBitPrice) else (p.cellPrice, p.bitPrice)
+  (Int.ofNat used.cells * int64OfUInt64 cp + Int.ofNat used.bits * int64OfUInt64 bp) * Int.ofNat delta
+
+/-- The payments of the periods of `StoragePrices::compute_storage_fees` (transaction.cpp:790-813), from
+the last price valid at `last_paid` (or the first) up to `now`. -/
+def storagePartials (now lastPaid : Nat) (special mc : Bool) (used : StorageUsed) (pricing : Array StoragePrices) :
+    List Int :=
+  if now ≤ lastPaid ∨ lastPaid = 0 ∨ special ∨ pricing.isEmpty ∨ now ≤ pricing[0]!.validSince then []
   else Id.run do
     let n := pricing.size
     -- the last price valid at `last_paid` (or the first)
     let start := ((List.range n).filter (fun j => pricing[j]!.validSince ≤ lastPaid)).getLast?.getD 0
     let mut upto := Nat.max lastPaid pricing[0]!.validSince
-    let mut total := 0
+    let mut out : List Int := []
     for i in [start:n] do
       if upto < now then
         let validUntil := if i < n - 1 then Nat.min now pricing[i + 1]!.validSince else now
         if upto < validUntil then
-          let p := pricing[i]!
-          let (cp, bp) := if mc then (p.mcCellPrice, p.mcBitPrice) else (p.cellPrice, p.bitPrice)
-          total := total + (used.cells * cp + used.bits * bp) * (validUntil - upto)
+          out := out ++ [storagePartial used mc pricing[i]! (validUntil - upto)]
         upto := validUntil
-    return ceilShr16 total
+    return out
+
+/-- `StoragePrices::compute_storage_fees`: the payments of the periods summed, divided by 2^16 rounding
+up (`td::rshift(total, 16, 1)`). Without a negative payment (`storageFeesAbort`) the sum is not
+negative. -/
+def storageFees (now lastPaid : Nat) (special mc : Bool) (used : StorageUsed) (pricing : Array StoragePrices) : Nat :=
+  (-((-(storagePartials now lastPaid special mc used pricing).sum) / 0x10000)).toNat
+
+/-- A period's payment is negative (a price of 2^63 or more, as `long long`): `add_partial_storage_payment`
+fails (`FAIL_UNLESS(b.sgn() >= 0)`, 771), `compute_storage_fees` returns a null integer (807-810), and
+`prepare_storage_phase` adds the due payment to it (1060: `operator+` writes through the null `Ref`),
+which aborts the emulator. Not modelled. -/
+def storageFeesAbort (now lastPaid : Nat) (special mc : Bool) (used : StorageUsed) (pricing : Array StoragePrices) :
+    Bool :=
+  (storagePartials now lastPaid special mc used pricing).any (· < 0)
+
+/-- The storage phase of `t` aborts the emulator (`storageFeesAbort`). -/
+def Tx.storageAborts (t : Tx) (pricing : Array StoragePrices) : Bool :=
+  storageFeesAbort t.now t.account.lastPaid t.account.isSpecial t.account.isMasterchain t.account.storageUsed pricing
 
 /-- `Transaction::prepare_storage_phase` (`force_collect` true, as the emulator calls it). -/
 def Tx.storagePhaseRun (t : Tx) (pricing : Array StoragePrices) (gas : GasPrices) (adjustMsgValue : Bool) : Option Tx := do

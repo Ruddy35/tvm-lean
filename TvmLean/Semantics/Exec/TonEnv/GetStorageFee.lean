@@ -34,8 +34,11 @@ def execInstrTonEnvGetStorageFee (i : Instr) (next : VM Unit) : VM Unit := do
           let (mcCellPrice, _) ← s5.takeBitsAsNatCellUnd 64
           let bitP : Nat := if isMasterchain then mcBitPrice else bitPrice
           let cellP : Nat := if isMasterchain then mcCellPrice else cellPrice
+          -- `calculate_storage_fee` (tonops.cpp:2621-2638): `td::make_refint(cells) * price` takes the
+          -- `td::uint64` price as `long long` (`operator*(RefInt256, long long)`, refint.cpp:77-80),
+          -- negative from 2^63 on; the rest exact
           let total : Int :=
-            (Int.ofNat cells * Int.ofNat cellP + Int.ofNat bits * Int.ofNat bitP) * Int.ofNat delta
+            (Int.ofNat cells * int64Wrap (Int.ofNat cellP) + Int.ofNat bits * int64Wrap (Int.ofNat bitP)) * Int.ofNat delta
           let fee : Int := ceilDivPow2 total 16
           VM.pushIntQuiet (.num fee) false
       | some _ =>

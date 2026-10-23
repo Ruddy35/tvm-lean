@@ -291,7 +291,13 @@ def cfgC7Pool : Array (String × Array Value) :=
         sl (fwdPrices 1 2 3), sl (fwdPrices 4 5 6), .null]),
      ("cfg-price-high", cfgC7 #[sl (storagePrices 1 500 1000 500000), sl (natToBits 5 32),
         sl (gasFlat 100 (2 ^ 64 - 1) (gasDe (2 ^ 64 - 1))), sl (gasDd (2 ^ 63 + 1)),
-        sl (fwdPrices 1 2 3), sl (fwdPrices 4 5 6), .null]) ]
+        sl (fwdPrices 1 2 3), sl (fwdPrices 4 5 6), .null]),
+     -- storage prices of 2^63 or more, which `calculate_storage_fee` multiplies by as `long long`
+     -- (tonops.cpp:2621-2638); forwarding prices of 2^63 or more, whole in `compute_fwd_fees256` and
+     -- the other fee instructions
+     ("cfg-storage-high", cfgC7 #[sl (storagePrices (2 ^ 64 - 1) (2 ^ 40) (2 ^ 63 + 5) (2 ^ 63 - 1)), sl (natToBits 5 32),
+        sl (gasFlat 100 1000000 (gasDe 655360000)), sl (gasFlat 100 40000 (gasDe 26214400)),
+        sl (fwdPrices (2 ^ 64 - 1) (2 ^ 64 - 1) (2 ^ 63)), sl (fwdPrices (2 ^ 63) 1 (2 ^ 64 - 1)), .null]) ]
 
 /-- Random seeds `c7[0][6]` that are not integers, negative (range_chk: no TVM integer reaches 2^256),
 the largest, and a parameter tuple without
@@ -378,7 +384,8 @@ def casesFor (suite : String) : Array OracleCase :=
       ((#[0, 1, 1000, 1000000, -1, 2 ^ 63, 2 ^ 63 - 1] : Array Int).flatMap (fun g => #[#[iv g, iv 0], #[iv g, iv (-1)]]) ++ #[#[iv 1], #[]])
   | "GETSTORAGEFEE" => cross suite #[("fee", env .getStorageFee)] (c7Pool ++ cfgC7Pool)
       #[#[iv 1, iv 100, iv 3600, iv 0], #[iv 10, iv 10000, iv 86400, iv (-1)], #[iv 0, iv 0, iv 0, iv 0],
-        #[iv (-1), iv 1, iv 1, iv 0], #[iv (2 ^ 63), iv 1, iv 1, iv 0], #[iv 1, iv 1, iv 1], #[]]
+        #[iv (-1), iv 1, iv 1, iv 0], #[iv (2 ^ 63), iv 1, iv 1, iv 0], #[iv 1, iv 1, iv 1], #[],
+        #[iv (2 ^ 63 - 1), iv (2 ^ 63 - 1), iv (2 ^ 63 - 1), iv 0], #[iv 3, iv (2 ^ 63 - 1), iv 7, iv (-1)]]
   | "GETFORWARDFEE" => cross suite #[("fee", env .getForwardFee)] (c7Pool ++ cfgC7Pool)
       #[#[iv 1, iv 100, iv 0], #[iv 10, iv 10000, iv (-1)], #[iv 0, iv 0, iv 0], #[iv (-1), iv 1, iv 0],
         #[iv (2 ^ 63), iv 1, iv 0], #[iv 1, iv 1], #[]]

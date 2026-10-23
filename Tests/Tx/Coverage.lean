@@ -879,6 +879,27 @@ def fwd64Cases (x : Ctx) : Array TxCase := Id.run do
     (extraFlags := gramsBits 1) (body := natToBits 5 300)) (fwd (2 ^ 64 - 1) 0 65536 0))
   return out
 
+/-- Storage prices of 2^63 or more (parameter 18), which `add_partial_storage_payment` multiplies by as
+`long long` (`mul_short`, transaction.cpp:757-774; negative from 2^63 on), an account 100 seconds after
+its last payment:
+* `storage64/bit-high`: a bit price of 2^64 - 1 (-1) and a cell price of 2^20: the payment is
+  `(cells * 2^20 - bits) * 100`, a few thousand nanotons (the price whole would freeze the account);
+* `storage64/cell-high`: a cell price of 2^64 - 2^30 (-2^30) and a bit price of 2^30: `(bits - cells) *
+  2^30 * 100`;
+* `storage64/mc-high`: an account in the masterchain, its prices (`mc_bit_price` 2^64 - 1).
+A negative payment is no case: C++ adds the due payment to the null `compute_storage_fees` returns
+(1060) and aborts. -/
+def storage64Cases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let acc (wc : Int) : Cell := mkAccount wc a1 (.active accept data0) 1000000000 1700000100 0 1000
+  let prices (bit cell mcBit mcCell : Nat) : Cell := withParam x.cfg 18 (Configs.storagePrices [(0, bit, cell, mcBit, mcCell)])
+  out := out.push (x.case "storage64/bit-high" (acc 0) (intMsg 0 a1 100000000 false none #[]) (prices (2 ^ 64 - 1) (2 ^ 20) 1 500))
+  out := out.push (x.case "storage64/cell-high" (acc 0) (intMsg 0 a1 100000000 false none #[])
+    (prices (2 ^ 30) (2 ^ 64 - 2 ^ 30) 1 500))
+  out := out.push (x.case "storage64/mc-high" (acc (-1)) (intMsg (-1) a1 100000000 false none #[])
+    (prices 1 500 (2 ^ 64 - 1) (2 ^ 20)))
+  return out
+
 /-- `SETGASLIMIT` below the gas consumed (`exec_set_gas_generic`, tonops.cpp:70-74) is out of gas with the
 limits as they were: the gas used is the gas consumed (`std::min` with the old limit, transaction.cpp:
 2016), and the credit of an external message stays (not accepted, 2017). `PUSHINT 1 SETGASLIMIT` on an
@@ -915,7 +936,8 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     if [3, 4, 7, 9].contains v then out := out ++ Cov.tickTockCarryCases x
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
       Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x ++
-      Cov.setGasLimitCases x ++ Cov.gasWrapCases x ++ Cov.flatGasCases x ++ Cov.fwd64Cases x
+      Cov.setGasLimitCases x ++ Cov.gasWrapCases x ++ Cov.flatGasCases x ++ Cov.fwd64Cases x ++
+      Cov.storage64Cases x
   return out
 
 end Tests.Tx
