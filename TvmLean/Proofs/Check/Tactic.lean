@@ -2,6 +2,7 @@ import TvmLean.Proofs.Tx.Induction
 import TvmLean.Proofs.Tx.NoSetCode
 import TvmLean.Proofs.Exec.IteInst
 import TvmLean.Proofs.Contracts.Wallet3Run.Common
+import TvmLean.Proofs.Check.Attr
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`
@@ -372,7 +373,8 @@ elab "check_loop_close" : tactic => withMainContext do
 
 /-- The simp lemmas of every step of `check_run` besides those of `vm_step`: those of `wallet_run`
 (the dispatch, the bounds of slices, a step whatever `max_library_loads` is, `ACCEPT` for any gas
-maximum), the fresh instances of `if`, the reading of bits written by `natToBits`. -/
+maximum), the fresh instances of `if`, the reading of bits written by `natToBits`, and those of the
+`simp` set `check_run_simp` (TvmLean/Proofs/Check/Attr.lean). -/
 syntax "check_step" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
 macro_rules
   | `(tactic| check_step [$args,*]) => `(tactic| vm_step [Spec.dictJump, Slice.haveBits,
@@ -382,7 +384,7 @@ macro_rules
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Int.toNat_natCast_add_one,
-      Option.getD_some, Option.getD_none, VmState.retCont, $args,*])
+      Option.getD_some, Option.getD_none, VmState.retCont, check_run_simp, $args,*])
 
 /-- `vm_step_simp` with the lemmas of `check_step` (a run whose step is written out, after a split). -/
 syntax "check_step_simp" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
@@ -394,7 +396,7 @@ macro_rules
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Int.toNat_natCast_add_one,
-      Option.getD_some, Option.getD_none, VmState.retCont, $args,*])
+      Option.getD_some, Option.getD_none, VmState.retCont, check_run_simp, $args,*])
 
 /-- The goal `g` (target `t`) with the `if` `e` of its target (`ite c a b` or `dite c a b`) replaced
 by its branch, given `h : c` (`pos`) or `h : ¬c`: the occurrences of `e` abstracted (`kabstract`),
@@ -452,6 +454,11 @@ elab "check_split" : tactic => do
   let gNeg ← sNeg.mvarId.withContext (rewriteIte sNeg.mvarId t e (mkFVar sNeg.fvarId) false)
   replaceMainGoal [gPos, gNeg]
 
+/-- `check_extra_step [hints]`: steps that modules imported after this one add (`macro_rules`, e.g.
+TvmLean/Proofs/Check/Framed.lean: instructions on cells the run does not know), tried first by
+`check_one_step`; none here (it fails). -/
+syntax "check_extra_step" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
+
 /-- `check_one_step [hints]`: one step of the exploration of the paths of a run: the first `if` of
 the goal decided or split (`vm_split`, a branch with contradicting conditions closed), a step of the
 run (`check_step`, the code position noted), a fuel that is a variable split, the loop rule at a loop
@@ -460,6 +467,7 @@ a loop head closed by its hypothesis (`check_loop_close`). Fails on the end of a
 syntax "check_one_step" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
 macro_rules
   | `(tactic| check_one_step [$args,*]) => `(tactic| set_option maxRecDepth 100000 in first
+      | check_extra_step [$args,*]
       | (check_split <;> try vm_prune_cheap)
       | (vm_not_at_loop_head; check_mark_pos; check_step [$args,*])
       | (vm_not_at_loop_head; vm_fuel <;> try simp only [VmState.runWith_zero, Excno.toInt])
@@ -689,7 +697,7 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
     Int.toNat_natCast_add_one, Int.toNat_natCast, bitsToNat_natToBits, natToBits_size,
     Array.size_append, Array.extract_append, extract_natToBits_empty, extract_natToBits_past,
     extract_natToBits_all, readBits_mkOrdinary, readBits_ofCell_mkOrdinary, Nat.reducePow,
-    Nat.reduceAdd, Nat.reduceSub, Nat.reduceMod, Nat.mod_eq_of_lt, $sargs,*])
+    Nat.reduceAdd, Nat.reduceSub, Nat.reduceMod, Nat.mod_eq_of_lt, check_close, $sargs,*])
   let gs ← match ← tryTac gP simpTac 200000 with
     | some gs => pure gs
     | none => pure [gP]
@@ -698,7 +706,8 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
     for g'' in ← checkExists g' do
       let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl), ← `(tactic| assumption),
         ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
-        ← `(tactic| (simp only [$sargs,*]; done)), ← `(tactic| (dsimp only; simp only [$sargs,*]; omega))]
+        ← `(tactic| (simp only [check_close, $sargs,*]; done)),
+        ← `(tactic| (dsimp only; simp only [check_close, $sargs,*]; omega))]
       let mut closed := false
       for c in closers do
         if closed then break
