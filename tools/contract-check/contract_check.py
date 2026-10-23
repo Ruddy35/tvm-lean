@@ -167,7 +167,7 @@ def generate(args: argparse.Namespace) -> tuple[str, str]:
     if inv_rel.startswith(".."):
         inv_rel = Path(args.inv).name
     header_imports = ["import TvmLean.Boc", "import TvmLean.Proofs.Contracts.CellLiteral",
-                      "import TvmLean.Proofs.Check.Tactic"]
+                      "import TvmLean.Proofs.Check.Tactic", "import TvmLean.Proofs.Check.Framed"]
     for imp in imports:
         if imp not in header_imports:
             header_imports.append(imp)
