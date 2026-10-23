@@ -38,7 +38,9 @@ rewrites one step of the run, `vm_run` the whole run:
   the discharger), or, if none applies, by its handler (the simprocs and lemmas of `vm_simp`,
   `Proofs/Exec/Eval.lean`);
 * the gas checks, the exception raised (`VmState.raiseException`) and the end of the step
-  (`VmState.instrEnd`) are unfolded, literal arithmetic is computed.
+  (`VmState.instrEnd`) are unfolded, literal arithmetic is computed; the gas left, a C++ `long long`
+  (`int64Wrap`), is computed on a literal, is the exact gas where literals and load gas make it up,
+  and is an atom otherwise (`int64WrapEval`).
 
 Nothing about a cell's hash or a long read of bits is evaluated: those stay terms (a cell load's
 gas is the symbolic `cellLoadGas loaded c`, between 25 and 100, `Proofs/Exec/Load.lean`). The facts
@@ -500,6 +502,63 @@ elab "vm_load_bounds" : tactic => Lean.Elab.Tactic.withMainContext do
     g := g'
   Lean.Elab.Tactic.replaceMainGoal [g]
 
+/-! ## The gas left, a `long long`
+
+Every gas check reads the gas left as C++ does, a `long long` (`GasLimits.remaining`: `int64Wrap` of
+the exact sum, which wraps around under gas limits of 2^63 or so). Unfolded, `int64Wrap` is a
+reduction modulo 2^64 in every check, which each `omega` of a path (`vm_split`, `vm_prune`, the
+discharger) takes apart into a quotient and a remainder. `int64WrapEval` keeps it folded: computed on
+a literal; the identity on a gas left made of literals and load gas (`cellLoadGas`, 25 to 100),
+whose bounds put it within `long long` (`int64Wrap_of_range`); else an atom for `omega`, the checks of
+the same gas left sharing it. -/
+
+theorem int64Wrap_of_range (x : Int) (h : -9223372036854775808 ≤ x ∧ x < 9223372036854775808) :
+    int64Wrap x = x := by
+  unfold int64Wrap
+  omega
+
+/-- Bounds of `e` from its form alone: sums and differences of integer literals and load gas
+(`cellLoadGas`, between 25 and 100), at most `depth` deep; `none` for anything else. -/
+def gasInterval? (e : Expr) : (depth : Nat) → Option (Int × Int)
+  | 0 => none
+  | depth + 1 =>
+    if let some n := intLit? e then some (n, n)
+    else if e.isAppOfArity ``cellLoadGas 2 then some (25, 100)
+    else if e.isAppOfArity ``HAdd.hAdd 6 then do
+      let (a, b) ← gasInterval? (e.getArg! 4) depth
+      let (c, d) ← gasInterval? (e.getArg! 5) depth
+      some (a + c, b + d)
+    else if e.isAppOfArity ``HSub.hSub 6 then do
+      let (a, b) ← gasInterval? (e.getArg! 4) depth
+      let (c, d) ← gasInterval? (e.getArg! 5) depth
+      some (a - d, b - c)
+    else none
+
+/-- `int64Wrap x` (the gas left as a `long long`): computed when `x` is a literal (unfolded, then
+the literal arithmetic); `x` when `x` is made of literals and load gas within `long long`
+(`gasInterval?`; the bounds by `omega` from `cellLoadGas_bounds` alone); else left as it is. -/
+simproc int64WrapEval (int64Wrap _) := fun e => do
+  unless e.isAppOfArity ``int64Wrap 1 do return .continue
+  let x := e.appArg!
+  if (intLit? x).isSome then
+    let some u ← withDefault (unfoldDefinition? e) | return .continue
+    return .visit { expr := u }
+  let some (lo, hi) := gasInterval? x 256 | return .continue
+  unless -9223372036854775808 ≤ lo ∧ hi < 9223372036854775808 do return .continue
+  let .forallE _ p _ _ ← inferType (mkApp (mkConst ``int64Wrap_of_range) x) | return .continue
+  let loads ← collectCellLoadGas x #[]
+  let bounds ← loads.toList.mapM fun t => mkAppM ``cellLoadGas_bounds #[t.getArg! 0, t.getArg! 1]
+  let m ← mkFreshExprMVar p
+  let some g ← m.mvarId!.falseOrByContra | return .continue
+  -- the facts: the bounds and the negated goal (not the hypotheses of the path)
+  let some neg := (← g.getDecl).lctx.lastDecl | return .continue
+  let ok ← try
+      withReducible (Lean.Elab.Tactic.Omega.omega (neg.toExpr :: bounds) g)
+      pure true
+    catch _ => pure false
+  unless ok do return .continue
+  return .done { expr := x, proof? := some (mkApp2 (mkConst ``int64Wrap_of_range) x (← instantiateMVars m)) }
+
 /-- The bounds `bitsToNat (s.readBits n) < 2 ^ n` (`VM.bitsToNat_readBits_lt`, `n` a literal) of the
 numbers read from bits in `e`: proofs and their statements (with `2 ^ n` computed). -/
 def readBitsBounds (e : Expr) : MetaM (Array (Expr × Expr)) := do
@@ -784,7 +843,8 @@ macro_rules
       VmState.instrEnd_ite, VmState.instrEnd_ite_id, VmState.instrEnd_dite, VmState.retStep_eq,
       VmState.retEnd_ok, VmState.retEnd_error, VmState.jmpRefStep,
       VmState.enter_empty, VmState.applyCregsCdata_empty, VmState.countJump_of_lt, VmState.jumpRanOut_of_lt,
-      VmState.consumeGas, GasLimits.consume, GasLimits.remaining, int64Wrap, Int.reduceMod, instrGas, gasPerInstr, implicitRetGasPrice, implicitJmpRefGasPrice,
+      VmState.consumeGas, GasLimits.consume, GasLimits.remaining, TvmLean.Exec.int64WrapEval, Int.reduceMod,
+      instrGas, gasPerInstr, implicitRetGasPrice, implicitJmpRefGasPrice,
       exceptionGasPrice, VmState.gasExhaustedNow, VmState.outOfGasHalt, VmState.raiseException,
       VmState.excHandlerNeedsMoreArgs, Option.isNone_none, Array.isEmpty_empty,
       Array.size_push, Array.pop_push, Array.size_pop, if_true,
@@ -805,7 +865,7 @@ macro_rules
 open Lean Meta Exec in
 /-- `vm_split`: the first `if` of the goal (`Lean.Meta.findSplit?`). If the context and the bounds
 of the symbolic load gas (`vm_load_bounds`) decide its condition (by linear arithmetic,
-`proveByOmega?`: the gas left, the bounds of a slice), the `if`
+`assertByOmega?`: the gas left, the bounds of a slice), the `if`
 is reduced to its branch without a new hypothesis; else the goal is split (`split`), each branch
 with the condition or its negation as a hypothesis. A `match` on a value made of constructors
 around a Boolean that is not a literal (`(.ok b, st)`, the flag a loop pops) is split on the cases
