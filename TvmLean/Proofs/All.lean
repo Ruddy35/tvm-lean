@@ -120,6 +120,7 @@ import TvmLean.Proofs.Exec.LoopInv
 import TvmLean.Proofs.Exec.Pilot.LoopInv
 import TvmLean.Proofs.Tx.NoSetCode
 import TvmLean.Proofs.Exec.IteInst
+import TvmLean.Proofs.Exec.Dict.Near
 import TvmLean.Proofs.Check.Tactic
 import TvmLean.Proofs.Check.Contracts.Wallet3
 import TvmLean.Proofs.Check.Contracts.Wallet2
