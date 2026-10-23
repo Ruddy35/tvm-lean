@@ -1,6 +1,7 @@
 import TvmLean.Proofs.Tx.Induction
 import TvmLean.Proofs.Tx.NoSetCode
 import TvmLean.Proofs.Exec.IteInst
+import TvmLean.Proofs.Check.Unknown
 import TvmLean.Proofs.Contracts.Wallet3Run.Common
 
 /-!
@@ -273,6 +274,33 @@ def destructStep (g : MVarId) (names : Array Name) (skip : Array FVarId) : MetaM
       return some (← g.clear d.fvarId)
   return none
 
+/-- The hypotheses of a loop invariant of the user taken apart (`destructStep`, the definitions of
+`names` unfolded): an entry `x = Value.int (.num n)` substituted, so that the run reads it; a
+disjunction among the hypotheses not in `old` split into its cases (a goal each). -/
+def destructUser (g : MVarId) (names : Array Name) (old : Array FVarId) :
+    (fuel : Nat := 16) → MetaM (List MVarId)
+  | 0 => pure [g]
+  | fuel + 1 => do
+    let mut g := g
+    for _ in [0:500] do
+      match ← destructStep g names #[] with
+      | some g' => g := g'
+      | none => break
+    let orH ← g.withContext do
+      let mut r : Option FVarId := none
+      for d in ← getLCtx do
+        if d.isImplementationDetail || old.contains d.fvarId then continue
+        if (← whnfR (← instantiateMVars d.type)).isAppOfArity ``Or 2 then
+          r := some d.fvarId
+          break
+      pure r
+    let some h := orH | return [g]
+    let subs ← g.cases h
+    let mut out := []
+    for sg in subs do
+      out := out ++ (← destructUser sg.mvarId names old fuel)
+    return out
+
 /-! ## The position in the code -/
 
 /-- A cell of the code written `C.refs[i]!.refs[j]!...`: the constant `C` and the path `[i, j, ...]`
@@ -372,7 +400,9 @@ elab "check_loop_close" : tactic => withMainContext do
 
 /-- The simp lemmas of every step of `check_run` besides those of `vm_step`: those of `wallet_run`
 (the dispatch, the bounds of slices, a step whatever `max_library_loads` is, `ACCEPT` for any gas
-maximum), the fresh instances of `if`, the reading of bits written by `natToBits`. -/
+maximum), the fresh instances of `if`, the reading of bits written by `natToBits`; the loads of
+cells the run does not know named (`havocLoads`, TvmLean/Proofs/Check/Unknown.lean), stacks and
+ranges written out, calls without arguments. -/
 syntax "check_step" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
 macro_rules
   | `(tactic| check_step [$args,*]) => `(tactic| vm_step [Spec.dictJump, Slice.haveBits,
@@ -382,7 +412,13 @@ macro_rules
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Int.toNat_natCast_add_one,
-      Option.getD_some, Option.getD_none, VmState.retCont, $args,*])
+      Option.getD_some, Option.getD_none, VmState.retCont, havocLoads, havocCellLoads,
+      havocLoadsM, havocLoadListM, Havoc.run_loadsM, havocStop,
+      ↓ VM.forIn_registerCellLoad, Array.append_push, Array.take_eq_extract,
+      stackChainExtract, arrayLitExtract, arrayLitGetElem, Std.Range.forIn_eq_forIn_range', Std.Range.size, listRangeLit,
+      List.forIn_cons, List.forIn_nil, VmState.callTo, VmState.callToWithFrame,
+      cdata_callFrame_identity, excnoToIntStop, nearestWalk_none, minMaxWalk_none,
+      deleteWalk_none, Spec.dictLookupWithCells_none, $args,*])
 
 /-- `vm_step_simp` with the lemmas of `check_step` (a run whose step is written out, after a split). -/
 syntax "check_step_simp" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
@@ -394,7 +430,13 @@ macro_rules
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Int.toNat_natCast_add_one,
-      Option.getD_some, Option.getD_none, VmState.retCont, $args,*])
+      Option.getD_some, Option.getD_none, VmState.retCont, havocLoads, havocCellLoads,
+      havocLoadsM, havocLoadListM, Havoc.run_loadsM, havocStop,
+      ↓ VM.forIn_registerCellLoad, Array.append_push, Array.take_eq_extract,
+      stackChainExtract, arrayLitExtract, arrayLitGetElem, Std.Range.forIn_eq_forIn_range', Std.Range.size, listRangeLit,
+      List.forIn_cons, List.forIn_nil, VmState.callTo, VmState.callToWithFrame,
+      cdata_callFrame_identity, excnoToIntStop, nearestWalk_none, minMaxWalk_none,
+      deleteWalk_none, Spec.dictLookupWithCells_none, $args,*])
 
 /-- The goal `g` (target `t`) with the `if` `e` of its target (`ite c a b` or `dite c a b`) replaced
 by its branch, given `h : c` (`pos`) or `h : ¬c`: the occurrences of `e` abstracted (`kabstract`),
@@ -412,7 +454,9 @@ def rewriteIte (g : MVarId) (t e : Expr) (h : Expr) (pos : Bool) : MetaM MVarId 
       if pos then (``dif_pos, (mkApp a h).headBeta) else (``dif_neg, (mkApp b h).headBeta)
     else if pos then (``if_pos, a) else (``if_neg, b)
   let eq ← mkAppOptM lemma #[c, inst, h, α, a, b]
-  let abst ← kabstract t e
+  -- reducible: an `if` with another condition is not unfolded to its `Decidable` instance, whose
+  -- evaluation on symbolic bits may take seconds each
+  let abst ← withReducible (kabstract t e)
   unless abst.hasLooseBVars do throwError "check_split: the `if` is not in the goal"
   let motive := Expr.lam `x α abst .default
   let t' := abst.instantiate1 branch
@@ -450,25 +494,50 @@ elab "check_split" : tactic => do
   let (sPos, sNeg) ← g.byCasesDec c (e.getArg! 2) `h
   let gPos ← sPos.mvarId.withContext (rewriteIte sPos.mvarId t e (mkFVar sPos.fvarId) true)
   let gNeg ← sNeg.mvarId.withContext (rewriteIte sNeg.mvarId t e (mkFVar sNeg.fvarId) false)
-  replaceMainGoal [gPos, gNeg]
+  -- the condition as a hypothesis with its projections and matches of states written out reduced
+  -- (`(VmState.mk …).globalVersion`): small for the `omega` of later steps
+  let hId := mkIdent `h
+  let small (g : MVarId) : TacticM MVarId := do
+    let r ← Tactic.run g (evalTactic (← `(tactic| try dsimp only at $hId:ident)))
+    return r.headD g
+  replaceMainGoal [← small gPos, ← small gNeg]
 
-/-- `check_one_step [hints]`: one step of the exploration of the paths of a run: the first `if` of
-the goal decided or split (`vm_split`, a branch with contradicting conditions closed), a step of the
-run (`check_step`, the code position noted), a fuel that is a variable split, the loop rule at a loop
-head with the invariant `SafeActs` of `c5` (`vm_loop_c5`, then a step into the loop), a path back at
-a loop head closed by its hypothesis (`check_loop_close`). Fails on the end of a path. -/
-syntax "check_one_step" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
+/-- A loop invariant of the user: the number `k` of top stack entries it is about and the property
+`P` of them (`check_loop_user`, TvmLean/Proofs/Check/Loops.lean). -/
+syntax checkLoopInv := " (" &"loop" num " := " term ")"
+
+/-- `check_loop_any [hints] (loop k := P)*`: the loop rule with the first loop invariant of the user
+that holds at the loop head, else that of `check_loop` (its elaborator: TvmLean/Proofs/Check/Loops.lean). -/
+syntax (name := checkLoopAny) "check_loop_any" " [" Lean.Parser.Tactic.simpArg,* "]" (checkLoopInv)* :
+  tactic
+
+/-- `check_loop_close_user [hints]`: a path back at the head of a loop with an invariant of the user
+closed by the loop's hypothesis (its elaborator: TvmLean/Proofs/Check/Loops.lean). -/
+syntax (name := checkLoopCloseUser) "check_loop_close_user" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
+
+/-- `check_one_step [hints] (loop k := P)*`: one step of the exploration of the paths of a run: the
+loads of cells the run does not know replaced by their outcomes (`check_havoc`, `check_step_finish`,
+TvmLean/Proofs/Check/Unknown.lean), the first `if` of the goal decided or split (`vm_split`, a
+branch with contradicting conditions closed, what the map of a dictionary says of a walk split on
+added: `check_dict_facts`), a step of the run (`check_step`, the code position noted), a fuel that is
+a variable split, the loop rule at a loop head (`check_loop_any` with the loop invariants of the
+user, else `check_loop`: `SafeActs` of `c5`; then a step into the loop), a path back at a loop head
+closed by its hypothesis (`check_loop_close`, `check_loop_close_user`). Fails on the end of a path. -/
+syntax "check_one_step" " [" Lean.Parser.Tactic.simpArg,* "]" (checkLoopInv)* : tactic
 macro_rules
-  | `(tactic| check_one_step [$args,*]) => `(tactic| set_option maxRecDepth 100000 in first
-      | (check_split <;> try vm_prune_cheap)
+  | `(tactic| check_one_step [$args,*] $loops:checkLoopInv*) => `(tactic| set_option maxRecDepth 100000 in first
+      | check_havoc
+      | check_step_finish
+      | (check_split <;> try vm_prune_cheap <;> try check_dict_facts)
       | (vm_not_at_loop_head; check_mark_pos; check_step [$args,*])
-      | (vm_not_at_loop_head; vm_fuel <;> try simp only [VmState.runWith_zero, Excno.toInt])
+      | (vm_not_at_loop_head; vm_fuel <;> try simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt])
       | (vm_has_run; check_step_simp [$args,*])
       | check_loop_close
-      | (vm_has_run; check_mark_pos; vm_loop_c5 SafeActs <;>
+      | check_loop_close_user [$args,*]
+      | (vm_has_run; check_mark_pos; (first | check_loop_any [$args,*] $loops* | check_loop) <;>
           first
-            | (simp only [VmState.runWith_zero, Excno.toInt]; done)
-            | simp only [VmState.runWith_zero, Excno.toInt]
+            | (simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]; done)
+            | simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]
             | check_step [$args,*]))
 
 /-- `check_run [hints]`: every path of the run in the goal, to its end (`check_one_step` as long as
@@ -502,7 +571,8 @@ def projTerm (e : Expr) : (depth : Nat := 64) → MetaM Expr
 
 /-- Finds the witnesses of `∃ x, ...` by unification: a witness of a structure type is its
 constructor on new unknowns, the equations among the parts (`∧`) solved by unification
-(reducible) first. Returns the parts left. -/
+(reducible) first; of a disjunction the first case whose equations of data (not numbers) all unify.
+Returns the parts left. -/
 def checkExists (g : MVarId) : (depth : Nat := 256) → MetaM (List MVarId)
   | 0 => pure [g]
   | depth + 1 => g.withContext do
@@ -510,6 +580,18 @@ def checkExists (g : MVarId) : (depth : Nat := 256) → MetaM (List MVarId)
     if ty.isAppOfArity ``Exists 2 then
       let α := ty.getArg! 0
       let p := ty.getArg! 1
+      -- an unknown first (a cell, a value the equations give whole, a structure the data still
+      -- holds: `d.f =?= ?d.f` assigns `?d := d`); a structure's constructor on unknowns when the
+      -- equations of data are not all solved that way
+      let s ← saveState
+      let w ← mkFreshExprMVar α
+      let g' ← mkFreshExprSyntheticOpaqueMVar (mkApp p w).headBeta (← g.getTag)
+      let r ← checkExists g'.mvarId! depth
+      let ctor ← mkWitness α
+      if ctor.isMVar || (!(← instantiateMVars w).isMVar && (← allDataEqsSolved r)) then
+        g.assign (← mkAppOptM ``Exists.intro #[α, p, w, g'])
+        return r
+      s.restore
       let w ← mkWitness α
       let g' ← mkFreshExprSyntheticOpaqueMVar (mkApp p w).headBeta (← g.getTag)
       g.assign (← mkAppOptM ``Exists.intro #[α, p, w, g'])
@@ -521,6 +603,18 @@ def checkExists (g : MVarId) : (depth : Nat := 256) → MetaM (List MVarId)
       let ra ← checkExists ga.mvarId! depth
       let rb ← checkExists gb.mvarId! depth
       return ra ++ rb
+    if ty.isAppOfArity ``Or 2 then
+      let s ← saveState
+      let ga ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 0) (← g.getTag)
+      let ra ← checkExists ga.mvarId! depth
+      if ← allDataEqsSolved ra then
+        g.assign (← mkAppOptM ``Or.inl #[ty.getArg! 0, ty.getArg! 1, ga])
+        return ra
+      s.restore
+      let gb ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 1) (← g.getTag)
+      let rb ← checkExists gb.mvarId! depth
+      g.assign (← mkAppOptM ``Or.inr #[ty.getArg! 0, ty.getArg! 1, gb])
+      return rb
     if let some (_, a, b) := ty.eq? then
       let s ← saveState
       if ← withReducible (isDefEq a b) then
@@ -529,6 +623,15 @@ def checkExists (g : MVarId) : (depth : Nat := 256) → MetaM (List MVarId)
       s.restore
     return [g]
 where
+  /-- No part left is an equation of data (of a type other than `Nat`, `Int`, `Bool`): the case
+  of a disjunction whose data matches. -/
+  allDataEqsSolved (gs : List MVarId) : MetaM Bool := do
+    for g in gs do
+      let ty ← instantiateMVars (← g.getType)
+      if let some (α, _, _) := ty.eq? then
+        let α ← whnfR α
+        unless α.isConstOf ``Nat || α.isConstOf ``Int || α.isConstOf ``Bool do return false
+    return true
   mkWitness (α : Expr) : MetaM Expr := do
     let α ← whnfR α
     let .const n us := α.getAppFn | return ← mkFreshExprMVar α
@@ -863,19 +966,48 @@ def cutGoal (g : MVarId) (sub : List MVarId → TacticM (Array MessageData)) :
   let m ← mkFreshExprSyntheticOpaqueMVar ty tag
   let fails ← sub [m.mvarId!]
   unless fails.isEmpty do return fails
+  let pos ← describePos tag
+  progressLine s!"a cut at {pos}: every path proved, its proof term next"
   let t0 ← IO.monoMsNow
   let pf ← instantiateMVars m
+  let t1 ← IO.monoMsNow
   if pf.hasExprMVar then
     let left ← (← getMVarsNoDelayed pf).filterM fun m => return !(← m.isAssigned)
     return #[← report g "a part left unproved" none left.toList]
-  g.assign (← mkAuxTheorem ty pf)
-  progressLine s!"a cut at {← describePos tag}: its theorem made in {(← IO.monoMsNow) - t0} ms"
+  if check.progress.get (← getOptions) then
+    progressLine s!"a cut at {pos}: its proof term instantiated in {t1 - t0} ms, \
+      {← pf.numObjs} objects, depth {pf.approxDepth}"
+  let c ← mkAuxTheorem ty pf
+  g.assign c
+  progressLine s!"a cut at {pos}: its theorem made (checked by the kernel) in {(← IO.monoMsNow) - t1} ms"
   return #[]
+
+/-- With the option `check.debug`: why the step at `g` fails, each of the tactics `alts` (the
+alternatives of `check_one_step`) run on its own, its error and the errors it logged reported
+(`logInfo`, or on the checker's output with `check.progress`); nothing of the attempts kept. -/
+def debugStep (g : MVarId) (alts : Array (String × TSyntax `tactic)) : TacticM Unit := do
+  unless check.debug.get (← getOptions) do return
+  for (name, tac) in alts do
+    let s ← saveState
+    let n0 := (← Core.getMessageLog).toList.length
+    let r ← tryCatchRuntimeEx
+      (do
+        let gs ← Term.withoutErrToSorry (Tactic.run g (evalTactic tac))
+        let msgs := ((← Core.getMessageLog).toList.drop n0).filter (·.severity == .error)
+        let mut m := m!"{gs.length} goal(s) left"
+        for msg in msgs do m := m ++ m!"\n  logged: " ++ msg.data
+        pure m)
+      (fun ex => pure m!"fails: {ex.toMessageData}")
+    s.restore
+    let m := m!"check: at {← describePos (← g.getTag)}, {name}: {r}"
+    -- with `check.progress`, on the checker's output at once (a check that does not end shows it)
+    if check.progress.get (← getOptions) then progressLine ((← m.toString).take 4000) else logInfo m
 
 /-- Every path from the goals `goals` (`check_one_step` as `step`), each end closed (`finishLeaf`);
 a path is cut (`cutGoal`) every `cut` steps, at most `depth` cuts deep; at most `budget` steps in
 all. The reports of the paths not proved. -/
-def explore (step : TSyntax `tactic) (args : Array Syntax) (cut : Nat) (budget : IO.Ref Nat) :
+def explore (step : TSyntax `tactic) (args : Array Syntax) (cut : Nat) (budget : IO.Ref Nat)
+    (alts : Array (String × TSyntax `tactic) := #[]) :
     (depth : Nat) → List MVarId → TacticM (Array MessageData)
   | depth, goals => do
     -- the goals to explore, the last first, each with its steps since the last cut
@@ -895,7 +1027,7 @@ def explore (step : TSyntax `tactic) (args : Array Syntax) (cut : Nat) (budget :
         match depth with
         | d + 1 =>
           if ← isRunGoal g then
-            fails := fails ++ (← cutGoal g (explore step args cut budget d))
+            fails := fails ++ (← cutGoal g (explore step args cut budget alts d))
             continue
         | 0 => pure ()
       -- out of steps (`check.maxSteps`): the path is reported where it stands
@@ -904,9 +1036,24 @@ def explore (step : TSyntax `tactic) (args : Array Syntax) (cut : Nat) (budget :
         if let some m ← finishLeaf g args then fails := fails.push m
         continue
       budget.set (b - 1)
-      match ← tryTac g step stepHb with
+      -- with `check.debug`, the progress line of each alternative of the step before it is tried:
+      -- a step that does not end shows which
+      let r ← if check.debug.get (← getOptions) && progress then do
+          let mut r := none
+          for (name, tac) in alts do
+            progressLine s!"  trying {name}"
+            let t1 ← IO.monoMsNow
+            let r' ← tryTac g tac stepHb
+            progressLine s!"  {name}: {if r'.isSome then "applies" else "fails"} in {(← IO.monoMsNow) - t1} ms"
+            if let some gs := r' then
+              r := some gs
+              break
+          pure r
+        else tryTac g step stepHb
+      match r with
       | some gs => work := work ++ (gs.reverse.map (·, n + 1)).toArray
       | none =>
+        if ← isRunGoal g then debugStep g alts
         if progress && (← isRunGoal g) then
           -- the goal of a path whose run stops before its end, in full
           progressLine s!"the run stops here:\n{← ppGoal g}"
@@ -916,15 +1063,30 @@ def explore (step : TSyntax `tactic) (args : Array Syntax) (cut : Nat) (budget :
 /-- `check_paths [hints]`: every path of the run in the goal to its end and every end closed
 (`explore`: `check_one_step`, `finishLeaf`), the paths cut every `check.cut` steps into auxiliary
 theorems; fails with the report of every path not proved. -/
-syntax (name := checkPaths) "check_paths" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
+syntax (name := checkPaths) "check_paths" " [" Lean.Parser.Tactic.simpArg,* "]" (checkLoopInv)* : tactic
 
 @[tactic checkPaths] def evalCheckPaths : Tactic := fun stx => do
   match stx with
-  | `(tactic| check_paths [$args,*]) =>
-    let step ← `(tactic| check_one_step [$args,*])
+  | `(tactic| check_paths [$args,*] $loops:checkLoopInv*) =>
+    let step ← `(tactic| check_one_step [$args,*] $loops*)
     let maxSteps := check.maxSteps.get (← getOptions)
     let budget ← IO.mkRef (if maxSteps == 0 then 1000000000 else maxSteps)
-    let fails ← explore step args.elemsAndSeps (check.cut.get (← getOptions)) budget 10000
+    -- the alternatives of `check_one_step`, each on its own (`check.debug`)
+    let alts := #[("check_havoc", ← `(tactic| check_havoc)),
+      ("check_step_finish", ← `(tactic| check_step_finish)),
+      ("check_split", ← `(tactic| (check_split <;> try vm_prune_cheap <;> try check_dict_facts))),
+      ("check_step", ← `(tactic| (vm_not_at_loop_head; check_mark_pos; check_step [$args,*]))),
+      ("vm_fuel", ← `(tactic| (vm_not_at_loop_head; vm_fuel <;>
+        try simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]))),
+      ("check_step_simp", ← `(tactic| (vm_has_run; check_step_simp [$args,*]))),
+      ("check_loop_close", ← `(tactic| check_loop_close)),
+      ("check_loop_close_user", ← `(tactic| check_loop_close_user [$args,*])),
+      ("check_loop", ← `(tactic| (vm_has_run; check_mark_pos; (first | check_loop_any [$args,*] $loops* | check_loop) <;>
+          first
+            | (simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]; done)
+            | simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]
+            | check_step [$args,*])))]
+    let fails ← explore step args.elemsAndSeps (check.cut.get (← getOptions)) budget alts 10000
       (← getUnsolvedGoals)
     if fails.isEmpty then setGoals [] else throwReports fails
   | _ => throwUnsupportedSyntax
@@ -949,25 +1111,19 @@ elab "check_destruct " h:ident " [" args:Lean.Parser.Tactic.simpArg,* "]" : tact
         if let some ty' ← unfoldDefinition? ty then return some ty'.headBeta
       pure none) then
     g ← g.replaceLocalDeclDefEq d.fvarId ty'
-  for _ in [0:500] do
-    match ← destructStep g names #[] with
-    | some g' => g := g'
-    | none => break
-  replaceMainGoal [g]
-
-end TvmLean.Check
-
-namespace TvmLean
+  -- the disjunctions of the invariant (its cases), not those of the context before
+  let old := (← getLCtx).getFVarIds.filter (· != d.fvarId)
+  replaceMainGoal (← destructUser g names old)
 
 /-- `ran_case [hints]`: one statement `RunsKeep C P stack G` (`TvmLean/Proofs/Check/Tactic.lean`):
 the invariant taken apart, the start state written out, the run to the end of every path, every
 end closed or reported. -/
-syntax (name := ranCase) "ran_case" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
+syntax (name := ranCase) "ran_case" " [" Lean.Parser.Tactic.simpArg,* "]" (checkLoopInv)* : tactic
 
 open Lean Elab Tactic in
 @[tactic ranCase] def evalRanCase : Tactic := fun stx => do
   match stx with
-  | `(tactic| ran_case [$args,*]) =>
+  | `(tactic| ran_case [$args,*] $loops:checkLoopInv*) =>
     -- the binders of the statement (the message or tick-tock, the invariant's parameters) and of
     -- `RunsKeep`, by names a report can show
     let mut g ← getMainGoal
@@ -976,6 +1132,16 @@ open Lean Elab Tactic in
       let (_, g') ← g.intro1P
       g := g'
     replaceMainGoal [g]
+    -- the loop invariants bound (`loopInv0`, ...) while the parameters of the invariant are still
+    -- variables: taking the invariant apart may replace them (`d.publicKey` for `key`)
+    let mut loops' : Array (TSyntax `TvmLean.Check.checkLoopInv) := #[]
+    for (l, i) in loops.zipIdx do
+      let nm := mkIdent (Name.mkSimple s!"loopInv{i}")
+      let P : Term := ⟨l.raw[4]⟩
+      evalTactic (← `(tactic| let $nm:ident := $P))
+      let k : TSyntax `num := ⟨l.raw[2]⟩
+      loops' := loops'.push (← `(checkLoopInv| (loop $k := $nm)))
+    let loops := loops'
     evalTactic (← `(tactic| unfold TvmLean.Check.RunsKeep))
     let (_, gr) ← (← getMainGoal).introN 13
       [`data, `hP, `c7, `gl, `gm, `gc, `gv, `hgv, `libs, `mdd, `mll, `lc, `fuel]
@@ -984,21 +1150,22 @@ open Lean Elab Tactic in
     let hgv := mkIdent `hgv
     evalTactic (← `(tactic| try dsimp only at $hgv:ident))
     evalTactic (← `(tactic| check_destruct $hP [$args,*]))
-    evalTactic (← `(tactic| try simp only [Nat.reducePow] at *))
-    evalTactic (← `(tactic| simp only [TvmLean.Check.start, computePhaseInit, VmState.initial,
+    evalTactic (← `(tactic| all_goals try simp only [Nat.reducePow] at *))
+    evalTactic (← `(tactic| all_goals simp only [TvmLean.Check.start, computePhaseInit, VmState.initial,
       computePhaseStack, TvmLean.Check.tickTockStack, Regs.initial, Option.getD_some, reduceIte, $args,*]))
-    evalTactic (← `(tactic| check_paths [$hgv:ident, $args,*]))
+    evalTactic (← `(tactic| check_paths [$hgv:ident, $args,*] $loops*))
   | _ => throwUnsupportedSyntax
 
 /-- `ran_preserves [hints]`: the obligation of `Reachable.code_fixed` for a closed code literal and
 an invariant of the data (`TvmLean.Check.ran_preserves_of`), each kind of transaction by `ran_case`;
 fails with the reports of all the kinds that fail. -/
-syntax (name := ranPreserves) "ran_preserves" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
+syntax (name := ranPreserves) "ran_preserves" " [" Lean.Parser.Tactic.simpArg,* "]" (checkLoopInv)* :
+  tactic
 
 open Lean Elab Tactic in
 @[tactic ranPreserves] def evalRanPreserves : Tactic := fun stx => do
   match stx with
-  | `(tactic| ran_preserves [$args,*]) =>
+  | `(tactic| ran_preserves [$args,*] $loops:checkLoopInv*) =>
     evalTactic (← `(tactic| refine TvmLean.Check.ran_preserves_of (by rfl) ?_ ?_ ?_ ?_ ?_ ?_))
     let kinds := #["an external message, global version from 4", "an external message, global version below 4",
       "an internal message, global version from 4", "an internal message, global version below 4",
@@ -1008,7 +1175,7 @@ open Lean Elab Tactic in
     for (g, i) in goals.zipIdx do
       setGoals [g]
       try
-        Term.withoutErrToSorry (evalTactic (← `(tactic| ran_case [$args,*])))
+        Term.withoutErrToSorry (evalTactic (← `(tactic| ran_case [$args,*] $loops*)))
         unless (← getUnsolvedGoals).isEmpty do throwError "goals left"
       catch ex =>
         fails := fails.push (m!"{kinds[i]?.getD ""}:\n" ++ ex.toMessageData)
@@ -1019,4 +1186,4 @@ open Lean Elab Tactic in
       throwError msg
   | _ => throwUnsupportedSyntax
 
-end TvmLean
+end TvmLean.Check
