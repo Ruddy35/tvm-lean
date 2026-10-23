@@ -73,10 +73,34 @@ how often a path is cut into auxiliary theorems.
 `--precheck` prints, before a proof, which instructions and control-flow patterns of the code
 symbolic execution does not cover (`tools/spec-coverage`, below).
 
+The runs need nothing about the code beyond the invariant (TvmLean/Proofs/Check/Unknown.lean,
+TvmLean/Proofs/Check/Loops.lean):
+
+* loads of cells are taken by their outcomes (`check_havoc`): normally or out of gas, with new gas
+  and loaded cells (and, for cells that may be libraries, loaded libraries): the cells of a message
+  or of a dictionary the code does not know, and those of the code itself, whose gas followed load
+  by load is a term that grows with each load;
+* dictionaries the code does not know, of a message or of the data: every outcome of a lookup,
+  `DICT*GETNEXT`/`GETPREV`/`MIN`/`MAX`, a delete or a set is a case, and what the map of the
+  dictionary says of it is added (`check_dict_facts`, TvmLean/Proofs/Exec/Dict/Near.lean: the key
+  found by `DICTIGETNEXT` is the least key of the map after the given one, its value the map's);
+  an invariant can speak of a dictionary of the data through its map (`Dict.value`, `Dict.WF`);
+* calls with arguments and return values (`CALLXARGS`, `RETARGS`, `CALLDICT`), configuration
+  parameters (`CONFIGPARAM` of an unknown configuration);
+* a loop is closed with the invariant "the state is the loop head but for the gas, the loaded cells
+  and libraries, the counters, the action list (`SafeActs`) and the top stack entry"; a loop whose
+  state is more of the stack takes a line `-- contract-check: loop k Q`: the top `k` entries may
+  change in any way that keeps `Q` (a predicate of `k` values in which the parameters may appear).
+
+`--progress` writes each step to the checker's log (`<out>.log`) as it goes.
+
 `tools/contract-check/examples/` has the invariants of wallet v3, wallet v2 and the simple wallet
 (the code and the key never change), and a false one of wallet v3 (the seqno is always 0: `NOT
-PROVED`, the path of an accepted external message). The modules TvmLean/Proofs/Check/Contracts/*.lean
-were generated from them (`--out` there). It also has the invariants of the corpus of mainnet
+PROVED`, the path of an accepted external message); of the highload wallet v1 (`DICTIGETNEXT` over
+a dictionary of the message), the simple wallet with procedures (`CALLDICT`), the restricted wallet
+v1 (calls with arguments, `CONFIGPARAM`) and the highload wallet v2 (a dictionary in the data and a
+loop over it with a loop invariant). The modules TvmLean/Proofs/Check/Contracts/*.lean were
+generated from some of them (`--out` there). It also has the invariants of the corpus of mainnet
 contracts (`Tests/Tx/Corpus.lean`): wallet v4r2 and v5r1 (`wallet4.lean`, `wallet5.lean`: the code,
 the key and the subwallet or wallet id never change, the seqno never decreases), the jetton wallet
 of TEP-74 (`jetton-wallet.lean`: the owner, the master and the wallet code never change, the balance
