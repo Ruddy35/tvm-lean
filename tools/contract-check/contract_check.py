@@ -17,7 +17,10 @@ to check:
 
 The hints are what the run and the closers need to read the data: the definition that writes the
 data as a cell (`Data.encode`, unfolded so that the run reads its fields), definitions to unfold in
-the invariant (`Data.WF`), lemmas (decode/encode facts).
+the invariant (`Data.WF`), lemmas (decode/encode facts). Definitions to unfold only at the ends of
+the paths, when the data a path leaves is compared with the invariant, are tagged in `Inv.lean`
+with `attribute [check_close] ...` (TvmLean/Proofs/Check/Attr.lean): a data layout whose reads the
+run takes from lemmas among the hints (`examples/storage.lean`).
 
 contract-check generates one Lean module (`--out`, default a temporary file) with
 

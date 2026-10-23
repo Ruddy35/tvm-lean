@@ -78,6 +78,18 @@ symbolic execution does not cover (`tools/spec-coverage`, below).
 PROVED`, the path of an accepted external message). The modules TvmLean/Proofs/Check/Contracts/*.lean
 were generated from them (`--out` there). The script's docstring has the details.
 
+`examples/storage.lean` is TON Storage (`list:tools/txoracle/contracts.txt#storage.code`, the code
+of `storage-contract-code.boc`): the data is `Contracts.Storage.Data.encode d` within its widths (the
+layout, TvmLean/Proofs/Contracts/StorageData.lean, and its reads, StorageRun/Read.lean, as hints),
+its provider, Merkle root, file size, rate, longest span paid, client and torrent hash never change,
+and an active contract stays active. Its runs take what TvmLean/Proofs/Check/Framed.lean adds to the
+steps (`check_extra_step`): `CTOS` of a cell of the message and `DICTUGET` on a dictionary of the
+body by the framed rules (any slice, any value, or an exception), `LDMSGADDR` of any slice, `CTOS` of
+data the run wrote (ordinary by definition), an exception that ends the run closed at once (kept as
+`VmState.raiseDead`), `c7` after `RAND` made a variable again (TvmLean/Proofs/Check/Forget.lean);
+its Inv file tags with `check_close` (TvmLean/Proofs/Check/Attr.lean) what the ends of the paths
+unfold (`Data.encode` written out, compared with the cell the code built).
+
 ## What symbolic execution covers: instructions, patterns, a contract's code
 
 ```sh
