@@ -117,6 +117,7 @@ import TvmLean.Proofs.Contracts.StorageCode
 import TvmLean.Proofs.Contracts.StorageData
 import TvmLean.Proofs.Contracts.StorageRun.Read
 import TvmLean.Proofs.Contracts.StorageRun.Common
+import TvmLean.Proofs.Contracts.StorageRun.External
 
 /-!
 # All proof modules together
