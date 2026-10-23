@@ -60,7 +60,7 @@ theorem excQuit_step (st : VmState) (e : Int) (hcc : st.cc = .excQuit)
   have hcj : ∀ s : VmState, s.countJump.cstate = s.cstate ∧ s.countJump.librariesMissed = s.librariesMissed := by
     intro s; simp only [VmState.countJump]; split <;> exact ⟨rfl, rfl⟩
   have key : ∀ (n : Int) (s : VmState), n ≠ 0 → n ≠ 1 → s.cstate = st.cstate → s.librariesMissed = st.librariesMissed →
-      ∃ ec st', (if s.countJump.gasExhaustedNow = true then s.countJump.outOfGasHalt else StepResult.halt (~~~n) s.countJump)
+      ∃ ec st', (if s.jumpRanOut = true then s.countJump.outOfGasHalt else StepResult.halt (~~~n) s.countJump)
         = StepResult.halt ec st' ∧ ec ≠ -1 ∧ ec ≠ -2 ∧ st'.cstate = st.cstate ∧ st'.librariesMissed = st.librariesMissed := by
     intro n s h0 h1 hc hm
     obtain ⟨c1, c2⟩ := hcj s
