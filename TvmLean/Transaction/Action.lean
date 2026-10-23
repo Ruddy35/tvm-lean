@@ -516,7 +516,8 @@ def Tx.actionSendMsg (t : Tx) (ap : ActionPhase) (sl : SizeLimits) (mode0 : Nat)
       feesTotal := fwdFee
       feesCollected := fwdFee
       pure w.cell
-  ap := { ap with msgsCreated := ap.msgsCreated + 1, endLt := ap.endLt + 1, outMsgs := ap.outMsgs.push newMsg,
+  -- `ap.end_lt++` (transaction.cpp:3129), `td::uint64`
+  ap := { ap with msgsCreated := ap.msgsCreated + 1, endLt := (ap.endLt + 1) % 2 ^ 64, outMsgs := ap.outMsgs.push newMsg,
                   totalActionFees := ap.totalActionFees + feesCollected, totalFwdFees := ap.totalFwdFees + feesTotal,
                   totMsgCells := ap.totMsgCells + cells + 1 }
   if mode &&& 0xa0 == 0xa0 then
@@ -634,8 +635,8 @@ def Tx.actionPhaseRun (t : Tx) (sl : SizeLimits) : Except String (Option Tx) := 
       if t.gv ≥ 14 then
         t := { t with msgBalanceRemaining := msgBalanceBefore, msgExtra := msgExtraBefore, msgBalanceValid := msgValidBefore }
       if t.gv ≥ 10 then
-        t := { t with endLt := t.startLt + 1 }
-        ap := { ap with endLt := t.startLt + 1 }
+        t := { t with endLt := (t.startLt + 1) % 2 ^ 64 }
+        ap := { ap with endLt := (t.startLt + 1) % 2 ^ 64 }
         if t.gv ≥ 4 then
           let fine := Nat.min (ap.actionFine + ap.failActionFine) t.balance
           ap := { ap with actionFine := fine, totalActionFees := fine }
@@ -707,8 +708,9 @@ def Tx.bouncePhaseRun (t : Tx) : Except String (Option Tx) := do
   let collected := fwd * prices.firstFrac / 0x10000
   let fwdRemain := fwd - collected
   let t : Tx := { t with totalFees := t.totalFees + collected }
-  let lt := t.startLt + 1 + t.outMsgs.size
-  let t : Tx := { t with endLt := t.endLt + 1 }
+  -- `created_lt = start_lt + 1 + out_msgs.size(); end_lt++` (3474-3475), `td::uint64`
+  let lt := (t.startLt + 1 + t.outMsgs.size) % 2 ^ 64
+  let t : Tx := { t with endLt := (t.endLt + 1) % 2 ^ 64 }
   let w : W := (({} : W).uint 5 4).bitStr info.dest |>.bitStr dest
   -- `in_msg_extra_flags` is read from version 12 (before, the field was the IHR fee)
   let w := (w.currencies { grams := value, extra := t.msgExtra }).grams (if t.gv ≥ 12 then t.inMsgInfo.extraFlags &&& 3 else 0) |>.grams fwdRemain

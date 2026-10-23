@@ -352,7 +352,10 @@ def Tx.unpackInputMsg (t : Tx) (sl : SizeLimits) (fwdPrices : MsgPrices) : Optio
       let t := if t.gv ≥ 12 then t
         else { t with msgBalanceRemaining := t.msgBalanceRemaining + info.extraFlags }
       let t := { t with msgBalanceRemaining := t.msgBalanceRemaining + info.value.grams, inFwdFee := 0 }
-      let t := if info.createdLt ≥ t.startLt then { t with startLt := info.createdLt + 1, endLt := info.createdLt + 2 } else t
+      -- `start_lt = created_lt + 1; end_lt = start_lt + 1` (transaction.cpp:921-924): `ton::LogicalTime`s,
+      -- `td::uint64`, modulo 2^64
+      let t := if info.createdLt ≥ t.startLt then
+        { t with startLt := (info.createdLt + 1) % 2 ^ 64, endLt := (info.createdLt + 2) % 2 ^ 64 } else t
       pure (Except.ok t, s)
     else do
       let ((src, dest, _), s) ← Reader.extInMsgInfo s

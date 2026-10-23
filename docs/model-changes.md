@@ -169,6 +169,7 @@ fuzz на нескольких версиях; новые случаи орак�
 | Файл | Что изменено | Основание в C++ |
 |---|---|---|
 | `Transaction/Run.lean` (`storagePartial`, `storagePartials`, `storageFees`, `storageFeesAbort`), `Emulate.lean` (`Tx.storageAborts`), `Exec/TonEnv/GetStorageFee.lean` | цены хранения от 2^63: `add_partial_storage_payment` умножает на цену как `long long` (`mul_short`), отрицательную от 2^63 (раньше модель — целиком): плата меньше. Отрицательная плата за период — `compute_storage_fees` возвращает пустое число, сложение с долгом аварийно останавливает эмулятор (модель: «не поддержано»). `GETSTORAGEFEE` умножает так же (`operator*(RefInt256, long long)`) | transaction.cpp:757-774, 790-813, 1060; tonops.cpp:2621-2638; refint.cpp:77-80 |
+| `Transaction/Emulate.lean` (`newTx`, `Tx.commitLtValid`), `Run.lean` (`Tx.unpackInputMsg`), `Action.lean` (`actionSendMsg`, `actionPhaseRun`, `bouncePhaseRun`) | логическое время — `td::uint64`: `start_lt = created_lt + 1`, `end_lt = start_lt + 1` и приращения — по модулю 2^64 (раньше точно): сообщение, созданное в 2^64 − 1, начинает транзакцию в 0; конец в 0 (начало 2^64 − 1) не проходит проверку `commit` — эмулятор отказывает (проверки в модели не было). Без логического времени эмулятор берёт блок после последней транзакции счёта (раньше модель брала 0) | transaction.cpp:860-861, 921-924, 2279, 3129, 3474-3475, 4071; transaction-emulator.cpp:42-45, 75-78 |
 
 ## 2. Тотальность (поведение не меняется)
 

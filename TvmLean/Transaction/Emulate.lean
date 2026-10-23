@@ -12,12 +12,21 @@ def accountAddrValid (acc : Cell) : Bool :=
   let s := Slice.ofCell acc
   !(s.haveBits 1 && (s.readBits 1)[0]!) || (Reader.run Reader.msgAddressIntValid (s.advanceBits 1).toCellRemaining).isSome
 
+/-- `Transaction::commit` (transaction.cpp:4071): `FAIL_UNLESS(account.last_trans_end_lt_ <= start_lt &&
+start_lt < end_lt)`, the emulator fails after `serialize` (transaction-emulator.cpp:75-78). The logical
+times are `td::uint64`: only a time that wraps around fails (`end_lt` 0 after 2^64 - 1). -/
+def Tx.commitLtValid (t : Tx) : Bool :=
+  t.account.lastTransEndLt ≤ t.startLt && t.startLt < t.endLt
+
 /-- `Account::unpack` of the account at `(wc, addr)`, `fetch_config_params` and the `Transaction`
 constructor (`block_lt` is `lt` rounded down to the block). -/
 def newTx (cfg : Config) (shardAccount inMsg : Cell) (kind : TxKind) (wc : Int) (addr addrBits : BitString)
     (lt now : Nat) (libs : Option Cell) : Except String (Tx × Array StoragePrices × SizeLimits × GasPrices × MsgPrices) := do
   let special := wc == -1 && cfg.isSpecialSmc addr
   let some account := Account.unpack shardAccount wc addr special | throw "account"
+  -- without a logical time the emulator takes the block after the account's last transaction, a
+  -- `ton::LogicalTime` (`td::uint64`, transaction-emulator.cpp:42-45)
+  let lt := if lt = 0 then (account.lastTransLt / 1000000 + 1) * 1000000 % 2 ^ 64 else lt
   let account := { account with blockLt := lt - lt % 1000000 }
   -- `fetch_config_params`
   let some pricing := cfg.storagePrices | throw "storage prices"
@@ -28,10 +37,10 @@ def newTx (cfg : Config) (shardAccount inMsg : Cell) (kind : TxKind) (wc : Int) 
   let some fwd := cfg.msgPrices mc | throw "msg prices"
   let some _ := cfg.msgPrices (!mc) | throw "msg prices"
   if !cfg.createFeesValid then throw "block create fees"
-  -- the Transaction constructor
+  -- the Transaction constructor (transaction.cpp:860-861): `end_lt = start_lt + 1`, `td::uint64`
   let startLt := Nat.max lt account.lastTransEndLt
   let t : Tx :=
-    { cfg, kind, globalLibs := libs, gv := cfg.globalVersion, account, now, startLt, endLt := startLt + 1,
+    { cfg, kind, globalLibs := libs, gv := cfg.globalVersion, account, now, startLt, endLt := (startLt + 1) % 2 ^ 64,
       accStatus := if account.status == .nonexist then .uninit else account.status,
       myAddr := account.myAddr, myAddrExact := account.myAddrExact, balance := account.balance.grams,
       balanceExtra := account.balance.extra, originalBalance := account.balance.grams,
@@ -135,6 +144,7 @@ def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : Bi
     | return .failed "cannot serialize new transaction: compute_state fails"
   if !accountAddrValid newState then return .failed "compute_state: the new account fails block::tlb validation"
   let some tx := t.serialize newState | return .failed "serialize"
+  if !t.commitLtValid then return .failed "cannot commit new transaction"
   return .ok tx newState
 
 /-! ## Tick-tock (`transaction_emulator_emulate_tick_tock_transaction`) -/
@@ -176,6 +186,7 @@ def emulateTickTock (configRoot shardAccount : Cell) (isTock : Bool) (now lt : N
     | return .failed "cannot serialize new transaction: compute_state fails"
   if !accountAddrValid newState then return .failed "compute_state: the new account fails block::tlb validation"
   let some tx := t.serialize newState | return .failed "serialize"
+  if !t.commitLtValid then return .failed "cannot commit new transaction"
   return .ok tx newState
 
 end TvmLean.Tx

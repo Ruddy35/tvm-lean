@@ -900,6 +900,30 @@ def storage64Cases (x : Ctx) : Array TxCase := Id.run do
     (prices 1 500 (2 ^ 64 - 1) (2 ^ 20)))
   return out
 
+/-- Logical times are `ton::LogicalTime`, `td::uint64`, and wrap around (the `c7` contract stores `NOW`,
+`BLOCKLT` and `LTIME`):
+* `lt64/created-max`: a message created at 2^64 - 1 to an account that never had a transaction: `start_lt
+  = created_lt + 1` is 0 and `end_lt` 1 (transaction.cpp:921-924), which `commit` accepts (4071): the
+  transaction is made at 0;
+* `lt64/created-near-max`: created at 2^64 - 2: `start_lt` 2^64 - 1, `end_lt` 0: `commit` fails;
+* `lt64/account-max`: an account whose last transaction ended at 2^64 - 1: `end_lt = start_lt + 1` is 0
+  (860-861), `commit` fails;
+* `lt64/emulator-lt-zero`, `lt64/emulator-lt-zero-wrap`: the emulator without a logical time takes the
+  block after the account's last transaction (transaction-emulator.cpp:42-45): after 5000006 the block
+  at 6000000; after 2^64 - 100001 the block at 2^64 + 448384, modulo 2^64 448384 (and `start_lt` the
+  account's end). -/
+def lt64Cases (x : Ctx) : Array TxCase := Id.run do
+  let mut out : Array TxCase := #[]
+  let c7 : Cell := asm ((programs.lookup "c7").getD [])
+  let acc (lt : Nat) : Cell := mkAccount 0 a1 (.active c7 data0) 1000000000 1700000000 0 lt
+  out := out.push (x.case "lt64/created-max" (acc 0) (intMsgX (stdA 0 a1) 100000000 (createdLt := 2 ^ 64 - 1)))
+  out := out.push (x.case "lt64/created-near-max" (acc 0) (intMsgX (stdA 0 a1) 100000000 (createdLt := 2 ^ 64 - 2)))
+  out := out.push (x.case "lt64/account-max" (acc (2 ^ 64 - 1)) (intMsg 0 a1 100000000 false none #[]))
+  out := out.push { x.case "lt64/emulator-lt-zero" (acc 5000007) (intMsg 0 a1 100000000 false none #[]) with lt := 0 }
+  out := out.push { x.case "lt64/emulator-lt-zero-wrap" (acc (2 ^ 64 - 100000)) (intMsg 0 a1 100000000 false none #[]) with
+    lt := 0 }
+  return out
+
 /-- `SETGASLIMIT` below the gas consumed (`exec_set_gas_generic`, tonops.cpp:70-74) is out of gas with the
 limits as they were: the gas used is the gas consumed (`std::min` with the old limit, transaction.cpp:
 2016), and the credit of an external message stays (not accepted, 2017). `PUSHINT 1 SETGASLIMIT` on an
@@ -937,7 +961,7 @@ def coverageCases (cfg0 : Cell) (versions : List Nat) : Array TxCase := Id.run d
     out := out ++ Cov.deployCases x ++ Cov.activeStateCases x ++ Cov.activeInitCases x ++ Cov.actionListCases x true ++ Cov.sendCases x true ++
       Cov.accountCases x true ++ Cov.stateCases x ++ Cov.serializeCases x ++ Cov.gas64Cases x ++ Cov.tickTockAddrCases x ++
       Cov.setGasLimitCases x ++ Cov.gasWrapCases x ++ Cov.flatGasCases x ++ Cov.fwd64Cases x ++
-      Cov.storage64Cases x
+      Cov.storage64Cases x ++ Cov.lt64Cases x
   return out
 
 end Tests.Tx
