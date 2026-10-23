@@ -87,3 +87,67 @@
   вторая проверка (до v14 ошибка только если результат остался `0xFF…`) воспроизведена в модели
   (`Ristretto255.mulBase`, `Semantics/Exec/Crypto/Ext.lean`), а при v14 разница ненаблюдаема —
   умножение не удаётся только при `n ≡ 0 (mod l)`, который обработан ранним выходом.
+
+## 4. Покрытие символьным исполнением — опись готова
+
+`tools/spec-coverage/spec_coverage.py` → `docs/audit/spec-coverage.md` (сгенерирован; там же команды,
+которыми он пересоздаётся): что из набора инструкций и шаблонов управления исполняют `vm_run`
+(`TvmLean/Proofs/Exec/Tactic.lean`) и `ran_case` (`TvmLean/Proofs/Check/Tactic.lean`) в окружении
+модуля `tools/contract-check`, то есть то, что получает доказательство.
+
+- **Формы инструкций.** 919 форм таблицы декодирования, каждая перебрана по аргументам (32 473
+  опкода), декодирована декодером модели и классифицирована: лемма `vm_spec`, которая к ней подходит
+  (как её ищет `applySpec`), иначе обработчик модели — статически (какие программы VM он исполняет:
+  считаются леммой `vm_run`, разворачиваются `unfoldModelRun` или блокируют) и прогоном на символьном
+  состоянии фазы исполнения со стеком её сигнатуры. Сейчас: **125 покрыты леммами** (93 — всегда,
+  32 — с условием), **479 исполняются развёрткой обработчика**, **315 не исполняются**. 300 форм
+  имеют лемму, которую contract-check не видит: 227 из 333 лемм `vm_spec` лежат в модулях, которых
+  `TvmLean.Proofs.Check.Tactic` не импортирует (`Spec/ArithExt`, `StackExt`, `CellExt`, `Tuple`,
+  `DictSet`, `DictDel`, `DictSetGet`, `MsgAddr`, `MsgExt`, `Exec/Closure`).
+- **Шаблоны управления.** 29 шаблонов, 66 проб (`tools/spec-coverage/probes.fif`: маленький код,
+  который `ran_case` должен пройти до конца): 11 исполняются (`CALLCC`, циклы с известным числом
+  итераций, `AGAIN`, `THROW*`, неявные `RET`/`JMPREF`, `CALLREF`/`JMPREF`/`IF*REF`, диспетчер методов,
+  `CALLDICT`/`JMPDICT`/`PREPAREDICT`, `SETCP`, `ACCEPT`/`SETGASLIMIT`, параметры `c7`), 7 — частично
+  (`IFELSE`, циклы с неизвестным числом итераций — `REPEAT`, `*END`, `*BRK`, `TRY`, `RAWRESERVE`,
+  `c5`/`c7`), 11 — нет (замыкания, `*XARGS`, `RETALT`, цикл в цикле, `RUNVM`, действия кроме
+  `SENDRAWMSG`/`RAWRESERVE`, `COMMIT`, неизвестные словари и их перебор, конфигурация, опкоды версии
+  > 0).
+- **Предпроверка** (`contract-check <код> --precheck`): весь код контракта, достижимый из корня,
+  дизассемблирован и классифицирован до начала доказательства; прогнана на 17 кодах
+  `tools/txoracle/contracts.txt` (хранилище TON Storage там — тот же код, что
+  `storage/storage-daemon/smartcont/storage-contract-code.boc`). У кошельков v3, v2 и простого все
+  инструкции исполняются леммами (их доказательства есть); у остальных пробелы — в основном формы с
+  леммой вне contract-check и продолжения в ссылках.
+
+Найдено попутно (код тактик не менялся): `stepCode` доказывает `k ≤ globalVersion` через `decide`, а у
+contract-check версия символьная (`hgv : 4 ≤ gv`), поэтому ни один из 92 опкодов версии > 0 не
+исполняется в `ran_case` (`GASCONSUMED`, `SENDMSG`, `RUNVM`, `HASHEXT`, …); `unfoldModelRun`
+разворачивает только имена под `TvmLean`, и `private`-определения модели блокируют обработчики
+(`*VARARGS`, `IFBITJMP*`, `PFXDICT*`); `VmState.callTo` (результат `IFELSE`, вызов
+`DICT*GETEXEC`) не разворачивается ни одной леммой; правило цикла не обобщает счётчик `REPEAT`,
+хранимый в продолжении цикла.
+
+### Порядок работ до 100%
+
+По частоте в реальных кодах (таблица предпроверки) и цене:
+
+0. **Подключить доказанное**: импортировать в окружение contract-check модули с 227 леммами (≈300
+   форм; среди них самые частые пробелы контрактов — `XCHG_1I`, `BLKDROP2`, `PUXC`, `AND`, `EQINT`,
+   `NULLSWAPIFNOT*`, `STSLICER`, `LDGRAMS`/`STGRAMS`, `ISNULL`, `PUSHNULL`, `TUPLE`, `INDEX`, деление,
+   замыкания `Exec/Closure`); в `stepCode` брать `k ≤ globalVersion` из гипотезы (92 формы версии
+   > 0); разворачивать `private`-определения модели; лемма для `VmState.callTo`.
+1. **Управление из каждого кода FunC**: `CALLREF`/`IFJMPREF`/`IFREFELSE`/`PUSHREFCONT` (сейчас —
+   развёрткой; `CALLREF` есть в 11 из 17 кодов), `PUSHCTR`/`POPCTR` для `c5`, `c7`, `*XARGS`,
+   `RETALT`, `TRYARGS` и исключение внутри `TRY`, циклы `BRK`, счётчик `REPEAT` в правиле цикла, цикл в
+   цикле.
+2. **Словари в данных**: `LDDICT`/`STDICT`/`PLDDICT`, `DICT*GET/SET/DEL/REPLACE/ADD` на неизвестном
+   словаре (абстрактная карта `Dict.get` с гипотезами вместо замкнутых фактов), перебор
+   `GETNEXT/PREV/MIN/MAX/REMMIN`, формы `OPTREF`.
+3. **Окружение и действия**: `CONFIGPARAM`/`CONFIGOPTPARAM`, `GETGLOB`/`SETGLOB`, `RAND*`/`ADDRAND`,
+   цены `GET*FEE`, разбор адресов, `COMMIT`, `RAWRESERVE` в `SafeActs`.
+4. **Остальная арифметика и ячейки**: деление и сдвиги, на которых `vm_simp` обработчика упирается в
+   глубину рекурсии (леммы `ArithExt` их покрывают — волна 0), операции ячеек с `forIn` в обработчике
+   (`BDEPTH`, `BCHK*`, `SDEPTH`), `CDATASIZE`/`SDATASIZE`.
+5. **Редкое**: криптография (подписи, BLS, Ristretto — как термы), `RUNVM`, `SETCP` ≠ 0, отладка;
+   `SETCODE`/`SETLIBCODE`/`CHANGELIB`/`SENDMSG`/`RAWRESERVEX` требуют расширить `SafeActs` и
+   инварианты меняющегося кода.
