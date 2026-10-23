@@ -388,7 +388,9 @@ def main() -> None:
         # a module of the repository's libraries: built by `lake` (its `.olean` kept)
         check = [lake, "build", args.module]
     else:
-        check = [lake, "env", "lean", str(out.resolve())]
+        # the thread stack of the library's builds (lakefile.lean, `moreLeanArgs`): the kernel checks
+        # the runs' proofs on deeply nested terms
+        check = [lake, "env", "lean", "--tstack=65536", str(out.resolve())]
     cmd = (args.wrap.split() if args.wrap else []) + check
     env = dict(os.environ)
     env.setdefault("LEAN_NUM_THREADS", "2")

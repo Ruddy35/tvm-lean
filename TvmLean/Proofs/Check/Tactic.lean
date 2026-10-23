@@ -427,8 +427,9 @@ def rewriteIte (g : MVarId) (t e : Expr) (h : Expr) (pos : Bool) : MetaM MVarId 
 /-- `check_split`: `vm_split` (TvmLean/Proofs/Exec/Tactic.lean) for an `if` of the goal by `rewriteIte`
 instead of `split` and `simp`, whose time grows with the whole goal: the condition decided by linear
 arithmetic from the context (`assertByOmega?`, with the bounds of the load gas), or the goal split
-on it (`byCasesDec` with the `if`'s own instance), each branch with its hypothesis `h`. A `match`,
-or a condition made of `True` and `False`, by `vm_split`. -/
+on it (`byCasesDec` with the `if`'s own instance), each branch with its hypothesis `h`; a check of
+the gas split at once, its condition not kept. A `match`, or a condition made of `True` and
+`False`, by `vm_split`. -/
 elab "check_split" : tactic => do
   evalTactic (← `(tactic| vm_load_bounds))
   withMainContext do
@@ -441,6 +442,16 @@ elab "check_split" : tactic => do
     (!c.hasFVar && !c.hasMVar && (c.find? fun x => x.isAppOf ``True || x.isAppOf ``False).isSome)
   if viaVmSplit then
     evalTactic (← `(tactic| vm_split))
+    return
+  -- a check of the gas (its terms wrap around as `long long`, `int64Wrap`): split without `omega`
+  -- (whose work on the wrapped terms is large), the condition not kept. No end of a path depends on
+  -- the gas, and a branch out of gas ends its path at once, whether the context rules it out or not
+  if (c.find? fun x => x.isAppOf ``GasLimits.gasRemaining || x.isAppOf ``cellLoadGas ||
+      x.isAppOf ``int64Wrap).isSome then
+    let (sPos, sNeg) ← g.byCasesDec c (e.getArg! 2) `h
+    let gPos ← sPos.mvarId.withContext (rewriteIte sPos.mvarId t e (mkFVar sPos.fvarId) true)
+    let gNeg ← sNeg.mvarId.withContext (rewriteIte sNeg.mvarId t e (mkFVar sNeg.fvarId) false)
+    replaceMainGoal [← gPos.tryClear sPos.fvarId, ← gNeg.tryClear sNeg.fvarId]
     return
   if let some (h, g') ← Exec.assertByOmega? g (mkNot c) then
     let g'' ← g'.withContext (rewriteIte g' t e (mkFVar h) false)
@@ -926,7 +937,10 @@ def cutGoal (g : MVarId) (sub : List MVarId → TacticM (Array MessageData)) :
   if pf.hasExprMVar then
     let left ← (← getMVarsNoDelayed pf).filterM fun m => return !(← m.isAssigned)
     return #[← report g "a part left unproved" none left.toList]
-  g.assign (← mkAuxTheorem ty pf)
+  -- `zetaDelta`: the let-variables of the context (if any) expanded in the theorem, rather than
+  -- sorted out by `Meta.check` of the whole proof (`Closure.preprocess`), which unfolds by `whnf`
+  -- what the kernel compares at once and on a long path does not end
+  g.assign (← mkAuxTheorem ty pf (zetaDelta := true))
   progressLine s!"a cut at {← describePos tag}: its theorem made in {(← IO.monoMsNow) - t0} ms"
   return #[]
 
