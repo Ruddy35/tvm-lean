@@ -23,6 +23,7 @@ import TvmLean.Proofs.Exec.Spec.StackVar
 import TvmLean.Proofs.Exec.Spec.LoopBrk
 import TvmLean.Proofs.Exec.Closure
 import TvmLean.Proofs.Check.Attr
+import TvmLean.Proofs.Check.Closers
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`
@@ -530,6 +531,24 @@ def projTerm (e : Expr) : (depth : Nat := 64) → MetaM Expr
       return ← projTerm (s.getArg! (info.numParams + info.i)) depth
     return mkAppN e.getAppFn (args.set! info.numParams s)
 
+/-- `e` with the projections of constructor applications reduced (`(Data.mk a b).b` as `b`): the
+parts of a witness that `checkExists` made, as plain unknowns. -/
+def reduceCtorProjs (e : Expr) : MetaM Expr :=
+  Meta.transform e (post := fun x => do
+    if let .proj _ i s := x then
+      if let .const c _ := s.getAppFn then
+        if let some (.ctorInfo cv) := (← getEnv).find? c then
+          if s.getAppNumArgs > cv.numParams + i then return .done (s.getArg! (cv.numParams + i))
+      return .continue
+    let .const f _ := x.getAppFn | return .continue
+    let some info ← getProjectionFnInfo? f | return .continue
+    let args := x.getAppArgs
+    unless args.size == info.numParams + 1 do return .continue
+    let s := args[info.numParams]!
+    if s.isAppOf info.ctorName && s.getAppNumArgs > info.numParams + info.i then
+      return .done (s.getArg! (info.numParams + info.i))
+    return .continue)
+
 /-- Finds the witnesses of `∃ x, ...` by unification: a witness of a structure type is its
 constructor on new unknowns, the equations among the parts (`∧`) solved by unification
 (reducible) first. Returns the parts left. -/
@@ -553,7 +572,9 @@ def checkExists (g : MVarId) : (depth : Nat := 256) → MetaM (List MVarId)
       return ra ++ rb
     if let some (_, a, b) := ty.eq? then
       let s ← saveState
-      if ← withReducible (isDefEq a b) then
+      -- the parts of a witness as plain unknowns (`reduceCtorProjs`), which unification assigns at
+      -- once (through `(Data.mk ?x ...).f + 7` it may unfold for long)
+      if ← withReducible (isDefEq (← reduceCtorProjs a) (← reduceCtorProjs b)) then
         g.assign (← mkEqRefl a)
         return []
       s.restore
@@ -678,11 +699,36 @@ def tryTac (g : MVarId) (tac : TSyntax `tactic) (hb : Nat := 0) : TacticM (Optio
       s.restore
       return none)
 
+/-- Closes `g` by the tactic `tac` (as `tryTac`, within `hb` thousand heartbeats) with its proof
+checked by the kernel at once, as an auxiliary theorem (`mkAuxTheorem`, not in parallel): a proof the
+kernel refuses (one nested too deep) is a failure of `tac`, not an error of the whole theorem later.
+Whether it closed `g`. -/
+def closeChecked (g : MVarId) (tac : TSyntax `tactic) (hb : Nat) : TacticM Bool := g.withContext do
+  let ty ← instantiateMVars (← g.getType)
+  let m ← mkFreshExprSyntheticOpaqueMVar ty (← g.getTag)
+  let s ← saveState
+  match ← tryTac m.mvarId! tac hb with
+  | some [] => pure ()
+  | _ =>
+    s.restore
+    return false
+  try
+    let pf ← instantiateMVars m
+    if pf.hasExprMVar then throwError "closeChecked: a part left"
+    let c ← withOptions (Elab.async.set · false) (mkAuxTheorem ty pf (zetaDelta := true))
+    g.assign c
+    return true
+  catch _ =>
+    s.restore
+    return false
+
 /-- The goal `X → P (some c4) ∧ SafeActs c5` of a path that commits (`X` its exit or `COMMIT`): `c5`
 by `safe_acts_close`; `P` unfolded, normalized by `simp only` with the hints and the lemmas of
 builders and bits, its witnesses found by unification (`checkExists`), the rest by `rfl`,
-`assumption`, `omega`, `decide`, `simp only` with the hints, each within a budget of heartbeats. The
-report if a part is left. -/
+`assumption`, `omega` (first with the hypotheses that share a term with the goal only,
+`check_omega_rel`), `decide`, `simp only` with the hints, an implication by `intros` and `rfl`,
+`assumption` or `omega`, each within a budget of heartbeats and its proof checked by the kernel at
+once (`closeChecked`). The report if a part is left. -/
 def commitPath (g : MVarId) (args : Array Syntax) (what : String)
     (ec : Option Expr) : TacticM (Option MessageData) := do
   let sargs : Syntax.TSepArray [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
@@ -727,13 +773,16 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
   for g' in gs do
     for g'' in ← checkExists g' do
       let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl), ← `(tactic| assumption),
+        ← `(tactic| check_omega_rel), ← `(tactic| (dsimp only; check_omega_rel)),
         ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
         ← `(tactic| (simp only [check_close, $sargs,*]; done)),
-        ← `(tactic| (dsimp only; simp only [check_close, $sargs,*]; omega))]
+        ← `(tactic| (dsimp only; simp only [check_close, $sargs,*]; omega)),
+        -- an implication (`d0.active = true → d.active = true` of a field set or kept)
+        ← `(tactic| (intros; first | with_reducible rfl | assumption | omega))]
       let mut closed := false
       for c in closers do
         if closed then break
-        if let some [] ← tryTac g'' c 50000 then closed := true
+        if ← closeChecked g'' c 50000 then closed := true
       unless closed do
         -- reported with the projections of the witnesses reduced
         match ← tryTac g'' (← `(tactic| dsimp only)) 50000 with
