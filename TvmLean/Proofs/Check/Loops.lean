@@ -6,7 +6,7 @@ import TvmLean.Proofs.Check.Tactic
 A loop whose iterations change more than its top stack entry, `c5` and the counters (`check_loop`)
 is run by `ran_case` with a loop invariant the invariant's file gives (`-- contract-check: loop k Q`,
 `tools/contract-check`): at a loop head whose top `k` stack entries satisfy `Q`, the loop rule
-(`VmState.runWith_inv`) lets them be any values that satisfy `Q` (`check_loop_user`, through
+(`runWith_invLe`) lets them be any values that satisfy `Q` (`check_loop_user`, through
 `check_loop_any`); a path back at the head proves `Q` of the entries there (`check_loop_close_user`,
 `solveInvUser`, `closeUserFact`), else it is reported. The syntax of `check_loop_any` and
 `check_loop_close_user` is declared in TvmLean/Proofs/Check/Tactic.lean (`check_one_step` tries
@@ -16,6 +16,11 @@ them); their elaborators are here.
 namespace TvmLean.Check
 
 open Lean Meta Elab Tactic
+
+/-- With `check.debug`, a line of the progress log (`progressLine`) and the time since `t0`. -/
+def debugLine (t0 : Nat) (s : String) : CoreM Unit := do
+  if check.debug.get (← getOptions) then
+    progressLine s!"  {s} ({(← IO.monoMsNow) - t0} ms)"
 
 /-- `g` by the theorem `thm` (a hint: `Queries.set`), its hypotheses from the context: the equations
 of results (`f … = .ok …`) first, by `assumption` (they fix the theorem's arguments), then the
@@ -68,10 +73,14 @@ def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
     let mut closed := false
     for t in thms do
       if closed then break
+      let t0 ← IO.monoMsNow
       if ← closeByHint g' t then closed := true
+      debugLine t0 s!"closeUserFact: the hint {t}: {closed}"
     for c in closers do
       if closed then break
+      let t0 ← IO.monoMsNow
       if let some [] ← tryTac g' c 50000 then closed := true
+      debugLine t0 s!"closeUserFact: {c.raw.prettyPrint}: {closed}"
     unless closed do
       if check.debug.get (← getOptions) then
         let f ← g'.withContext do ppExpr (← instantiateMVars (← g'.getType))
@@ -100,16 +109,19 @@ def solveInvUser (g : MVarId) (args : Array Syntax) : TacticM Unit := do
       unless left.isAppOfArity ``And 2 do throwError "check_loop: not the invariant"
       let some (_, a, b) := (left.getArg! 0).eq? | throwError "check_loop: not an equation"
       unless ← withReducible (isDefEq a b) do throwError "check_loop: the state is not the loop head"
+      let t0 ← IO.monoMsNow
       let hc ← mkFreshExprSyntheticOpaqueMVar (← instantiateMVars (left.getArg! 1))
       let r ← Tactic.run hc.mvarId! do
         evalTactic (← `(tactic| first | decide | (simp only [freeNestedContJump]; omega)))
       unless r.isEmpty do throwError "check_loop: the bound of the jump counter"
+      debugLine t0 "solveInvUser: the bound of the jump counter"
       let q ← instantiateMVars (ty.getArg! 1)
       let (qa, qb?) := if q.isAppOfArity ``And 2 && (q.getArg! 0).isAppOf ``SafeActs then
           (q.getArg! 0, some (q.getArg! 1)) else (q, none)
       let hqa ← mkFreshExprSyntheticOpaqueMVar qa
       let r ← Tactic.run hqa.mvarId! do evalTactic (← `(tactic| vm_c5_close))
       unless r.isEmpty do throwError "check_loop: the invariant of c5"
+      debugLine t0 "solveInvUser: the invariant of c5"
       let hq ← match qb? with
         | none => pure hqa
         | some qb => do
@@ -132,8 +144,10 @@ invariant there by `solveInvUser`. -/
     if d.userName == `ih && !d.isImplementationDetail then acc.push d.fvarId else acc
   for ih in ihs.reverse do
     let s ← saveState
+    let t0 ← IO.monoMsNow
     try
       let gs ← g.apply (mkFVar ih)
+      debugLine t0 s!"check_loop_close_user: ih applied, {gs.length} goals"
       let mut rest := #[]
       for g' in gs do
         if ← g'.isAssigned then continue
@@ -141,17 +155,21 @@ invariant there by `solveInvUser`. -/
         if ty.isAppOf ``LE.le then
           let r ← Tactic.run g' (evalTactic (← `(tactic| omega)))
           unless r.isEmpty do throwError "check_loop_close_user: the fuel"
+          debugLine t0 "check_loop_close_user: the fuel"
         else if ty.isAppOf ``Exists then
           solveInvUser g' args
         else rest := rest.push g'
       replaceMainGoal rest.toList
       return
-    catch _ => s.restore
+    catch ex =>
+      debugLine t0 s!"check_loop_close_user: {← ex.toMessageData.toString}"
+      s.restore
   throwError "check_loop_close_user: no loop head to close"
 
 /-- The holes of a loop head `S` for a loop invariant of the user: those of `loopHolesX` (the gas,
-the loaded cells and libraries, the counters of jumps and steps, `c5`), and the top `k` stack
-entries as values (the deepest first), which the iterations may change in any way. -/
+the loaded cells and libraries, the counters of jumps and steps, `c5`), the top `k` stack entries
+as values (the deepest first), which the iterations may change in any way, and of a `REPEAT` loop
+the count of its iterations left (the last). -/
 def loopHolesV (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr) × Nat × Nat) := do
   unless S.isAppOfArity ``VmState.mk 20 do throwError "check_loop: the state is not written out"
   let fields := getStructureFields (← getEnv) ``VmState
@@ -176,11 +194,19 @@ def loopHolesV (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr)
     stk := stk.getArg! 1
   let nPlain := plain.length
   vals := vals ++ top.reverse
+  -- a `REPEAT` loop: the count of the iterations left (`c0`), the last hole
+  let c0 ← whnfR (regs.getArg! 0)
+  let isRepeat := c0.isAppOfArity ``Continuation.repeatBody 3
+  if isRepeat then vals := vals.push (c0.getArg! 2)
+  let iCount := vals.size - 1
   let base := stk
   let fill (xs : Array Expr) : Expr := Id.run do
     let mut a := args
     for j in [0:nPlain] do a := a.set! plain[j]! xs[j]!
-    a := a.set! iRegs (mkAppN regs.getAppFn (regs.getAppArgs.set! 5 xs[nPlain]!))
+    let mut ra := regs.getAppArgs.set! 5 xs[nPlain]!
+    if isRepeat then
+      ra := ra.set! 0 (mkApp3 (mkConst ``Continuation.repeatBody) (c0.getArg! 0) (c0.getArg! 1) xs[iCount]!)
+    a := a.set! iRegs (mkAppN regs.getAppFn ra)
     let mut s := base
     for j in [0:k] do
       s := mkApp3 (mkConst ``Array.push [0]) (mkConst ``Value) s xs[nPlain + 1 + j]!
@@ -220,7 +246,7 @@ def checkLoopUser (k : Nat) (p : Syntax) (args : Array Syntax) (names : Array Na
       (Name.mkSimple s!"x{i}", fun (_ : Array Expr) => pure tys[i]!)
     let body ← withLocalDeclsD decls fun xs => do
       let bound ← mkAppM ``LT.lt #[xs[iChain]!, mkConst ``freeNestedContJump]
-      let user := (mkAppN P (xs.extract (iC5 + 1) xs.size)).headBeta
+      let user := (mkAppN P (xs.extract (iC5 + 1) (iC5 + 1 + k))).headBeta
       let q ← mkAppM ``And #[mkApp (mkConst ``SafeActs) xs[iC5]!, user]
       let mut e ← mkAppM ``And #[← mkAppM ``And #[← mkEq st (fill xs), bound], q]
       for x in xs.reverse do
@@ -235,10 +261,10 @@ def checkLoopUser (k : Nat) (p : Syntax) (args : Array Syntax) (names : Array Na
   let hz ← mkFreshExprSyntheticOpaqueMVar hzTy
   let hinv ← mkFreshExprMVar (mkApp inv S).headBeta
   solveInvUser hinv.mvarId! args
-  let rule ← mkAppOptM ``VmState.runWith_inv #[exec, inv, motive, hz]
+  let rule ← mkAppOptM ``runWith_invLe #[exec, inv, motive, n, hz]
   let .forallE _ hsTy _ _ ← whnf (← inferType rule) | throwError "check_loop: the loop rule"
   let hs ← mkFreshExprSyntheticOpaqueMVar hsTy
-  let pf ← mkAppOptM ``VmState.runWith_inv #[exec, inv, motive, hz, hs, n, S, hinv]
+  let pf ← mkAppOptM ``runWith_invLe #[exec, inv, motive, n, hz, hs, n, ← mkAppM ``Nat.le_refl #[n], S, hinv]
   unless ← isDefEq (← inferType pf) t do throwError "check_loop: the goal is not a property of the run"
   g.assign pf
   let old := (← getLCtx).getFVarIds
@@ -246,6 +272,7 @@ def checkLoopUser (k : Nat) (p : Syntax) (args : Array Syntax) (names : Array Na
   let (h0, gz) ← gz.intro `hinv
   let gzs ← destructUser (← Exec.destructInv gz h0) names old
   let (_, gs) ← hs.mvarId!.intro `n
+  let (_, gs) ← gs.intro `hfuel
   let (_, gs) ← gs.intro `st
   let (h1, gs) ← gs.intro `hinv
   let (_, gs) ← gs.intro `ih
