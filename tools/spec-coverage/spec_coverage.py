@@ -766,7 +766,7 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'переход/вызов продолжения с замыканием или `nargs` (`SETCONTARGS`, `BLESSARGS`, затем '
         '`EXECUTE`/`JMPX`)',
         '`Spec.setContArgs_ord`, `VM.run_jump_ordinary_cdata`, `VM.run_call_ordinary_cdata` '
-        '(`Exec/Closure.lean`, contract-check его не импортирует)'),
+        '(`Exec/Closure.lean`)'),
     'xargs': (
         '`CALLXARGS` / `JMPXARGS` / `RETARGS` (число аргументов и результатов)',
         'обработчик; `VM.call`/`VM.jump` с `passArgs`'),
@@ -852,23 +852,12 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '`Spec.getParam` и синонимы требуют гипотезы `c7[0]! = .tuple params`; иначе обработчик'),
     'version': (
         'опкод глобальной версии > 0 (например `GASCONSUMED`, v4) при символьной версии',
-        '`stepCode` решает `k ≤ globalVersion` через `decide` по версии состояния'),
+        '`stepCode`: `k ≤ globalVersion` — `decide` при известной версии, иначе `omega` из гипотез о '
+        'версии (`hgv`); не решено — `if` на `k ≤ gv` (`VmState.stepOnceWith_instrVer\'`)'),
 }
 
 # What a pattern lacks, from the probes' failures (English for precheck, Russian for the document).
 PATTERN_GAPS: dict[str, tuple[str, str]] = {
-    'plain': (
-        'IFELSE (and DICTIGETEXEC: a call) leaves `VmState.callTo` of the branch, which no vm_run lemma '
-        'unfolds: the next step does not see the continuation',
-        '`IFELSE` (и вызов `DICT*GETEXEC`) оставляет `VmState.callTo` ветви, его не разворачивает ни одна '
-        'лемма `vm_run`: следующий шаг не видит продолжения'),
-    'closure': (
-        'SETCONTARGS and the jumps to continuations with closure data: Spec.setContArgs_ord and '
-        'VM.run_*_cdata are in Exec/Closure.lean, which contract-check does not import; the handler splits'
-        ' on `forceCdata` and stops',
-        '`SETCONTARGS` и переходы в продолжения с замыканием: `Spec.setContArgs_ord` и `VM.run_*_cdata` — '
-        'в `Exec/Closure.lean`, его contract-check не импортирует; обработчик делит путь по `forceCdata` и'
-        ' останавливается'),
     'xargs': (
         'VM.call/VM.jump with a number of arguments or results (passArgs, retArgs) have no vm_run lemma',
         'у `VM.call`/`VM.jump` с числом аргументов или результатов (`passArgs`, `retArgs`) нет леммы '
@@ -878,14 +867,14 @@ PATTERN_GAPS: dict[str, tuple[str, str]] = {
         'после `RETALT` (переход в `c1`) следующий шаг остаётся `VmState.stepFinish` состояния'),
     'loops-unknown': (
         'REPEAT with an unknown count: the loop rule generalizes the stack payloads, not the counter kept '
-        'in the loop continuation (`repeatBody … n`), so the loop is unrolled until the step budget '
-        '(timeout); UNTIL/WHILE with a value on the stack are handled',
+        'in the loop continuation (`repeatBody … n`), so the loop is unrolled until the run hits the '
+        'heartbeat limit; UNTIL/WHILE with a value on the stack are handled',
         '`REPEAT` с неизвестным числом итераций: правило цикла обобщает значения на стеке, но не счётчик в'
-        ' продолжении цикла (`repeatBody … n`), и цикл разворачивается до предела шагов (тайм-аут); '
-        '`UNTIL`/`WHILE` со значением на стеке исполняются'),
+        ' продолжении цикла (`repeatBody … n`), и цикл разворачивается, пока прогон не упрётся в предел '
+        'heartbeats; `UNTIL`/`WHILE` со значением на стеке исполняются'),
     'loops-end': (
-        'REPEATEND has the counter of REPEAT (timeout); UNTILEND, WHILEEND, AGAINEND are handled',
-        'у `REPEATEND` тот же счётчик, что у `REPEAT` (тайм-аут); `UNTILEND`, `WHILEEND`, `AGAINEND` '
+        'REPEATEND has the counter of REPEAT (does not end: heartbeat limit); UNTILEND, WHILEEND, AGAINEND are handled',
+        'у `REPEATEND` тот же счётчик, что у `REPEAT` (не кончается: предел heartbeats); `UNTILEND`, `WHILEEND`, `AGAINEND` '
         'исполняются'),
     'loops-brk': (
         "REPEATBRK, UNTILBRK, WHILEBRK stop at the instruction (no specification, the handler's run does "
@@ -893,18 +882,16 @@ PATTERN_GAPS: dict[str, tuple[str, str]] = {
         '`REPEATBRK`, `UNTILBRK`, `WHILEBRK` останавливаются на инструкции (леммы нет, прогон обработчика '
         'не считается); `AGAINBRK` исполняется'),
     'loop-in-loop': (
-        'a REPEAT inside a REPEAT: the inner counter as above (timeout)',
-        '`REPEAT` в `REPEAT`: внутренний счётчик, как выше (тайм-аут)'),
+        'a REPEAT inside a REPEAT: the inner counter as above (does not end: heartbeat limit)',
+        '`REPEAT` в `REPEAT`: внутренний счётчик, как выше (не кончается: предел heartbeats)'),
     'try': (
-        'TRY without an exception is handled; an exception caught by the handler does not end (timeout), '
-        'TRYARGS stops at the instruction',
-        '`TRY` без исключения исполняется; исключение, пойманное обработчиком, не доходит до конца '
-        '(тайм-аут); `TRYARGS` останавливается на инструкции'),
+        'TRY without an exception is handled; with an exception caught by the handler, and TRYARGS, the '
+        'run does not end (heartbeat limit)',
+        '`TRY` без исключения исполняется; с исключением, пойманным обработчиком, и `TRYARGS` прогон не '
+        'кончается (предел heartbeats)'),
     'runvm': (
-        'opcode of version 4: vm_step decodes it only for a known global version (below); the child run is'
-        ' a recursive function',
-        'опкод версии 4: `vm_step` декодирует его только при известной глобальной версии (см. ниже); '
-        'прогон дочерней VM — рекурсивная функция'),
+        'the child run (`VmState.runWith`) is a recursive function: the handler does not reduce',
+        'прогон дочерней VM (`VmState.runWith`) — рекурсивная функция: обработчик не считается'),
     'safe-actions': (
         'SENDRAWMSG is handled; the action of RAWRESERVE 0 0 is not closed by safe_acts_close',
         '`SENDRAWMSG` исполняется; действие `RAWRESERVE 0 0` не закрывает `safe_acts_close`'),
@@ -936,11 +923,6 @@ PATTERN_GAPS: dict[str, tuple[str, str]] = {
         'stays a term and the run stops on the shape of the value',
         'поиск в словаре конфигурации (`dictLookupWithCells` по неизвестному корню из `c7`) остаётся '
         'термом, и прогон останавливается на форме значения'),
-    'version': (
-        'stepCode proves `k ≤ globalVersion` by `decide`, which fails for the symbolic version of '
-        'contract-check (`hgv : 4 ≤ gv` is not used): every opcode of version > 0 stops the run',
-        '`stepCode` доказывает `k ≤ globalVersion` через `decide`, а у contract-check версия символьная '
-        '(`hgv : 4 ≤ gv` не используется): любой опкод версии > 0 останавливает прогон'),
 }
 
 PROBE_RESULTS = HERE / "probe-results.json"
@@ -1173,10 +1155,11 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
              "для `--regen`):")
     L.append("")
     L.append("```sh")
-    L.append("python3 tools/spec-coverage/spec_coverage.py patterns --jobs 5 --save            # шаблоны: пробы "
+    L.append("export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут")
+    L.append("python3 tools/spec-coverage/spec_coverage.py patterns --jobs 12 --timeout 2700 --save   # шаблоны: пробы "
              "(--regen: probes.txt из probes.fif)")
-    L.append("python3 tools/spec-coverage/spec_coverage.py inventory --deep --jobs 12 --save --raw inv.tsv")
-    L.append("python3 tools/spec-coverage/spec_coverage.py precheck --save                    # контракты contracts.txt")
+    L.append("python3 tools/spec-coverage/spec_coverage.py inventory --deep --jobs 14 --save --raw inv.tsv")
+    L.append("python3 tools/spec-coverage/spec_coverage.py precheck --save   # контракты contracts.txt; после inventory (forms.json)")
     L.append("python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md docs/audit/spec-coverage.md")
     L.append("```")
     L.append("")
@@ -1258,7 +1241,7 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
     n_check = sum(1 for s in specs.values() if s["check"])
     mods = collections.Counter(s["module"] for s in specs.values() if not s["check"])
     L.append(f"Лемм `vm_spec`: {len(specs)}, из них в импортах contract-check {n_check}; вне их: "
-             + ", ".join(f"`{m}` ({k})" for m, k in sorted(mods.items())) + ".")
+             + (", ".join(f"`{m}` ({k})" for m, k in sorted(mods.items())) or "нет") + ".")
     L.append("")
     # --- patterns
     L.append("## Шаблоны управления")

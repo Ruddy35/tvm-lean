@@ -81,9 +81,10 @@ were generated from them (`--out` there). The script's docstring has the details
 ## What symbolic execution covers: instructions, patterns, a contract's code
 
 ```sh
-python3 tools/spec-coverage/spec_coverage.py patterns --jobs 5 --save        # --regen: probes.txt by fift
-python3 tools/spec-coverage/spec_coverage.py inventory --deep --jobs 12 --save --raw inv.tsv
-python3 tools/spec-coverage/spec_coverage.py precheck --save                 # the codes of contracts.txt
+export LEAN_NUM_THREADS=1   # processes × threads within the cores: overloaded, probes hit their timeout
+python3 tools/spec-coverage/spec_coverage.py patterns --jobs 12 --timeout 2700 --save   # --regen: probes.txt by fift
+python3 tools/spec-coverage/spec_coverage.py inventory --deep --jobs 14 --save --raw inv.tsv
+python3 tools/spec-coverage/spec_coverage.py precheck --save   # the codes of contracts.txt; after inventory (forms.json)
 python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md docs/audit/spec-coverage.md
 tools/contract-check/contract-check list:tools/txoracle/contracts.txt#wallet3.code --precheck
 ```
