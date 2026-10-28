@@ -2,6 +2,16 @@ import TvmLean.Proofs.Tx.Induction
 import TvmLean.Proofs.Tx.NoSetCode
 import TvmLean.Proofs.Exec.IteInst
 import TvmLean.Proofs.Contracts.Wallet3Run.Common
+import TvmLean.Proofs.Exec.Spec.ArithExt
+import TvmLean.Proofs.Exec.Spec.StackExt
+import TvmLean.Proofs.Exec.Spec.CellExt
+import TvmLean.Proofs.Exec.Spec.Tuple
+import TvmLean.Proofs.Exec.Spec.DictSet
+import TvmLean.Proofs.Exec.Spec.DictDel
+import TvmLean.Proofs.Exec.Spec.DictSetGet
+import TvmLean.Proofs.Exec.Spec.MsgAddr
+import TvmLean.Proofs.Exec.Spec.MsgExt
+import TvmLean.Proofs.Exec.Closure
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`
@@ -30,7 +40,9 @@ path that commits.
      variables substituted, the definitions among the hints unfolded), so that the data the run reads
      is the term of `P` (e.g. `Data.encode d` with the hint `Data.encode`);
   2. every path of the run to its end (`check_paths`, one step at a time by `check_one_step`):
-     `vm_run`'s steps (TvmLean/Proofs/Exec/Tactic.lean) with the lemmas of a run from the compute
+     `vm_run`'s steps (TvmLean/Proofs/Exec/Tactic.lean) with every specification of `vm_spec`
+     (the modules of TvmLean/Proofs/Exec/Spec/ and the calls of closures,
+     TvmLean/Proofs/Exec/Closure.lean, all imported here), the lemmas of a run from the compute
      phase's start (those of `wallet_run`, TvmLean/Proofs/Contracts/Wallet3Run/Common.lean), the fresh
      instances of `if` (TvmLean/Proofs/Exec/IteInst.lean), the reading of bits written by
      `natToBits` (`extract_natToBits_all` and the like), the hints, and every loop by the loop rule

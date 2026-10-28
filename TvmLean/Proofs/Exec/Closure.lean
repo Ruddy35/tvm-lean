@@ -142,7 +142,9 @@ namespace TvmLean
     · have hk : ¬ k < min j (s.size + 1) - i := by omega
       simp [hi, hk]
 
-@[vm_run] theorem VM.extract_empty_of_le {α : Type} (s : Array α) (i j : Nat) (h : j ≤ i) : s.extract i j = #[] := by
+/-- An empty slice of a stack. Of stacks only (`Array Value`): on the bits of a slice, which a run
+reads with `Array.extract` at every load, the discharger would try `j ≤ i` each time in vain. -/
+@[vm_run] theorem VM.extract_empty_of_le (s : Array Value) (i j : Nat) (h : j ≤ i) : s.extract i j = #[] := by
   apply Array.ext_getElem?
   intro k
   simp only [Array.getElem?_extract]
@@ -310,8 +312,23 @@ continuation, without its closure data, current. -/
 /-! `vm_run` writes out the stacks and the return continuation of a closure (on literal stacks they
 compute). -/
 
-attribute [vm_run] VmState.closureStack VmState.callClosure VmState.callSaved VmState.closureArgs
-  VmState.retContWith
+/-- `VmState.closureStack` of closure data written out (`{ stack := s, nargs := n }`, as the
+specifications of `SETCONTARGS` and the like leave it), unfolded. Not the definition itself in
+`vm_run`: simp would unfold it on `OrdCdata.empty` too, at every entry of a continuation, before
+`VmState.closureStack_empty` (`Proofs/Exec/Cont.lean`) applies. -/
+@[vm_run] theorem VmState.closureStack_mk (st : VmState) (s : Stack) (n : Int) :
+    st.closureStack { stack := s, nargs := n } =
+      let stack1 : Stack :=
+        if 0 ≤ n ∧ n.toNat < st.stack.size then
+          st.stack.extract (st.stack.size - n.toNat) st.stack.size
+        else st.stack
+      if s.isEmpty then
+        if 0 ≤ n ∧ n.toNat < st.stack.size then
+          { st with stack := stack1 }.consumeStackGas stack1.size
+        else st
+      else { st with stack := s ++ stack1 }.consumeStackGas (s ++ stack1).size := rfl
+
+attribute [vm_run] VmState.callClosure VmState.callSaved VmState.closureArgs VmState.retContWith
 
 /-- The return continuation that saved no values is `VmState.retCont`. -/
 @[vm_run] theorem VmState.retContWith_empty (st : VmState) : st.retContWith #[] = st.retCont := by
