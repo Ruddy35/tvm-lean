@@ -205,6 +205,26 @@ elab "check_undead" : tactic => withMainContext do
     throwError "check_undead: an `if` to split first"
   evalTactic (← `(tactic| simp only [VmState.raiseDead]))
 
+/-! ## `COMMIT`
+
+`COMMIT` (and the commit at a normal exit) runs `VmState.tryCommit`, whose test of the depths and
+levels of `c4` and `c5` the run cannot decide on data it does not know: the step leaves the pair
+`st.tryCommit` (its `fst` tested, its `snd` the state the run goes on from). -/
+
+/-- `check_commit`: the goal holds `st.tryCommit`: the two cases of `tryCommit_cases` (committed,
+with `c4` and `c5` of `st`; or nothing done), each written into the goal and the hypotheses. Fails
+if there is none. -/
+elab "check_commit" : tactic => withMainContext do
+  let g ← getMainGoal
+  let t ← instantiateMVars (← g.getType)
+  let some e := t.find? (·.isAppOfArity ``VmState.tryCommit 1) | throwError "check_commit: no commit"
+  let pf ← mkAppM ``tryCommit_cases #[e.appArg!]
+  let (h, g') ← (← g.assert `hcommit (← inferType pf) pf).intro1P
+  replaceMainGoal [g']
+  let hId := mkIdent (← g'.withContext h.getUserName)
+  evalTactic (← `(tactic| rcases $hId:ident with $hId:ident | $hId:ident <;>
+    simp only [$hId:ident, Bool.false_eq_true] at *))
+
 /-! ## Terms a step leaves that `check_step` does not reduce -/
 
 /-- `VmState.callTo` (the call of `IF`, `IFELSE`, `IFREFELSE`, `IFJMPREF`...) is the call `VM.call`
@@ -245,6 +265,7 @@ macro_rules
       | check_dead
       | check_undead
       | check_unstick
+      | check_commit
       | check_forget_c7
       | check_framed)
 
