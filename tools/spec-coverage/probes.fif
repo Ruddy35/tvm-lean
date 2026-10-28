@@ -110,3 +110,23 @@ PROGRAM{
 <{ 9 INT CONFIGOPTPARAM DROP }>c "configoptparam" put
 <{ NOW DROP }>c "now" put
 <{ GASCONSUMED DROP }>c "gasconsumed-v4" put
+
+// the environment: randomness and globals in c7, the fee getters (from version 6: the
+// configuration's prices through c7), message addresses of a slice the run does not know (the body)
+<{ RANDU256 DROP }>c "randu256" put
+<{ 100 INT RAND DROP }>c "rand" put
+<{ 5 INT SETRAND }>c "setrand" put
+<{ 5 INT ADDRAND }>c "addrand" put
+<{ 1 INT 2 INT SETGLOBVAR 2 INT GETGLOBVAR DROP }>c "globvar" put
+<{ 100 INT 0 INT GETGASFEE DROP }>c "getgasfee" put
+<{ 1 INT 100 INT 10 INT 0 INT GETSTORAGEFEE DROP }>c "getstoragefee" put
+<{ 1 INT 100 INT 0 INT GETFORWARDFEE DROP }>c "getforwardfee" put
+<{ 100 INT 0 INT GETORIGINALFWDFEE DROP }>c "getoriginalfwdfee" put
+<{ 100 INT 0 INT GETGASFEESIMPLE DROP }>c "getgasfeesimple" put
+<{ 1 INT 100 INT 0 INT GETFORWARDFEESIMPLE DROP }>c "getforwardfeesimple" put
+<{ GETPRECOMPILEDGAS DROP }>c "getprecompiledgas" put
+<{ DROP REWRITESTDADDR 2DROP }>c "rewritestdaddr" put
+<{ DROP REWRITEVARADDR 2DROP }>c "rewritevaraddr" put
+<{ DROP PARSEMSGADDR DROP }>c "parsemsgaddr" put
+<{ DROP LDMSGADDR 2DROP }>c "ldmsgaddr" put
+<{ DROP LDMSGADDRQ DROP DROP }>c "ldmsgaddrq" put
