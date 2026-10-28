@@ -19,6 +19,10 @@ meets values it does not know:
   dictionary), and those of the code, whose gas followed load by load is a term that grows with each
   (the kernel's check of a `CALLDICT` into a procedure took minutes); with `max_library_loads`, the
   step's reruns with libraries refused (`check_step_finish`, `stepFinish_cases`), each step run once;
+* exceptions the run does not know (the error of a walk of an unknown dictionary): their number
+  `Excno.toInt e` kept as it is (`excnoToIntStop`, a simp procedure run before `Excno.toInt` would
+  be unfolded into a case per exception), with its range `0..15` for `omega` (`excnoBounds`), and the
+  registers after the jump that ends the run (`countJump_regs`, `countJump_cstate`);
 * loops: `check_loop`, the loop rule (`runWith_invLe`: the fuel bounded, so that a loop inside a
   loop keeps the outer loop's hypothesis) with the loaded libraries among the parts an iteration
   changes, the count of a `REPEAT` loop, and fewer stack entries than asked at the head of a `*BRK`
@@ -122,6 +126,42 @@ dsimproc ↓ excnoToIntStop (Excno.toInt _) := fun e => do
   if let .const n _ := x then
     if let some (.ctorInfo _) := (← getEnv).find? n then return .continue
   return .done e
+
+/-- The number of an exception is between `0` and `15` (`Excno.toInt`): what `omega` needs of the
+number of an exception the run does not know (`excnoBounds`). -/
+theorem excnoToInt_bounds (e : Excno) : 0 ≤ e.toInt ∧ e.toInt ≤ 15 := by
+  cases e <;> decide
+
+/-- The goal `g` with `excnoToInt_bounds x` as a hypothesis for each exception `x` the run does not
+know (not a constructor) whose number `Excno.toInt x` occurs in `c` (the condition of an `if`
+`check_split` decides by `omega`), unless the context has it already: the range check of the
+default exception handler (`0 ≤ n ≤ 65535`) on such a number is then decided, not split. -/
+def excnoBounds (g : MVarId) (c : Expr) : MetaM MVarId := g.withContext do
+  let r ← IO.mkRef (#[] : Array Expr)
+  let _ ← Meta.transform c (pre := fun s => do
+    if s.isAppOfArity ``Excno.toInt 1 then
+      let x := s.appArg!
+      unless x.isConst || x.hasLooseBVars do
+        r.modify fun a => if a.contains x then a else a.push x
+    return .continue)
+  let lctx ← getLCtx
+  let mut g := g
+  for x in ← r.get do
+    if x.hasAnyFVar (fun f => !lctx.contains f) then continue
+    let pf ← mkAppM ``excnoToInt_bounds #[x]
+    let ty ← instantiateMVars (← inferType pf)
+    if (← g.withContext getLCtx).any (fun d => !d.isImplementationDetail && d.type == ty) then continue
+    let (_, g') ← (← g.assert `hexc ty pf).intro1P
+    g := g'
+  return g
+
+/-- The registers and the committed state after a jump is counted (`VmState.countJump`, which may
+charge gas): those before. -/
+theorem countJump_regs (st : VmState) : st.countJump.regs = st.regs := by
+  simp only [VmState.countJump]; split <;> rfl
+
+theorem countJump_cstate (st : VmState) : st.countJump.cstate = st.cstate := by
+  simp only [VmState.countJump]; split <;> rfl
 
 /-- The reruns of a step with libraries refused (`VmState.stepRefusingWith`, C++ `VmState::run`
 with `max_library_loads`): whatever their number, the result is the step from `st` with some set of
