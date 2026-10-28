@@ -375,6 +375,14 @@ current one. -/
   · simp [VM.run_bind, VM.run_get, VM.bindRes_ok, VM.run_pure, VM.run_set]
     split <;> simp_all
 
+/-- `VmState.callTo` (the call `IFELSE`, `DICT*GETEXEC` and `PFXDICTGETEXEC` make, C++
+`VmState::call` of a continuation without closure data): the return continuation
+(`VmState.retCont`) becomes `c0`, `k` the current continuation. -/
+@[vm_run] theorem VmState.callTo_eq (st : VmState) (k : Continuation) :
+    st.callTo k = { st with regs := { st.regs with c0 := st.retCont }, cc := k } := by
+  unfold VmState.callTo VmState.callToWithFrame VmState.retCont
+  cases st.cc <;> rfl
+
 /-- The state an exception makes (C++ `VmState::throw_exception`): the stack `[0, n]`, on the
 `push` form the stack lemmas compute with, and `c2` the current continuation. -/
 @[vm_run] theorem VM.throwException_eq (st : VmState) (e : Int) :
