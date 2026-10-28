@@ -285,10 +285,42 @@ def decideProof (p : Expr) : MetaM Expr := do
   unless r.isAppOf ``Decidable.isTrue do throwError "not decided: {p}"
   return pf
 
+/-- A proof of the linear fact `p` about the term `x` by `omega` from the hypotheses of the context
+that mention `x` (a run's hypothesis on its global version, such as `hgv : 4 ≤ gv`), if they imply
+it; the proof an auxiliary lemma, as the tactic `omega` makes it. -/
+def omegaFrom? (x p : Expr) : MetaM (Option Expr) := do
+  let mut facts : List Expr := []
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let ty ← instantiateMVars d.type
+    if (ty.find? (· == x)).isNone then continue
+    unless ← isProp ty do continue
+    facts := d.toExpr :: facts
+  if facts.isEmpty then return none
+  let saved ← Meta.saveState
+  try
+    let pf ← mkFreshExprSyntheticOpaqueMVar p
+    let some g ← pf.mvarId!.falseOrByContra | failure
+    g.withContext do
+      let some h := (← getLCtx).lastDecl | failure
+      Lean.Elab.Tactic.Omega.omega (h.toExpr :: facts) g
+    let pf ← instantiateMVars pf
+    if pf.hasExprMVar then
+      saved.restore
+      return none
+    return some (← mkAuxTheorem p pf (zetaDelta := true))
+  catch _ =>
+    saved.restore
+    return none
+
 /-- The step of an ordinary continuation without closure data running the concrete code `code`
 (the term; `st` the state): the next instruction (`VmState.stepOnceWith_instr'`), or the implicit
 `RET` or `JMPREF` (`VmState.stepOnceWith_implicitRet'`, `VmState.stepOnceWith_implicitJmpRef'`), the
-facts about the code evaluated and proved by the kernel. -/
+facts about the code evaluated and proved by the kernel. The global version `k` the opcode needs
+is compared with the state's by `decide` when that is a literal, else by `omega` from the context
+(`omegaFrom?`): reached, the instruction; not reached, the invalid opcode
+(`VmState.stepOnceWith_instrOld'`); neither, an `if` on `k ≤ gv` with both
+(`VmState.stepOnceWith_instrVer'`). -/
 def stepCode (exec st code saved cregs hcc : Expr) : MetaM (Option (Expr × Expr)) := do
   unless isClosed code do return none
   let some (cellE, _, _) ← sliceParts? code | return none
@@ -302,14 +334,32 @@ def stepCode (exec st code saved cregs hcc : Expr) : MetaM (Option (Expr × Expr
       let k := cp0RequiredVersion s.opcode24
       let hver ← kernelEq (← mkAppM ``cp0RequiredVersion #[← mkAppM ``Slice.opcode24 #[code]]) (mkNatLit k)
       let gvE ← mkAppM ``VmState.globalVersion #[st]
-      let hk ← if k = 0 then mkAppM ``Nat.zero_le #[gvE] else
-        decideProof (← mkAppM ``LE.le #[mkNatLit k, ← whnfCore (← whnfR gvE)])
-      let (rE, parts) ← decodeExprs cellE s
-      let some (iE, nE, restE) := parts | return none
-      let hdec ← kernelEq (← mkAppM ``decodeCp0WithBits #[code]) rE
+      let gv ← whnfCore (← whnfR gvE)
       let hb ← decideProof (← mkAppM ``Ne #[mkNatLit b, mkNatLit 0])
-      mkAppM ``VmState.stepOnceWith_instr'
-        #[exec, st, code, restE, saved, cregs, iE, nE, mkNatLit b, mkNatLit k, hcc, hcp, hbits, hb, hver, hk, hdec]
+      -- `k ≤ gv`: proved (`some (true, h)`), refuted (`some (false, h)`) or unknown (`none`)
+      let hk? : Option (Bool × Expr) ← if k = 0 then pure (some (true, ← mkAppM ``Nat.zero_le #[gvE]))
+        else
+          let le ← mkAppM ``LE.le #[mkNatLit k, gv]
+          if !gv.hasFVar && !gv.hasMVar then
+            try pure (some (true, ← decideProof le))
+            catch _ => pure (some (false, ← decideProof (mkNot le)))
+          else if let some h ← omegaFrom? gv le then pure (some (true, h))
+          else if let some h ← omegaFrom? gv (mkNot le) then pure (some (false, h))
+          else pure none
+      if let some (false, hk) := hk? then
+        mkAppM ``VmState.stepOnceWith_instrOld'
+          #[exec, st, code, saved, cregs, mkNatLit b, mkNatLit k, hcc, hcp, hbits, hb, hver, hk]
+      else
+        let (rE, parts) ← decodeExprs cellE s
+        let some (iE, nE, restE) := parts | return none
+        let hdec ← kernelEq (← mkAppM ``decodeCp0WithBits #[code]) rE
+        if let some (true, hk) := hk? then
+          mkAppM ``VmState.stepOnceWith_instr'
+            #[exec, st, code, restE, saved, cregs, iE, nE, mkNatLit b, mkNatLit k, hcc, hcp, hbits, hb, hver, hk, hdec]
+        else
+          mkAppM ``VmState.stepOnceWith_instrVer'
+            #[exec, st, code, restE, saved, cregs, iE, nE, mkNatLit b, mkNatLit k, gv, hcc, hcp, hbits, hb,
+              hver, ← mkEqRefl gv, hdec]
     else
       let r := s.refsRemaining
       let hrefs ← kernelEq (← mkAppM ``Slice.refsRemaining #[code]) (mkNatLit r)
