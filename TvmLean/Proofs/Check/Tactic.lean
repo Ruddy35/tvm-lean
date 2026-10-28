@@ -443,7 +443,7 @@ macro_rules
       List.forIn_cons, List.forIn_nil, VmState.callTo, VmState.callToWithFrame,
       cdata_callFrame_identity, callArgsUnfold, VmState.consumeStackGas, VmState.c1Envelope,
       Continuation.defineC0, Continuation.defineC1, Continuation.defineC2, Continuation.forceCdata,
-      excnoToIntStop, nearestWalk_none, minMaxWalk_none,
+      ↓ excnoToIntStop, nearestWalk_none, minMaxWalk_none,
       deleteWalk_none, Spec.dictLookupWithCells_none, $args,*])
 
 /-- `vm_step_simp` with the lemmas of `check_step` (a run whose step is written out, after a split). -/
@@ -463,7 +463,7 @@ macro_rules
       List.forIn_cons, List.forIn_nil, VmState.callTo, VmState.callToWithFrame,
       cdata_callFrame_identity, callArgsUnfold, VmState.consumeStackGas, VmState.c1Envelope,
       Continuation.defineC0, Continuation.defineC1, Continuation.defineC2, Continuation.forceCdata,
-      excnoToIntStop, nearestWalk_none, minMaxWalk_none,
+      ↓ excnoToIntStop, nearestWalk_none, minMaxWalk_none,
       deleteWalk_none, Spec.dictLookupWithCells_none, $args,*])
 
 /-- The goal `g` (target `t`) with the `if` `e` of its target (`ite c a b` or `dite c a b`) replaced
@@ -510,7 +510,16 @@ elab "check_split" : tactic => do
     (!c.hasFVar && !c.hasMVar && (c.find? fun x => x.isAppOf ``True || x.isAppOf ``False).isSome)
   if viaVmSplit then
     evalTactic (← `(tactic| vm_split))
+    -- with `check.debug`, what a split into many paths was on
+    if check.debug.get (← getOptions) then
+      let n := (← getGoals).length
+      if n > 4 && check.progress.get (← getOptions) then
+        let h ← IO.FS.Handle.mk "/dev/stderr" .append
+        h.putStrLn s!"[check]   check_split: {n} paths from {(toString (← g.withContext (ppExpr e))).take 600}"
+        h.flush
     return
+  -- the numbers of exceptions the run does not know are in `0..15` (`excnoBounds`)
+  let g ← excnoBounds g c
   if let some (h, g') ← Exec.assertByOmega? g (mkNot c) then
     let g'' ← g'.withContext (rewriteIte g' t e (mkFVar h) false)
     replaceMainGoal [← g''.tryClear h]
@@ -558,14 +567,14 @@ macro_rules
       | check_step_finish
       | (check_split <;> try vm_prune_cheap <;> try check_dict_facts)
       | (vm_not_at_loop_head; check_mark_pos; check_step [$args,*])
-      | (vm_not_at_loop_head; vm_fuel <;> try simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt])
+      | (vm_not_at_loop_head; vm_fuel <;> try simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt])
       | (vm_has_run; check_step_simp [$args,*])
       | check_loop_close
       | check_loop_close_user [$args,*]
       | (vm_has_run; check_mark_pos; (first | check_loop_any [$args,*] $loops* | check_loop) <;>
           first
-            | (simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]; done)
-            | simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]
+            | (simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt]; done)
+            | simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt]
             | check_step [$args,*]))
 
 /-- `check_run [hints]`: every path of the run in the goal, to its end (`check_one_step` as long as
@@ -597,6 +606,13 @@ def projTerm (e : Expr) : (depth : Nat := 64) → MetaM Expr
       return ← projTerm (s.getArg! (info.numParams + info.i)) depth
     return mkAppN e.getAppFn (args.set! info.numParams s)
 
+/-- `e` with every projection of a structure written as its constructor reduced to the field
+(`projTerm`): the body of an `∃` with a constructor on new unknowns as its witness
+(`checkExists`), whose fields then unify one by one (unreduced, `d.f =?= ⟨?a, ?b⟩.f` unifies the
+arguments of the projections, `d =?= ⟨?a, ?b⟩`, and so every field with `d`'s). -/
+def reduceProjCtors (e : Expr) : MetaM Expr :=
+  Meta.transform e (post := fun s => return .done (← projTerm s))
+
 /-- Finds the witnesses of `∃ x, ...` by unification: a witness of a structure type is its
 constructor on new unknowns, the equations among the parts (`∧`) solved by unification
 (reducible) first; of a disjunction the first case whose equations of data (not numbers) all unify.
@@ -621,8 +637,9 @@ def checkExists (g : MVarId) : (depth : Nat := 256) → MetaM (List MVarId)
         return r
       s.restore
       let w ← mkWitness α
-      let g' ← mkFreshExprSyntheticOpaqueMVar (mkApp p w).headBeta (← g.getTag)
-      g.assign (← mkAppOptM ``Exists.intro #[α, p, w, g'])
+      let g' ← mkFreshExprSyntheticOpaqueMVar (← reduceProjCtors (mkApp p w).headBeta) (← g.getTag)
+      -- the type of `g'` is that of `p w` with its projections reduced (definitionally equal)
+      g.assign (mkAppN (mkConst ``Exists.intro [← getLevel α]) #[α, p, w, g'])
       return ← checkExists g'.mvarId! depth
     if ty.isAppOfArity ``And 2 then
       let ga ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 0) (← g.getTag)
@@ -789,6 +806,10 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
   let sargs : Syntax.TSepArray [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
     `Lean.Parser.Tactic.simpLemma] "," := ⟨args⟩
   let (_, g) ← g.intro1
+  -- the registers after a jump counted (`VmState.countJump`, the end of the run) are those before
+  let g ← match ← tryTac g (← `(tactic| simp only [countJump_regs, countJump_cstate])) 20000 with
+    | some [g'] => pure g'
+    | _ => pure g
   g.withContext do
   let tgt ← instantiateMVars (← g.getType)
   let_expr And a b := tgt | return some (← report g what ec [g])
@@ -816,7 +837,7 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
       if let some pTy' ← unfoldDefinition? pTy then
         gP ← gP.replaceTargetDefEq pTy'.headBeta
   let simpTac ← `(tactic| simp only [Builder.finalize, Builder.storeBits, Builder.empty,
-    Array.empty_append, Array.append_empty, Array.append_assoc, Option.some.injEq,
+    Array.empty_append, Array.append_empty, Array.append_assoc, Array.push_empty, Option.some.injEq,
     Int.toNat_natCast_add_one, Int.toNat_natCast, bitsToNat_natToBits, natToBits_size,
     Array.size_append, Array.extract_append, extract_natToBits_empty, extract_natToBits_past,
     extract_natToBits_all, readBits_mkOrdinary, readBits_ofCell_mkOrdinary, Nat.reducePow,
@@ -888,6 +909,8 @@ def finishLeaf (g : MVarId) (args : Array Syntax) : TacticM (Option MessageData)
   if check.debug.get (← getOptions) then
     logInfo m!"check: the end of a path at {← describePos (← g.getTag)}: \
       {if r.isSome then "not closed" else "closed"}"
+    -- with `check.progress` too, the report of a path not closed as the run goes
+    if let some m := r then progressLine ((← m.toString).take 6000)
   if r.isSome then return r
   let pf ← instantiateMVars (mkMVar g)
   let left ← (← getMVarsNoDelayed pf).filterM fun m => return !(← m.isAssigned)
@@ -1105,14 +1128,14 @@ syntax (name := checkPaths) "check_paths" " [" Lean.Parser.Tactic.simpArg,* "]" 
       ("check_split", ← `(tactic| (check_split <;> try vm_prune_cheap <;> try check_dict_facts))),
       ("check_step", ← `(tactic| (vm_not_at_loop_head; check_mark_pos; check_step [$args,*]))),
       ("vm_fuel", ← `(tactic| (vm_not_at_loop_head; vm_fuel <;>
-        try simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]))),
+        try simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt]))),
       ("check_step_simp", ← `(tactic| (vm_has_run; check_step_simp [$args,*]))),
       ("check_loop_close", ← `(tactic| check_loop_close)),
       ("check_loop_close_user", ← `(tactic| check_loop_close_user [$args,*])),
       ("check_loop", ← `(tactic| (vm_has_run; check_mark_pos; (first | check_loop_any [$args,*] $loops* | check_loop) <;>
           first
-            | (simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]; done)
-            | simp only [VmState.runWith_zero, excnoToIntStop, Excno.toInt]
+            | (simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt]; done)
+            | simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt]
             | check_step [$args,*])))]
     let fails ← explore step args.elemsAndSeps (check.cut.get (← getOptions)) budget alts 10000
       (← getUnsolvedGoals)
