@@ -5,12 +5,6 @@ import TvmLean.Proofs.Exec.Framed
 import TvmLean.Proofs.Exec.FramedDict
 import TvmLean.Proofs.Exec.FramedConfig
 import TvmLean.Proofs.Exec.FramedAddr
-import TvmLean.Proofs.Exec.Spec.MsgAddr
-import TvmLean.Proofs.Exec.Spec.MsgExt
-import TvmLean.Proofs.Exec.Spec.ArithExt
-import TvmLean.Proofs.Exec.Spec.CellExt
-import TvmLean.Proofs.Exec.Spec.StackExt
-import TvmLean.Proofs.Exec.Spec.Tuple
 
 /-!
 # Checking an invariant over all transactions: cells the run does not know
@@ -34,9 +28,9 @@ framed instructions of TvmLean/Proofs/Exec/Framed.lean and FramedDict.lean:
   the data the invariant gives, the data a run wrote): its `special` flag, `false`, as a hypothesis,
   for the specification `Spec.ctos`.
 
-With the specifications loaded here, `LDMSGADDR` reads any slice (`Spec.ldMsgAddr_any`: the address
-or cell_und) and `RAWRESERVE` with a mode below 16 runs in every global version
-(`Spec.rawReserve_le15`).
+With the specifications that TvmLean/Proofs/Check/Tactic.lean loads, `LDMSGADDR` reads any slice
+(`Spec.ldMsgAddr_any`: the address or cell_und) and `RAWRESERVE` with a mode below 16 runs in every
+global version (`Spec.rawReserve_le15`).
 
 The path that a framed instruction ends with an exception commits nothing: its `Keeps` holds
 (`keeps_of_not_committed`).
@@ -47,7 +41,7 @@ Besides:
   `excQuit` and nothing committed the path commits nothing and is closed at once (`check_dead`),
   else the exception is expanded (`check_undead`);
 * the terms a step leaves that `check_step` does not reduce are written out (`check_unstick`: the
-  call of `IF`/`IFELSE`, the gas of a tuple, a cell the code built);
+  gas of a tuple, a cell the code built);
 * `c7` that a step wrote (`RAND`) is made a variable again (`check_forget_c7`,
   TvmLean/Proofs/Check/Forget.lean).
 -/
@@ -261,27 +255,20 @@ elab "check_commit" : tactic => withMainContext do
 
 /-! ## Terms a step leaves that `check_step` does not reduce -/
 
-/-- `VmState.callTo` (the call of `IF`, `IFELSE`, `IFREFELSE`, `IFJMPREF`...) is the call `VM.call`
-makes: `c0` becomes the return continuation `VmState.retCont`. -/
-theorem callTo_retCont (st : VmState) (k : Continuation) :
-    st.callTo k = { st with regs := { st.regs with c0 := st.retCont }, cc := k } := by
-  unfold VmState.callTo VmState.callToWithFrame VmState.retCont
-  cases st.cc <;> rfl
-
 /-- The heads of the terms `check_unstick` rewrites. -/
-def unstickHeads : Array Name := #[``VmState.callTo, ``VmState.consumeTupleGas, ``Builder.finalize]
+def unstickHeads : Array Name := #[``VmState.consumeTupleGas, ``Builder.finalize]
 
 /-- `check_unstick`: a goal whose run is stuck on a term that `check_step` does not reduce, or holds
-a term the next steps read better written out: a call `VmState.callTo`, the gas of a tuple
-`VmState.consumeTupleGas`, a cell the code built `Builder.finalize` (as `Cell.mkOrdinary` of its bits
-and references: its `CTOS` by `ctos_mkOrdinary`, its references and bits read by the lemmas of
-`Cell.mkOrdinary`). The term rewritten; fails if there is none (a quick search of the goal first). -/
+a term the next steps read better written out: the gas of a tuple `VmState.consumeTupleGas`, a cell
+the code built `Builder.finalize` (as `Cell.mkOrdinary` of its bits and references: its `CTOS` by
+`ctos_mkOrdinary`, its references and bits read by the lemmas of `Cell.mkOrdinary`). The term
+rewritten; fails if there is none (a quick search of the goal first). -/
 elab "check_unstick" : tactic => withMainContext do
   let g ← getMainGoal
   let t ← instantiateMVars (← g.getType)
   unless (t.find? fun x => unstickHeads.any (x.isAppOf ·)).isSome do throwError "check_unstick: nothing"
-  evalTactic (← `(tactic| simp only [TvmLean.Check.callTo_retCont, VmState.retCont, VmState.consumeTupleGas,
-    Builder.finalize, Builder.storeBits, Builder.empty, Array.empty_append, Array.append_empty,
+  evalTactic (← `(tactic| simp only [VmState.consumeTupleGas, Builder.finalize,
+    Builder.storeBits, Builder.empty, Array.empty_append, Array.append_empty,
     VM.getElem!_singleton, Array.push_empty]))
 
 end TvmLean.Check
