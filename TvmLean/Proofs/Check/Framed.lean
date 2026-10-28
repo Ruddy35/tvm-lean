@@ -3,6 +3,7 @@ import TvmLean.Proofs.Check.Attr
 import TvmLean.Proofs.Check.Forget
 import TvmLean.Proofs.Exec.Framed
 import TvmLean.Proofs.Exec.FramedDict
+import TvmLean.Proofs.Exec.FramedConfig
 import TvmLean.Proofs.Exec.Spec.MsgAddr
 import TvmLean.Proofs.Exec.Spec.MsgExt
 import TvmLean.Proofs.Exec.Spec.ArithExt
@@ -24,6 +25,8 @@ framed instructions of TvmLean/Proofs/Exec/Framed.lean and FramedDict.lean:
   are any;
 * `DICTIGET`/`DICTUGET` on a dictionary the run does not know (`vm_dict_get_any`): a value found, any,
   or none, or an exception;
+* `CONFIGPARAM`/`CONFIGOPTPARAM` on a configuration the run does not know (`vm_config_param_any`,
+  TvmLean/Proofs/Exec/FramedConfig.lean): the parameter's cell, any, or none, or an exception;
 * `CTOS` of a cell that is ordinary by definition but not written as `Cell.mkOrdinary` (`encode d` of
   the data the invariant gives, the data a run wrote): its `special` flag, `false`, as a hypothesis,
   for the specification `Spec.ctos`.
@@ -136,6 +139,17 @@ def dictGetAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
   evalTactic (← `(tactic| (· intro r h; exact keeps_of_not_committed r h)))
   evalTactic (← `(tactic| all_goals (intros; simp only [Framed.after]; vm_clear_unused)))
 
+/-- `CONFIGPARAM`/`CONFIGOPTPARAM` (`i`) on a configuration the run does not know (`c7` any): by
+`vm_config_param_any`, the runs with the parameter found (any cell) and with none. -/
+def configParamAny (i : Instr) : TacticM Unit := withMainContext do
+  unless i matches .tonEnvOp (.configParam _) do throwError "check_framed: not CONFIGPARAM"
+  evalTactic (← `(tactic| vm_config_param_any))
+  evalTactic (← `(tactic| (· intro r h; exact keeps_of_not_committed r h)))
+  evalTactic (← `(tactic| intro s' g lc ll fuel h))
+  evalTactic (← `(tactic| simp only [Framed.ConfigOk] at h))
+  evalTactic (← `(tactic| rcases h with rfl | ⟨c, rfl⟩))
+  evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
+
 /-- The instruction the run in the main goal is about to run (`nextInstr?`), with the state. -/
 def mainNextInstr (what : String) : TacticM (MVarId × Instr × Expr) := withMainContext do
   let g ← getMainGoal
@@ -158,7 +172,7 @@ elab "check_dict_get_any" : tactic => do
   dictGetAny i S
 
 /-- `check_framed`: the instruction the run is about to run decoded once, then `knownSpecial`,
-`ctosAny` or `dictGetAny`, whichever applies. Fails for any other instruction. -/
+`ctosAny`, `dictGetAny` or `configParamAny`, whichever applies. Fails for any other instruction. -/
 elab "check_framed" : tactic => do
   let (g, i, S) ← mainNextInstr "check_framed"
   match i with
@@ -170,6 +184,7 @@ elab "check_framed" : tactic => do
       ctosAny i S
   | .xctos => knownSpecial g i S
   | .dictGet true _ false => dictGetAny i S
+  | .tonEnvOp (.configParam _) => configParamAny i
   | _ => throwError "check_framed: not an instruction on a cell the run does not know"
 
 /-! ## An exception that ends the run
