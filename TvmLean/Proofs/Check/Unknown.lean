@@ -2,6 +2,9 @@ import TvmLean.Proofs.Tx.NoSetCode
 import TvmLean.Proofs.Exec.Havoc
 import TvmLean.Proofs.Exec.Dict.Near
 import TvmLean.Proofs.Exec.Spec.DictSetGet
+import TvmLean.Proofs.Exec.Spec.Ctr
+import TvmLean.Proofs.Exec.Spec.FlowRef
+import TvmLean.Proofs.Exec.Spec.DictLoad
 import TvmLean.Proofs.Contracts.Wallet3Run.Common
 
 /-!
@@ -16,7 +19,10 @@ meets values it does not know:
   dictionary), and those of the code, whose gas followed load by load is a term that grows with each
   (the kernel's check of a `CALLDICT` into a procedure took minutes); with `max_library_loads`, the
   step's reruns with libraries refused (`check_step_finish`, `stepFinish_cases`), each step run once;
-* loops: `check_loop`, the loop rule with the loaded libraries among the parts an iteration changes;
+* loops: `check_loop`, the loop rule (`runWith_invLe`: the fuel bounded, so that a loop inside a
+  loop keeps the outer loop's hypothesis) with the loaded libraries among the parts an iteration
+  changes, the count of a `REPEAT` loop, and fewer stack entries than asked at the head of a `*BRK`
+  loop;
 * stacks, arrays and ranges written out: `stackChainExtract` (`Array.extract` of a stack: what calls
   and `BLKDROP2` keep), `arrayLitExtract`, `arrayLitGetElem` (literal bits of a data cell after its
   fields), `listRangeLit` (`for i in [0:k]` loops of the model);
@@ -25,7 +31,8 @@ meets values it does not know:
   the map of a dictionary says of a walk the run split on
   (TvmLean/Proofs/Exec/Dict/Near.lean), in `Dict.value` on a dictionary an invariant says is
   well-formed, and deletes with the VM's resolver as with the default one;
-* `cdata_callFrame_identity`: the return continuation of a call without arguments.
+* calls and jumps with arguments (`callArgsUnfold`: `CALLXARGS`, `JMPXARGS`, `RETARGS`), and
+  `cdata_callFrame_identity`: the return continuation of a call without arguments.
 -/
 
 namespace TvmLean.Check
@@ -253,8 +260,9 @@ elab "check_havoc" : tactic => withMainContext do
 
 /-- The loop head `S` (a `VmState.mk` application) with the parts an iteration of a loop changes as
 holes: the gas, the loaded cells, the loaded libraries (loads of unknown cells, `check_havoc`), the
-counters of jumps and steps, `c5`, and the payloads of the top `k` stack entries (as
-`Exec.loopHoles`, with the loaded libraries). The values of the holes in `S`, the function that
+counters of jumps and steps, `c5`, the payloads of the top `k` stack entries (as many as there are
+written out, as `Exec.loopHoles`, with the loaded libraries), and of a `REPEAT` loop the count of
+its iterations left (`c0`, the last hole). The values of the holes in `S`, the function that
 fills them, the index of the jump counter's hole and of `c5`'s. -/
 def loopHolesX (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr) × Nat × Nat) := do
   unless S.isAppOfArity ``VmState.mk 20 do throwError "check_loop: the state is not written out"
@@ -274,8 +282,8 @@ def loopHolesX (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr)
   let mut stk := args[iStack]!
   let mut entries : Array (Expr → Expr) := #[]
   for _ in [0:k] do
-    unless stk.isAppOfArity ``Array.push 3 do
-      throwError "check_loop: fewer than {k} stack entries written out"
+    -- fewer entries (the stack a `*BRK` loop moves into `c1`): fewer holes
+    unless stk.isAppOfArity ``Array.push 3 do break
     let some (p, f) := Exec.stackPayload? (stk.getArg! 2)
       | throwError "check_loop: a top stack entry is not a slice, cell, builder or integer"
     vals := vals.push p
@@ -284,12 +292,21 @@ def loopHolesX (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr)
   let nPlain := plain.length
   let top := vals.extract (nPlain + 1) vals.size
   vals := (vals.extract 0 (nPlain + 1)) ++ top.reverse
+  -- a `REPEAT` loop (`c0` is `Continuation.repeatBody body after n`): the count of the iterations
+  -- left, which every iteration changes, a hole too (the last)
+  let c0 ← whnfR (regs.getArg! 0)
+  let isRepeat := c0.isAppOfArity ``Continuation.repeatBody 3
+  if isRepeat then vals := vals.push (c0.getArg! 2)
+  let iCount := vals.size - 1
   let es := entries.reverse
   let base := stk
   let fill (xs : Array Expr) : Expr := Id.run do
     let mut a := args
     for j in [0:nPlain] do a := a.set! plain[j]! xs[j]!
-    a := a.set! iRegs (mkAppN regs.getAppFn (regs.getAppArgs.set! 5 xs[nPlain]!))
+    let mut ra := regs.getAppArgs.set! 5 xs[nPlain]!
+    if isRepeat then
+      ra := ra.set! 0 (mkApp3 (mkConst ``Continuation.repeatBody) (c0.getArg! 0) (c0.getArg! 1) xs[iCount]!)
+    a := a.set! iRegs (mkAppN regs.getAppFn ra)
     let mut s := base
     for j in [0:es.size] do
       s := mkApp3 (mkConst ``Array.push [0]) (mkConst ``Value) s (es[j]! xs[nPlain + 1 + j]!)
@@ -297,7 +314,24 @@ def loopHolesX (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr)
     return mkAppN S.getAppFn a
   return (vals, fill, 3, nPlain)
 
-/-- `check_loop`: the loop rule (`VmState.runWith_inv`) at the loop head of the run in the goal, with
+/-- **The loop rule with the fuel bounded** (`VmState.runWith_inv` for the runs of at most `F`
+steps): a loop inside a loop keeps what the outer loop's hypothesis needs, that the fuel left is at
+most the outer one's. -/
+theorem runWith_invLe (exec : Instr → VM Unit) (Inv : VmState → Prop) (P : StepResult → Prop) (F : Nat)
+    (hzero : ∀ st, Inv st → P (st.runWith exec 0))
+    (hstep : ∀ n, n + 1 ≤ F → ∀ st, Inv st → (∀ m, m ≤ n → ∀ st', Inv st' → P (st'.runWith exec m)) →
+      P (st.runWith exec (n + 1))) :
+    ∀ n, n ≤ F → ∀ st, Inv st → P (st.runWith exec n) := by
+  intro n
+  induction n using Nat.strongRecOn with
+  | _ n ih =>
+  intro hn st hst
+  cases n with
+  | zero => exact hzero st hst
+  | succ k => exact hstep k hn st hst (fun m hm st' h' => ih m (by omega) (by omega) st' h')
+
+/-- `check_loop`: the loop rule (`runWith_invLe`, the fuel at most that of the head) at the loop head
+of the run in the goal, with
 the invariant "the state is the loop head but for the gas, the loaded cells and libraries, the
 counters of jumps (fewer than `freeNestedContJump`) and steps, `c5` (satisfying `SafeActs`) and the
 payload of the top stack entry" (`vm_loop_c5` of `TvmLean/Proofs/Contracts/Wallet3Run/Tactic.lean`
@@ -335,16 +369,17 @@ elab "check_loop" : tactic => withMainContext do
   let hz ← mkFreshExprSyntheticOpaqueMVar hzTy
   let hinv ← mkFreshExprMVar (mkApp inv S).headBeta
   Exec.solveInvC5 hinv.mvarId!
-  let rule ← mkAppOptM ``VmState.runWith_inv #[exec, inv, motive, hz]
+  let rule ← mkAppOptM ``runWith_invLe #[exec, inv, motive, n, hz]
   let .forallE _ hsTy _ _ ← whnf (← inferType rule) | throwError "check_loop: the loop rule"
   let hs ← mkFreshExprSyntheticOpaqueMVar hsTy
-  let pf ← mkAppOptM ``VmState.runWith_inv #[exec, inv, motive, hz, hs, n, S, hinv]
+  let pf ← mkAppOptM ``runWith_invLe #[exec, inv, motive, n, hz, hs, n, ← mkAppM ``Nat.le_refl #[n], S, hinv]
   unless ← isDefEq (← inferType pf) t do throwError "check_loop: the goal is not a property of the run"
   g.assign pf
   let (_, gz) ← hz.mvarId!.intro `st
   let (h0, gz) ← gz.intro `hinv
   let gz ← Exec.destructInv gz h0
   let (_, gs) ← hs.mvarId!.intro `n
+  let (_, gs) ← gs.intro `hfuel
   let (_, gs) ← gs.intro `st
   let (h1, gs) ← gs.intro `hinv
   let (_, gs) ← gs.intro `ih
@@ -406,6 +441,49 @@ simproc arrayLitGetElem (@GetElem?.getElem! (Array _) Nat _ _ _ _ _ _) := fun e 
   let some x := xs[i]? | return .continue
   unless ← withDefault (isDefEq e x) do return .continue
   return .done { expr := x }
+
+/-! ## Calls and jumps with arguments -/
+
+/-- Whether `e` is an integer numeral at least `0` (`2`, `Int.ofNat 2`). -/
+def nonnegIntLit (e : Expr) : MetaM Bool := do
+  let e ← instantiateMVars e
+  if let some v ← getIntValue? e then return 0 ≤ v
+  if e.isAppOfArity ``Int.ofNat 1 then return (← getNatValue? e.appArg!).isSome
+  return false
+
+/-- Whether `k` is a continuation written out (a constructor application) whose closure data, if
+any, is written out too, with a nonempty stack (`OrdCdata.mk s n`, not `OrdCdata.empty`). -/
+def contWithArgs (k : Expr) : MetaM Bool := do
+  let k ← whnfR (← instantiateMVars k)
+  unless k.isAppOfArity ``Continuation.ordinary 4 || k.isAppOfArity ``Continuation.envelope 3 do
+    return false
+  let cd ← whnfR k.appArg!
+  return cd.isAppOfArity ``OrdCdata.mk 2 && !(← whnfR cd.appFn!.appArg!).isAppOf ``List.toArray
+
+/-- `VM.call k p r`, `VM.jump k p` and `VM.callComputeStacks s c n p` with arguments passed (`p` a
+numeral from `0`: `CALLXARGS`, `JMPXARGS`, `RETARGS`) to a continuation written out, and the jump
+back to a return continuation that keeps values (`VM.jump k`, `k`'s closure data written out with a
+stack): unfolded, the stacks then written out (`stackChainExtract`). The lemmas of `vm_run` cover
+the calls and jumps without arguments; `unfoldModelRun` leaves calls and jumps alone. -/
+dsimproc callArgsUnfold (@ExceptT.run Excno (StateM VmState) _ _ _) := fun e => do
+  let args := e.getAppArgs
+  unless args.size == 5 do return .continue
+  let m := args[3]!
+  let some f := m.getAppFn.constName? | return .continue
+  let n := m.getAppNumArgs
+  if f == ``VM.callComputeStacks && n == 4 then
+    unless ← nonnegIntLit (m.getArg! 3) do return .continue
+  else if (f == ``VM.call && n == 3) || (f == ``VM.jump && n == 2) then
+    let k ← whnfR (← instantiateMVars (m.getArg! 0))
+    let .const c _ := k.getAppFn | return .continue
+    unless (← getEnv).isConstructor c do return .continue
+    unless (← nonnegIntLit (m.getArg! 1)) || (f == ``VM.jump && (← contWithArgs k)) do
+      return .continue
+  else
+    return .continue
+  match ← withTransparency .all (unfoldDefinition? m) with
+  | some m' => return .visit (mkAppN e.getAppFn (args.set! 3 m'.headBeta))
+  | none => return .continue
 
 /-- `List.range' a n s` with numerals, written out: the `for` loops of the model over ranges
 (`for i in [0:k]`, `VM.execNullSwapIf`), after `Std.Range.forIn_eq_forIn_range'`, go on as loops

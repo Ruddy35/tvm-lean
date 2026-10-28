@@ -433,7 +433,9 @@ elab "check_loop_close" : tactic => withMainContext do
 (the dispatch, the bounds of slices, a step whatever `max_library_loads` is, `ACCEPT` for any gas
 maximum), the fresh instances of `if`, the reading of bits written by `natToBits`; the loads of
 cells the run does not know named (`havocLoads`, TvmLean/Proofs/Check/Unknown.lean), stacks and
-ranges written out, calls without arguments; and those of the `simp` set `check_run_simp`
+ranges written out, calls with and without arguments (`callArgsUnfold`), the continuations of the
+`*BRK` loops and of `TRY` with the registers they define (`VmState.c1Envelope`,
+`Continuation.defineC0`, ...); and those of the `simp` set `check_run_simp`
 (TvmLean/Proofs/Check/Attr.lean). -/
 syntax "check_step" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
 macro_rules
@@ -449,7 +451,9 @@ macro_rules
       ↓ VM.forIn_registerCellLoad, Array.append_push, Array.take_eq_extract,
       stackChainExtract, arrayLitExtract, arrayLitGetElem, Std.Range.forIn_eq_forIn_range', Std.Range.size, listRangeLit,
       List.forIn_cons, List.forIn_nil, VmState.callTo, VmState.callToWithFrame,
-      cdata_callFrame_identity, excnoToIntStop, nearestWalk_none, minMaxWalk_none,
+      cdata_callFrame_identity, callArgsUnfold, VmState.consumeStackGas, VmState.c1Envelope,
+      Continuation.defineC0, Continuation.defineC1, Continuation.defineC2, Continuation.forceCdata,
+      excnoToIntStop, nearestWalk_none, minMaxWalk_none,
       deleteWalk_none, Spec.dictLookupWithCells_none, check_run_simp, $args,*])
 
 /-- `vm_step_simp` with the lemmas of `check_step` (a run whose step is written out, after a split). -/
@@ -467,7 +471,9 @@ macro_rules
       ↓ VM.forIn_registerCellLoad, Array.append_push, Array.take_eq_extract,
       stackChainExtract, arrayLitExtract, arrayLitGetElem, Std.Range.forIn_eq_forIn_range', Std.Range.size, listRangeLit,
       List.forIn_cons, List.forIn_nil, VmState.callTo, VmState.callToWithFrame,
-      cdata_callFrame_identity, excnoToIntStop, nearestWalk_none, minMaxWalk_none,
+      cdata_callFrame_identity, callArgsUnfold, VmState.consumeStackGas, VmState.c1Envelope,
+      Continuation.defineC0, Continuation.defineC1, Continuation.defineC2, Continuation.forceCdata,
+      excnoToIntStop, nearestWalk_none, minMaxWalk_none,
       deleteWalk_none, Spec.dictLookupWithCells_none, check_run_simp, $args,*])
 
 /-- The goal `g` (target `t`) with the `if` `e` of its target (`ite c a b` or `dite c a b`) replaced

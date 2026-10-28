@@ -582,6 +582,7 @@ def probe_module(name: str, b64: str) -> str:
 import TvmLean.Proofs.Contracts.CellLiteral
 import TvmLean.Proofs.Check.Tactic
 import TvmLean.Proofs.Check.Framed
+import TvmLean.Proofs.Check.Loops
 
 namespace {ns}
 
@@ -634,7 +635,8 @@ def run_probes(jobs: int, wrap: str, build: bool, only: list[str] | None, timeou
     env = dict(os.environ)
     env.setdefault("LEAN_NUM_THREADS", "2")
     if build:
-        r = subprocess.run(prefix + [lake(), "build", "TvmLean.Proofs.Check.Tactic", "TvmLean.Proofs.Check.Framed", "TvmLean.Boc",
+        r = subprocess.run(prefix + [lake(), "build", "TvmLean.Proofs.Check.Tactic", "TvmLean.Proofs.Check.Framed",
+                                     "TvmLean.Proofs.Check.Loops", "TvmLean.Boc",
                                      "TvmLean.Proofs.Contracts.CellLiteral"], cwd=REPO, env=env)
         if r.returncode != 0:
             raise SystemExit("spec-coverage: lake build failed")
