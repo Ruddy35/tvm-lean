@@ -108,6 +108,7 @@ import TvmLean.Proofs.Exec.IteInst
 import TvmLean.Proofs.Exec.Havoc
 import TvmLean.Proofs.Exec.Dict.Near
 import TvmLean.Proofs.Exec.Spec.Ctr
+import TvmLean.Proofs.Exec.Spec.FlowRef
 import TvmLean.Proofs.Check.Unknown
 import TvmLean.Proofs.Check.Tactic
 import TvmLean.Proofs.Check.Loops
