@@ -25,10 +25,14 @@ def debugLine (t0 : Nat) (s : String) : CoreM Unit := do
 /-- `g` by the theorem `thm` (a hint: `Queries.set`), its hypotheses from the context: the equations
 of results (`f … = .ok …`) first, by `assumption` (they fix the theorem's arguments), then the
 others by `assumption`, the size of a key of an integer (`dictKeyBits?_size`), the first case of a
-disjunction by `rfl`, `omega`. Whether it closes `g` (nothing kept if not). -/
+disjunction by `rfl`, `omega`; the hypotheses by `assumption` at reducible transparency (at the
+default one, a hypothesis `dictDeleteWithLoads … = .ok …` against the goal `Dict.setSetRes ?r ?k …
+= .ok …` unfolds the walks), all within a budget of heartbeats. Whether it closes `g` (nothing kept
+if not). -/
 def closeByHint (g : MVarId) (thm : Name) : TacticM Bool := do
   let s ← saveState
-  try
+  tryCatchRuntimeEx (withCurrHeartbeats <|
+      withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := 100000 * 1000 }) do
     let gs ← g.apply (← mkConstWithFreshMVarLevels thm)
     let isResultEq (h : MVarId) : TacticM Bool := do
       let some (_, _, rhs) := (← instantiateMVars (← h.getType)).eq? | return false
@@ -37,17 +41,15 @@ def closeByHint (g : MVarId) (thm : Name) : TacticM Bool := do
     let rest ← gs.filterM fun h => return !(← isResultEq h)
     for h in first ++ rest do
       if ← h.isAssigned then continue
-      let byHyp ← (do h.assumption; pure true) <|> pure false
+      let byHyp ← (do withReducible h.assumption; pure true) <|> pure false
       unless byHyp do
         let r ← tryTac h (← `(tactic| first
           | exact dictKeyBits?_size (by assumption)
           | (left; rfl)
           | omega)) 20000
         unless r == some [] do throwError "closeByHint: a hypothesis"
-    return true
-  catch _ =>
-    s.restore
-    return false
+    return true)
+    (fun _ => do s.restore; return false)
 
 /-- A fact of a loop invariant of the user (`check_loop_user`) where a path comes back to the loop
 head, or at the loop's entry: its witnesses by unification (`checkExists`), the rest by `rfl`,
@@ -65,7 +67,10 @@ def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
         let n ← realizeGlobalConstNoOverload id
         if let some (.thmInfo _) := (← getEnv).find? n then thms := thms.push n
       catch _ => pure ()
-  for g' in ← checkExists g do
+  let t0 ← IO.monoMsNow
+  let parts ← checkExists g
+  debugLine t0 s!"closeUserFact: the witnesses, {parts.length} parts left"
+  for g' in parts do
     let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl), ← `(tactic| assumption),
       ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
       ← `(tactic| (simp only [$sargs,*]; done)), ← `(tactic| (simp_all only [$sargs',*]; done)),
