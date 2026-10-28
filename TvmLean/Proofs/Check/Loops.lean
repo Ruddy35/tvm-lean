@@ -25,7 +25,8 @@ def debugLine (t0 : Nat) (s : String) : CoreM Unit := do
 /-- `g` by the theorem `thm` (a hint: `Queries.set`), its hypotheses from the context: the equations
 of results (`f … = .ok …`) first, by `assumption` (they fix the theorem's arguments), then the
 others by `assumption`, the size of a key of an integer (`dictKeyBits?_size`), the first case of a
-disjunction by `rfl`, `omega`; the hypotheses by `assumption` at reducible transparency (at the
+disjunction by `rfl`, `omega`, a pair of facts of the context (`Queries q`, which the context holds
+taken apart); the hypotheses by `assumption` at reducible transparency (at the
 default one, a hypothesis `dictDeleteWithLoads … = .ok …` against the goal `Dict.setSetRes ?r ?k …
 = .ok …` unfolds the walks), all within a budget of heartbeats. Whether it closes `g` (nothing kept
 if not). -/
@@ -43,11 +44,27 @@ def closeByHint (g : MVarId) (thm : Name) : TacticM Bool := do
       if ← h.isAssigned then continue
       let byHyp ← (do withReducible h.assumption; pure true) <|> pure false
       unless byHyp do
-        let r ← tryTac h (← `(tactic| first
-          | exact dictKeyBits?_size (by assumption)
-          | (left; rfl)
-          | omega)) 20000
-        unless r == some [] do throwError "closeByHint: a hypothesis"
+        -- each closer within a budget of its own (a run of `omega` over a large context may use
+        -- up a budget the others would need)
+        let closers : Array (TSyntax `tactic) := #[← `(tactic| exact ⟨‹_›, ‹_›⟩),
+          ← `(tactic| exact dictKeyBits?_size (by assumption)), ← `(tactic| (left; rfl)),
+          ← `(tactic| omega)]
+        let mut shown := false
+        for c in closers do
+          if shown then break
+          if (← tryTac h c 20000) == some [] then shown := true
+        unless shown do
+          if check.debug.get (← getOptions) then
+            let f ← h.withContext do ppExpr (← instantiateMVars (← h.getType))
+            progressLine s!"  closeByHint {thm}: a hypothesis not shown: {(toString f).take 1500}"
+            -- why the first closer fails
+            let s1 ← saveState
+            let why ← tryCatchRuntimeEx
+              (do let _ ← Tactic.run h (evalTactic closers[0]!); pure "no error")
+              (fun ex => do pure (← ex.toMessageData.toString))
+            s1.restore
+            progressLine s!"  closeByHint {thm}: {closers[0]!.raw.prettyPrint}: {why.take 1500}"
+          throwError "closeByHint: a hypothesis"
     return true)
     (fun _ => do s.restore; return false)
 
@@ -145,6 +162,8 @@ invariant there by `solveInvUser`. -/
 @[tactic checkLoopCloseUser] def evalCheckLoopCloseUser : Tactic := fun stx => withMainContext do
   let args := stx[2].getSepArgs
   let g ← getMainGoal
+  -- the end of a path is no loop head (and `apply` would try to unfold its result into a run)
+  unless ← isRunGoal g do throwError "check_loop_close_user: not a run"
   let ihs := (← getLCtx).foldl (init := #[]) fun acc d =>
     if d.userName == `ih && !d.isImplementationDetail then acc.push d.fvarId else acc
   for ih in ihs.reverse do

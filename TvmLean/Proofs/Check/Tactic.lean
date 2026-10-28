@@ -389,6 +389,10 @@ def describePos (tag : Name) : MetaM String := do
 `ih` (the latest that applies, for a loop inside a loop). -/
 elab "check_loop_close" : tactic => withMainContext do
   let g ← getMainGoal
+  -- the end of a path is no loop head (and `apply` would try to unfold its result into a run)
+  let t ← instantiateMVars (← g.getType)
+  unless (t.find? fun x => x.isAppOfArity ``VmState.runWith 3 || x.isAppOfArity ``VmState.runCont 3).isSome do
+    throwError "check_loop_close: not a run"
   let ihs := (← getLCtx).foldl (init := #[]) fun acc d =>
     if d.userName == `ih && !d.isImplementationDetail then acc.push d.fvarId else acc
   for ih in ihs.reverse do
@@ -555,7 +559,7 @@ macro_rules
   | `(tactic| check_one_step [$args,*] $loops:checkLoopInv*) => `(tactic| set_option maxRecDepth 100000 in first
       | check_havoc
       | check_step_finish
-      | (check_split <;> try vm_prune_cheap <;> try check_dict_facts)
+      | (check_split <;> (try vm_prune_cheap) <;> (try check_dict_facts))
       | (vm_not_at_loop_head; check_mark_pos; check_step [$args,*])
       | (vm_not_at_loop_head; vm_fuel <;> try simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt])
       | (vm_has_run; check_step_simp [$args,*])
@@ -1115,7 +1119,7 @@ syntax (name := checkPaths) "check_paths" " [" Lean.Parser.Tactic.simpArg,* "]" 
     -- the alternatives of `check_one_step`, each on its own (`check.debug`)
     let alts := #[("check_havoc", ← `(tactic| check_havoc)),
       ("check_step_finish", ← `(tactic| check_step_finish)),
-      ("check_split", ← `(tactic| (check_split <;> try vm_prune_cheap <;> try check_dict_facts))),
+      ("check_split", ← `(tactic| (check_split <;> (try vm_prune_cheap) <;> (try check_dict_facts)))),
       ("check_step", ← `(tactic| (vm_not_at_loop_head; check_mark_pos; check_step [$args,*]))),
       ("vm_fuel", ← `(tactic| (vm_not_at_loop_head; vm_fuel <;>
         try simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt]))),
