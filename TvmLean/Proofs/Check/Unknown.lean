@@ -584,6 +584,15 @@ def findWF? (root sz : Expr) : TacticM (Option Expr) := do
       return some (← mkEqMPR e (mkFVar d.fvarId))
   return none
 
+/-- With the options `check.debug` and `check.progress` (TvmLean/Proofs/Check/Tactic.lean, which
+imports this module), the line `s` on the checker's output. -/
+def debugNote (s : String) : CoreM Unit := do
+  let o ← getOptions
+  if o.getBool `check.debug false && o.getBool `check.progress false then
+    let h ← IO.FS.Handle.mk "/dev/stderr" .append
+    h.putStrLn s!"[check]   {s}"
+    h.flush
+
 /-- `check_dict_facts`: what the map of a dictionary says of the walks the run has split on.
 
 * For a walk `dictNearestWithCells … = .ok r` or `dictMinMaxWithCells … = .ok r` (`DICT*GETNEXT*`,
@@ -620,6 +629,7 @@ elab "check_dict_facts" : tactic => withMainContext do
       known := known.push fty
       let (_, g') ← (← g.assert `hdel fty pf).intro1P
       g := g'
+      debugNote "check_dict_facts: a delete"
       continue
     let isNear := lhs.isAppOfArity ``dictNearestWithCells 6
     let isMinMax := lhs.isAppOfArity ``dictMinMaxWithCells 5
@@ -659,10 +669,26 @@ elab "check_dict_facts" : tactic => withMainContext do
     let some (c, pf) := res? | continue
     let fty ← withTransparency .all <| whnf (mkApp pty.appFn! c)
     let fty ← instantiateMVars fty
-    if known.contains fty then continue
-    known := known.push fty
-    let (_, g') ← (← g.assert `hmap fty pf).intro1P
-    g := g'
+    -- its parts (`k.size = n ∧ m k = some v ∧ ∀ k', …`) as hypotheses of their own, which
+    -- `assumption` finds (the size of the key found, for the hints of a loop invariant)
+    let mut parts : Array (Expr × Expr) := #[]
+    let mut rest := fty
+    let mut pfRest := pf
+    for _ in [0:64] do
+      let r ← whnfR rest
+      unless r.isAppOfArity ``And 2 do break
+      parts := parts.push (r.getArg! 0, ← mkAppM ``And.left #[pfRest])
+      pfRest ← mkAppM ``And.right #[pfRest]
+      rest := r.getArg! 1
+    parts := parts.push (rest, pfRest)
+    if parts.all (fun (t, _) => known.contains t) then continue
+    debugNote s!"check_dict_facts: a {if isNear then "nearest" else "min/max"} walk, in \
+      {if pf0?.isSome then "Dict.value" else "the map read with the walk's resolver"}"
+    for (t, p) in parts do
+      if known.contains t then continue
+      known := known.push t
+      let (_, g') ← (← g.assert `hmap t p).intro1P
+      g := g'
   replaceMainGoal [g]
 
 /-- The data of the return continuation of a call with no arguments (`VmState.callTo`,
