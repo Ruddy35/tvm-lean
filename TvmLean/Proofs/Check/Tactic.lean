@@ -221,10 +221,17 @@ namespace TvmLean
 
 /-! ## The action list: `SENDRAWMSG` and `RAWRESERVE` actions -/
 
-/-- `SafeActs c5`: the empty list, a hypothesis, or `SENDRAWMSG`/`RAWRESERVE` actions added to one. -/
+/-- `SafeActs c5`: the empty list, a hypothesis, or `SENDRAWMSG`/`RAWRESERVE` actions added to one.
+First at reducible transparency, the actions as `OutAction.sendMsg`/`OutAction.reserve` terms (else
+`exact SafeActs.empty` on `OutAction.reserve 0 0 Cell.empty` unfolds both cells, for long), then at
+the default one. -/
 syntax "safe_acts_close" : tactic
 macro_rules
   | `(tactic| safe_acts_close) => `(tactic| first
+      | with_reducible exact SafeActs.empty
+      | with_reducible assumption
+      | (with_reducible refine SafeActs.send _ _ ?_; safe_acts_close)
+      | (with_reducible refine SafeActs.reserve _ _ ?_; safe_acts_close)
       | exact SafeActs.empty
       | assumption
       | (refine SafeActs.send _ _ ?_; safe_acts_close)
