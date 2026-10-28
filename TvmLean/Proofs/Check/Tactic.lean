@@ -439,8 +439,10 @@ maximum), the fresh instances of `if`, the reading of bits written by `natToBits
 cells the run does not know named (`havocLoads`, TvmLean/Proofs/Check/Unknown.lean), stacks and
 ranges written out, calls with and without arguments (`callArgsUnfold`), the continuations of the
 `*BRK` loops and of `TRY` with the registers they define (`VmState.c1Envelope`,
-`Continuation.defineC0`, ...); and those of the `simp` set `check_run_simp`
-(TvmLean/Proofs/Check/Attr.lean). -/
+`Continuation.defineC0`, ...); an `if` whose condition simp decides reduced before its branches are
+simplified (`↓ reduceIte`): `VM.extract_push` of a slice of a stack leaves an `if` whose branches
+hold slices of the stack below, which would be simplified, both, at every depth; and those of the
+`simp` set `check_run_simp` (TvmLean/Proofs/Check/Attr.lean). -/
 syntax "check_step" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
 macro_rules
   | `(tactic| check_step [$args,*]) => `(tactic| vm_step [Spec.dictJump, Slice.haveBits,
@@ -458,7 +460,8 @@ macro_rules
       cdata_callFrame_identity, callArgsUnfold, VmState.consumeStackGas, VmState.c1Envelope,
       Continuation.defineC0, Continuation.defineC1, Continuation.defineC2, Continuation.forceCdata,
       ↓ excnoToIntStop, nearestWalk_none, minMaxWalk_none,
-      deleteWalk_none, Spec.dictLookupWithCells_none, check_run_simp, $args,*])
+      deleteWalk_none, Spec.dictLookupWithCells_none, ↓ reduceIte, ↓ reduceDIte, check_run_simp,
+      $args,*])
 
 /-- `vm_step_simp` with the lemmas of `check_step` (a run whose step is written out, after a split). -/
 syntax "check_step_simp" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
@@ -478,7 +481,8 @@ macro_rules
       cdata_callFrame_identity, callArgsUnfold, VmState.consumeStackGas, VmState.c1Envelope,
       Continuation.defineC0, Continuation.defineC1, Continuation.defineC2, Continuation.forceCdata,
       ↓ excnoToIntStop, nearestWalk_none, minMaxWalk_none,
-      deleteWalk_none, Spec.dictLookupWithCells_none, check_run_simp, $args,*])
+      deleteWalk_none, Spec.dictLookupWithCells_none, ↓ reduceIte, ↓ reduceDIte, check_run_simp,
+      $args,*])
 
 /-- The goal `g` (target `t`) with the `if` `e` of its target (`ite c a b` or `dite c a b`) replaced
 by its branch, given `h : c` (`pos`) or `h : ¬c`: the occurrences of `e` abstracted (`kabstract`),
