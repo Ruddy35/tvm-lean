@@ -12,8 +12,9 @@ Some dispatchers read the state before passing on (`execInstrFlowRunvm` reads th
 `get` is run by `VM.run_bind` and `VM.run_get`, and the chain is followed again.
 
 A helper of the model that no lemma of `vm_run` computes is unfolded where it is run
-(`unfoldModelRun`), if it is not recursive; the jumps (`VM.jump`, `VM.call`) are left to their
-lemmas, as unfolded on an unknown continuation they only grow.
+(`unfoldModelRun`), if it is not recursive, a private one of a module of the model too; the jumps
+(`VM.jump`, `VM.call`) are left to their lemmas, as unfolded on an unknown continuation they only
+grow.
 
 `vm_simp` is `simp` with these simprocs, the lemmas of the simp set `vm_run` (the monad and the
 primitives, `Proofs/Exec/VM.lean`) and the arithmetic of stack indices, with `omega` to decide the
@@ -68,11 +69,25 @@ dsimproc reduceExecInstrRun (@ExceptT.run Excno (StateM VmState) _ _ _) := dispa
 /-- `reduceExecInstrRun` below `execInstr` (the dispatchers it passes the instruction to). -/
 dsimproc reduceInnerDispatchRun (@ExceptT.run Excno (StateM VmState) _ _ _) := dispatchRun true
 
+/-- The module of a private name (`_private.<module>.0.<name>`, as `private def` names it). -/
+def privateModule? (n : Name) : Option Name :=
+  match n.components with
+  | `_private :: rest => some ((rest.takeWhile (fun c => !c.isNum)).foldl (· ++ ·) .anonymous)
+  | _ => none
+
+/-- Whether `n` is a private name of a module of the model (`TvmLean.Semantics`, `TvmLean.Model`:
+the helpers of the handlers, such as `popCallxVarArgBounded` or `DictExt.pushDictRoot`). -/
+def isModelPrivate (n : Name) : Bool :=
+  match privateModule? n with
+  | some m => (`TvmLean.Semantics).isPrefixOf m || (`TvmLean.Model).isPrefixOf m
+  | none => false
+
 /-- Whether the definition `n` may be unfolded where no lemma computes it: a function of the model
-(namespace `TvmLean`), not recursive (its value uses no recursor, `brecOn` or well-founded
-fixpoint), so that unfolding it terminates, and not one of the jumps (`VM.jump`, `VM.call`). -/
+(namespace `TvmLean`, or private to a module of the model, `isModelPrivate`), not recursive (its
+value uses no recursor, `brecOn` or well-founded fixpoint), so that unfolding it terminates, and
+not one of the jumps (`VM.jump`, `VM.call`). -/
 def unfoldableModelDef (n : Name) : MetaM Bool := do
-  unless (`TvmLean).isPrefixOf n do return false
+  unless (`TvmLean).isPrefixOf n || isModelPrivate n do return false
   -- jumps and calls are computed by the lemmas of `vm_run` for the continuations they cover;
   -- unfolded on an unknown continuation they only grow
   if n == ``VM.jump || n == ``VM.call || n == ``VM.callComputeStacks then return false
