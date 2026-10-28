@@ -25,21 +25,24 @@ def omegaReads (n : Name) : Option Nat :=
   else none
 
 /-- The atoms of `e` for `omega`: the maximal subterms it does not read through (applications of
-other functions, variables); literals are none. -/
-partial def omegaAtoms (e : Expr) (acc : Array Expr := #[]) : Array Expr :=
-  let e := e.consumeMData
-  let add (a : Array Expr) : Array Expr := if a.contains e then a else a.push e
-  if e.isRawNatLit || e.isLit then acc
-  else match e.getAppFn with
-    | .const n _ =>
-      if n == ``OfNat.ofNat then acc
-      else match omegaReads n with
-        | some k =>
-          let args := e.getAppArgs
-          if args.size < k then add acc
-          else (args.extract (args.size - k) args.size).foldl (fun a x => omegaAtoms x a) acc
-        | none => add acc
-    | _ => add acc
+other functions, variables), at most `depth` applications deep (deeper, the subterm is an atom);
+literals are none. -/
+def omegaAtoms (e : Expr) (acc : Array Expr := #[]) : (depth : Nat := 64) → Array Expr
+  | 0 => if acc.contains e then acc else acc.push e
+  | depth + 1 =>
+    let e := e.consumeMData
+    let add (a : Array Expr) : Array Expr := if a.contains e then a else a.push e
+    if e.isRawNatLit || e.isLit then acc
+    else match e.getAppFn with
+      | .const n _ =>
+        if n == ``OfNat.ofNat then acc
+        else match omegaReads n with
+          | some k =>
+            let args := e.getAppArgs
+            if args.size < k then add acc
+            else (args.extract (args.size - k) args.size).foldl (fun a x => omegaAtoms x a depth) acc
+          | none => add acc
+      | _ => add acc
 
 /-- `check_omega_rel`: `omega` with the hypotheses that share an atom with the goal (`omegaAtoms`),
 the others cleared. Fails if the goal has no atom, or as `omega` does. -/
