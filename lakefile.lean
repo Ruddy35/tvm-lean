@@ -43,6 +43,8 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Spec.TupleVar, `TvmLean.Proofs.Exec.Pilot.TupleVar,
     `TvmLean.Proofs.Exec.Spec.CellCheck, `TvmLean.Proofs.Exec.Spec.CellIntVar,
     `TvmLean.Proofs.Exec.Spec.CellSize, `TvmLean.Proofs.Exec.Pilot.CellVar,
+    `TvmLean.Proofs.Exec.Spec.StackVar, `TvmLean.Proofs.Exec.Spec.LoopBrk,
+    `TvmLean.Proofs.Exec.Pilot.StackLoopVar,
     `TvmLean.Proofs.WF.Defs, `TvmLean.Proofs.WF.Library, `TvmLean.Proofs.WF.Monad, `TvmLean.Proofs.WF.Decode,
     `TvmLean.Proofs.WF.Step, `TvmLean.Proofs.WF.Exec.Stack, `TvmLean.Proofs.WF.Exec.Arith,
     `TvmLean.Proofs.WF.Cells, `TvmLean.Proofs.WF.Exec.Cell, `TvmLean.Proofs.WF.Exec.CellOp,

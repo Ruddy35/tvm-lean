@@ -40,6 +40,9 @@ import TvmLean.Proofs.Exec.Spec.CellCheck
 import TvmLean.Proofs.Exec.Spec.CellIntVar
 import TvmLean.Proofs.Exec.Spec.CellSize
 import TvmLean.Proofs.Exec.Pilot.CellVar
+import TvmLean.Proofs.Exec.Spec.StackVar
+import TvmLean.Proofs.Exec.Spec.LoopBrk
+import TvmLean.Proofs.Exec.Pilot.StackLoopVar
 import TvmLean.Proofs.WF.Defs
 import TvmLean.Proofs.WF.Library
 import TvmLean.Proofs.WF.Monad

@@ -19,6 +19,8 @@ import TvmLean.Proofs.Exec.Spec.TupleVar
 import TvmLean.Proofs.Exec.Spec.CellCheck
 import TvmLean.Proofs.Exec.Spec.CellIntVar
 import TvmLean.Proofs.Exec.Spec.CellSize
+import TvmLean.Proofs.Exec.Spec.StackVar
+import TvmLean.Proofs.Exec.Spec.LoopBrk
 import TvmLean.Proofs.Exec.Closure
 
 /-!
