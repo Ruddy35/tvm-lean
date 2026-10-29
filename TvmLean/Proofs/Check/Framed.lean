@@ -33,7 +33,8 @@ With the specifications that TvmLean/Proofs/Check/Tactic.lean loads, `LDMSGADDR`
 global version (`Spec.rawReserve_le15`).
 
 The path that a framed instruction ends with an exception commits nothing: its `Keeps` holds
-(`keeps_of_not_committed`).
+(`keeps_of_not_committed`), and its `KeepsActs` (`keepsActs_of_not_committed`, the runs of a
+contract whose code may change).
 
 Besides:
 * an exception an instruction raises is kept as `VmState.raiseDead` (the lemma
@@ -61,12 +62,20 @@ theorem keeps_of_not_committed {P : Option Cell → Prop} (r : StepResult) (h : 
   rw [h] at h'
   cases h'
 
-/-- The instruction the run of the goal `t` (`Keeps P (VmState.runWith exec fuel S)`, no `if` left
-around the run) is about to run, decoded from its code, which must be closed; with the state `S`. No
-proof made. -/
+/-- `keeps_of_not_committed` for `KeepsActs`. -/
+theorem keepsActs_of_not_committed {P : Option Cell → Prop} {A : Cell → Prop} (r : StepResult)
+    (h : r.state.cstate.committed = false) : KeepsActs P A r := by
+  intro h'
+  rw [h] at h'
+  cases h'
+
+/-- The instruction the run of the goal `t` (`Keeps P (VmState.runWith exec fuel S)` or `KeepsActs P A
+(VmState.runWith exec fuel S)`, no `if` left around the run) is about to run, decoded from its code,
+which must be closed; with the state `S`. No proof made. -/
 def nextInstr? (t : Expr) : MetaM (Option (Instr × Expr)) := do
-  unless t.isAppOfArity ``Keeps 2 && (t.getArg! 1).isAppOfArity ``VmState.runWith 3 do return none
-  let S := (t.getArg! 1).getArg! 2
+  let some (_, r) ← keepsParts? t | return none
+  unless r.isAppOfArity ``VmState.runWith 3 do return none
+  let S := r.getArg! 2
   unless S.isAppOfArity ``VmState.mk 20 do return none
   let cc ← whnfCore (← whnfR (← mkAppM ``VmState.cc #[S]))
   unless cc.isAppOfArity ``Continuation.ordinary 4 do return none
@@ -126,7 +135,8 @@ def ctosAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
   if (← specialOf? top.appArg!).isSome || Exec.isClosed top.appArg! then
     throwError "check_ctos_any: a cell the run knows"
   evalTactic (← `(tactic| vm_ctos_any))
-  evalTactic (← `(tactic| (· intro r h; exact keeps_of_not_committed r h)))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
   evalTactic (← `(tactic| (intro sl g lc ll fuel; simp only [Framed.after]; vm_clear_unused)))
 
 /-- `DICTIGET`/`DICTUGET` (`i`, not `REF`) from the state `S` on a dictionary the run does not know:
@@ -137,7 +147,8 @@ def dictGetAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
   unless root.isAppOfArity ``Value.cell 1 do throwError "check_dict_get_any: no cell"
   if Exec.isClosed root.appArg! then throwError "check_dict_get_any: a dictionary the run knows"
   evalTactic (← `(tactic| vm_dict_get_any))
-  evalTactic (← `(tactic| (· intro r h; exact keeps_of_not_committed r h)))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
   evalTactic (← `(tactic| all_goals (intros; simp only [Framed.after]; vm_clear_unused)))
 
 /-- `CONFIGPARAM`/`CONFIGOPTPARAM` (`i`) on a configuration the run does not know (`c7` any): by
@@ -145,7 +156,8 @@ def dictGetAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
 def configParamAny (i : Instr) : TacticM Unit := withMainContext do
   unless i matches .tonEnvOp (.configParam _) do throwError "check_framed: not CONFIGPARAM"
   evalTactic (← `(tactic| vm_config_param_any))
-  evalTactic (← `(tactic| (· intro r h; exact keeps_of_not_committed r h)))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
   evalTactic (← `(tactic| intro s' g lc ll fuel h))
   evalTactic (← `(tactic| simp only [Framed.ConfigOk] at h))
   evalTactic (← `(tactic| rcases h with rfl | ⟨c, rfl⟩))
@@ -160,7 +172,8 @@ def rewriteVarAddrAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext d
   unless top.isAppOfArity ``Value.slice 1 do throwError "check_framed: no slice"
   if Exec.isClosed top.appArg! then throwError "check_framed: a slice the run knows"
   evalTactic (← `(tactic| vm_rewrite_var_addr_any))
-  evalTactic (← `(tactic| (· intro r h; exact keeps_of_not_committed r h)))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
   evalTactic (← `(tactic| intro s' g lc ll fuel h))
   evalTactic (← `(tactic| simp only [Framed.RewriteOk] at h))
   evalTactic (← `(tactic| first | obtain ⟨wc, a, rfl⟩ := h | rcases h with ⟨wc, a, rfl⟩ | rfl))
@@ -223,9 +236,11 @@ goal, or when one of those does not hold by `rfl`/`decide`. -/
 elab "check_dead" : tactic => withMainContext do
   let g ← getMainGoal
   let t ← instantiateMVars (← g.getType)
-  unless t.isAppOfArity ``Keeps 2 && isDeadRun (t.getArg! 1) do throwError "check_dead: not a run from an exception"
+  let some (_, r) ← keepsParts? t | throwError "check_dead: not a run from an exception"
+  unless isDeadRun r do throwError "check_dead: not a run from an exception"
+  let lem := mkIdent (if t.isAppOf ``KeepsActs then ``keepsActs_of_not_committed else ``keeps_of_not_committed)
   evalTactic (← `(tactic|
-    exact keeps_of_not_committed _ (Framed.dead_stepFinish_raiseDead _ _ _ rfl rfl (by decide) rfl rfl _)))
+    exact $lem _ (Framed.dead_stepFinish_raiseDead _ _ _ rfl rfl (by decide) rfl rfl _)))
 
 /-- `check_undead`: an exception kept as `VmState.raiseDead` that `check_dead` does not close (a
 handler other than `excQuit`, a state committed by `COMMIT`), once no `if` is left to split before
@@ -233,7 +248,10 @@ it: `VmState.raiseException`, which the next steps expand. Fails if there is non
 elab "check_undead" : tactic => withMainContext do
   let t ← instantiateMVars (← (← getMainGoal).getType)
   unless (t.find? (·.isAppOfArity ``VmState.raiseDead 2)).isSome do throwError "check_undead: no exception"
-  unless (t.isAppOfArity ``Keeps 2 && isDeadRun (t.getArg! 1)) || (← findSplit? t).isNone do
+  let dead := match ← keepsParts? t with
+    | some (_, r) => isDeadRun r
+    | none => false
+  unless dead || (← findSplit? t).isNone do
     throwError "check_undead: an `if` to split first"
   evalTactic (← `(tactic| simp only [VmState.raiseDead]))
 

@@ -61,7 +61,8 @@ implies the goal. Fails if `c7` is a variable already (or its parameters are). -
 elab "check_forget_c7" : tactic => withMainContext do
   let g ← getMainGoal
   let t ← instantiateMVars (← g.getType)
-  unless t.isAppOfArity ``Keeps 2 do throwError "check_forget_c7: not a run to keep"
+  unless t.isAppOfArity ``Keeps 2 || t.isAppOfArity ``KeepsActs 3 do
+    throwError "check_forget_c7: not a run to keep"
   let some e ← c7ToForget? t | throwError "check_forget_c7: nothing to forget"
   let (_, g') ← g.generalize #[{ expr := e, xName? := `params }]
   replaceMainGoal [g']
