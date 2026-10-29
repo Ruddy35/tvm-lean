@@ -910,7 +910,7 @@ macro_rules
       Int.reduceNatCast, Int.reduceNatCast', Int.reduceOfNat, Int.reduceToNat, GasLimits.ofLimits,
       GasLimits.ofLimit, reduceCtorEq, Excno.toInt, Array.size_empty, Nat.zero_lt_succ, Nat.succ_ne_zero,
       Nat.add_one_ne_zero, Nat.zero_add, Int.toNat_natCast, or_false, false_or, or_self, and_self,
-      not_false_eq_true, not_true_eq_false, $args,*])
+      true_or, or_true, false_and, and_false, not_false_eq_true, not_true_eq_false, $args,*])
 
 open Lean Meta Exec in
 /-- `vm_split`: the first `if` of the goal (`Lean.Meta.findSplit?`). If the context and the bounds
