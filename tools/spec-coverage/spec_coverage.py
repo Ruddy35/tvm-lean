@@ -4,6 +4,7 @@
     spec_coverage.py inventory [--deep] [--jobs N] [--save] [--md docs/audit/spec-coverage.md]
                                [--raw FILE | --from-raw FILE] [--no-build] [--wrap CMD]
     spec_coverage.py patterns [--regen] [--jobs N] [--only P,..] [--timeout S] [--save]
+                              [--md docs/audit/spec-coverage.md]
                               [--raw FILE | --from-raw FILE] [--no-build] [--wrap CMD]
     spec_coverage.py precheck [<code> ...] [--save] [--raw FILE | --from-raw FILE] [--no-build]
 
@@ -31,8 +32,10 @@ starts. `tools/contract-check/contract-check <code> --precheck` runs it.
 
 `patterns`: the control-flow patterns and whether `vm_run`/`ran_case` handle them: each pattern
 tried by small codes (probes.fif, assembled by the reference's Fift into probes.txt with `--regen`),
-each run by `ran_case` from an external message with the invariant `True`; a pattern is handled when
-every path of its probes reaches its end (`--save`: probe-results.json).
+each run by `ran_case` from an external message with the invariant `True` and the action lists of
+the model's instructions (`Acts`, any code for `SETCODE`); a pattern is handled when every path of
+its probes reaches its end (`--save`: probe-results.json; `--md`: the section of the patterns of the
+document rewritten from it, the rest kept).
 
 The Lean side needs the modules of TvmLean/Proofs/Exec/ and TvmLean.Proofs.Check.Tactic built; the
 script builds them first (`lake build`, skipped with `--no-build`). `LEAN_NUM_THREADS` and a
@@ -720,17 +723,19 @@ PATTERNS: list[dict] = [
      "forms": ["CALLDICT", "CALLDICT_LONG", "JMPDICT", "PREPAREDICT"],
      "probes": ["calldict", "jmpdict", "preparedict"], "how": "Spec.callDict, Spec.jmpDict, Spec.prepareDict"},
     {"id": "runvm", "title": "RUNVM / RUNVMX (a child VM)", "forms": ["RUNVM", "RUNVMX"], "probes": ["runvm"],
-     "how": "the handler unfolded; the child's run (VmState.runWith) is a recursive function"},
+     "how": "Spec.runvm (Exec/Spec/Runvm.lean) for the modes without arguments beyond the code and the values: "
+            "the child's run a term (childRun of Runvm.child), the parent's stack and gas written out (Runvm.run)"},
     {"id": "setcp", "title": "SETCP with a codepage other than 0, SETCPX", "forms": ["SETCP", "SETCPX", "SETCP_SHORT"],
      "probes": ["setcp1", "setcpx"], "how": "the handler unfolded; stepCode needs cp = 0, else the step unfolded"},
     {"id": "safe-actions", "title": "SENDRAWMSG / RAWRESERVE actions (c5)", "forms": ["SENDRAWMSG", "RAWRESERVE"],
      "probes": ["sendrawmsg", "rawreserve"],
-     "how": "Spec.sendRawMsg, Spec.rawReserve; SafeActs closes c5 (Check/Tactic.lean)"},
+     "how": "Spec.sendRawMsg, Spec.rawReserve; SafeActs (or Acts) closes c5 (Check/Tactic.lean)"},
     {"id": "other-actions", "title": "SETCODE / SETLIBCODE / CHANGELIB / SENDMSG / RAWRESERVEX actions",
      "forms": ["SETCODE", "SETLIBCODE", "CHANGELIB", "SENDMSG", "RAWRESERVEX"],
      "probes": ["setcode", "setlibcode", "changelib", "sendmsg"],
-     "how": "Spec.setCode runs; ran_case proves only invariants of a code that never changes, and SafeActs "
-            "admits SENDRAWMSG and RAWRESERVE only"},
+     "how": "Spec.setCode, Spec.setLibCode, Spec.changeLib, Spec.rawReserveX_null/_cell (Exec/Spec/Actions.lean), "
+            "Spec.sendMsg (Exec/Spec/SendMsg.lean); the action lists Acts K (Tx/Acts.lean) closed by acts_close; "
+            "contract-check's line `code K` (Tx/Upgrade.lean)"},
     {"id": "regs", "title": "c4 / c5 / c7 updates (POP c4, POP c5, POP c7, SETGLOB)",
      "forms": ["POPCTR", "POPCTRX", "SETGLOB", "SETGLOBVAR", "POPSAVE", "SETRAND", "ADDRAND"],
      "probes": ["c4-update", "c5-update", "c7-update", "setglob"],
@@ -821,17 +826,19 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '`Spec.callDict`, `Spec.jmpDict`, `Spec.prepareDict`'),
     'runvm': (
         '`RUNVM` / `RUNVMX` (дочерняя VM)',
-        'обработчик; прогон дочерней VM (`VmState.runWith`) рекурсивен'),
+        '`Spec.runvm` (`Exec/Spec/Runvm.lean`) для режимов без аргументов сверх кода и значений: прогон '
+        'дочерней VM — терм (`childRun` от `Runvm.child`), стек и газ родителя выписаны (`Runvm.run`)'),
     'setcp': (
         '`SETCP` с кодовой страницей не 0, `SETCPX`',
         'обработчик; `stepCode` требует `cp = 0`'),
     'safe-actions': (
         'действия `SENDRAWMSG` / `RAWRESERVE` (`c5`)',
-        '`Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` закрывает `c5` (`Check/Tactic.lean`)'),
+        '`Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` (или `Acts`) закрывает `c5` (`Check/Tactic.lean`)'),
     'other-actions': (
         'действия `SETCODE` / `SETLIBCODE` / `CHANGELIB` / `SENDMSG` / `RAWRESERVEX`',
-        '`Spec.setCode` исполняется; `ran_case` доказывает только инварианты неизменного кода, `SafeActs` '
-        'допускает лишь `SENDRAWMSG` и `RAWRESERVE`'),
+        '`Spec.setCode`, `Spec.setLibCode`, `Spec.changeLib`, `Spec.rawReserveX_null`/`_cell` '
+        '(`Exec/Spec/Actions.lean`), `Spec.sendMsg` (`Exec/Spec/SendMsg.lean`); списки действий `Acts K` '
+        '(`Tx/Acts.lean`) закрывает `acts_close`; строка `code K` у contract-check (`Tx/Upgrade.lean`)'),
     'regs': (
         'изменение `c4` / `c5` / `c7` (`POP c4`, `POP c5`, `POP c7`, `SETGLOB`)',
         '`Spec.popRoot` (`c4`); остальное — обработчиком'),
@@ -894,16 +901,18 @@ PATTERN_GAPS: dict[str, tuple[str, str]] = {
         '`TRY` без исключения исполняется; с исключением, пойманным обработчиком, и `TRYARGS` прогон не '
         'кончается (предел heartbeats)'),
     'runvm': (
-        'the child run (`VmState.runWith`) is a recursive function: the handler does not reduce',
-        'прогон дочерней VM (`VmState.runWith`) — рекурсивная функция: обработчик не считается'),
+        'RUNVMX and the modes that pop more arguments (data, gas limits, c7, a count of return values) have '
+        'no specification',
+        'у `RUNVMX` и режимов, снимающих ещё аргументы (данные, пределы газа, `c7`, число возвращаемых '
+        'значений), леммы нет'),
     'safe-actions': (
         'SENDRAWMSG is handled; the action of RAWRESERVE 0 0 is not closed by safe_acts_close',
         '`SENDRAWMSG` исполняется; действие `RAWRESERVE 0 0` не закрывает `safe_acts_close`'),
     'other-actions': (
-        'by design: ran_case proves invariants of a code that never changes; SafeActs admits SENDRAWMSG '
-        'and RAWRESERVE only; SENDMSG is also of version 4',
-        'по замыслу: `ran_case` доказывает инварианты неизменного кода, `SafeActs` допускает лишь '
-        '`SENDRAWMSG` и `RAWRESERVE`; `SENDMSG` к тому же версии 4'),
+        'the probes state the action lists `Acts` (contract-check: the line `code`); with `SafeActs` only '
+        'SENDRAWMSG and RAWRESERVE are admitted',
+        'пробы утверждают списки действий `Acts` (у contract-check — строка `code`); с `SafeActs` '
+        'допускаются лишь `SENDRAWMSG` и `RAWRESERVE`'),
     'regs': (
         'POP c4 is handled; after POP c5 and POP c7 the next step is left as `VmState.stepFinish` of the '
         'state; SETGLOB stops at the instruction',
@@ -992,6 +1001,15 @@ def cmd_patterns(args: argparse.Namespace) -> None:
         PROBE_RESULTS.write_text(json_lines(sorted(keep, key=lambda r: r["name"])))
     for r in results:
         print(f"{r['name']:24} {r['result']:8} {r['secs']:5}s  {'; '.join(r.get('where', []))[:200]}")
+    if args.md:
+        # the section of the patterns alone, from probe-results.json (`--save` first)
+        md = Path(args.md).read_text()
+        head = "## Шаблоны управления\n"
+        a = md.index(head)
+        b = md.find("\n## ", a + len(head))
+        b = len(md) if b < 0 else b + 1
+        Path(args.md).write_text(md[:a] + "\n".join(render_patterns(load_probe_results())) + "\n" + md[b:])
+        print(f"spec-coverage: wrote the patterns of {args.md}")
 
 
 def classify_forms(raw: dict, forms: list[dict]) -> list[dict]:
@@ -1145,6 +1163,32 @@ def why_missing(c: dict) -> str:
     return "; ".join(parts)
 
 
+def render_patterns(results: dict) -> list[str]:
+    """The section of the control-flow patterns of docs/audit/spec-coverage.md, from the probes'
+    results (`patterns --md` rewrites it alone)."""
+    L: list[str] = []
+    L.append("## Шаблоны управления")
+    L.append("")
+    L.append("Каждый шаблон проверяется пробами (`tools/spec-coverage/probes.fif`): маленький код запускается "
+             "`ran_case` от начала внешнего сообщения (глобальная версия от 4) с инвариантом `True` и списком "
+             "действий `Acts` (действия инструкций модели, любой код у `SETCODE`); шаблон "
+             "**исполняется**, если все пути прогона доходят до конца. Результаты — "
+             "`tools/spec-coverage/probe-results.json`.")
+    L.append("")
+    L.append("| Шаблон | Статус | Чем | Пробы | Где остановились пробы, которые не прошли | Чего не хватает |")
+    L.append("|---|---|---|---|---|---|")
+    st_ru = {"handled": "исполняется", "partial": "частично", "missing": "нет", "not probed": "не проверен"}
+    for p in PATTERNS:
+        st, note = pattern_status(p, results)
+        title, how = PATTERNS_RU.get(p["id"], (p["title"], p["how"]))
+        probes = ", ".join(f"`{n}`" for n in p["probes"])
+        gap = PATTERN_GAPS.get(p["id"], ("", ""))[1] if st in ("partial", "missing") else ""
+        L.append(f"| {md_escape(title)} | {st_ru[st]} | {md_escape(how)} | {probes} | {md_escape(note) or '—'} | "
+                 f"{md_escape(gap) or '—'} |")
+    L.append("")
+    return L
+
+
 def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> str:
     specs = spec_index(raw)
     deep = any(c["deep"] for c in classified)
@@ -1248,24 +1292,7 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
              + (", ".join(f"`{m}` ({k})" for m, k in sorted(mods.items())) or "нет") + ".")
     L.append("")
     # --- patterns
-    L.append("## Шаблоны управления")
-    L.append("")
-    L.append("Каждый шаблон проверяется пробами (`tools/spec-coverage/probes.fif`): маленький код запускается "
-             "`ran_case` от начала внешнего сообщения (глобальная версия от 4) с инвариантом `True`; шаблон "
-             "**исполняется**, если все пути прогона доходят до конца. Результаты — "
-             "`tools/spec-coverage/probe-results.json`.")
-    L.append("")
-    L.append("| Шаблон | Статус | Чем | Пробы | Где остановились пробы, которые не прошли | Чего не хватает |")
-    L.append("|---|---|---|---|---|---|")
-    st_ru = {"handled": "исполняется", "partial": "частично", "missing": "нет", "not probed": "не проверен"}
-    for p in PATTERNS:
-        st, note = pattern_status(p, results)
-        title, how = PATTERNS_RU.get(p["id"], (p["title"], p["how"]))
-        probes = ", ".join(f"`{n}`" for n in p["probes"])
-        gap = PATTERN_GAPS.get(p["id"], ("", ""))[1] if st in ("partial", "missing") else ""
-        L.append(f"| {md_escape(title)} | {st_ru[st]} | {md_escape(how)} | {probes} | {md_escape(note) or '—'} | "
-                 f"{md_escape(gap) or '—'} |")
-    L.append("")
+    L += render_patterns(results)
     # --- the contracts
     if PRECHECK_JSON.exists():
         pre = json.loads(PRECHECK_JSON.read_text())
@@ -1373,6 +1400,8 @@ def main() -> None:
     pat.add_argument("--raw", help="keep the results here (JSON)")
     pat.add_argument("--from-raw", help="use these results instead of running the probes")
     pat.add_argument("--save", action="store_true", help="write the results to probe-results.json")
+    pat.add_argument("--md", help="rewrite the section of the patterns of this document "
+                     "(docs/audit/spec-coverage.md) from probe-results.json")
     pat.add_argument("--no-build", action="store_true")
     pat.add_argument("--wrap", default=os.environ.get("CONTRACT_CHECK_WRAP", ""))
     args = ap.parse_args()
