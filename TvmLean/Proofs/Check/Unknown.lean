@@ -435,9 +435,14 @@ def pushChain? : Expr → Nat → MetaM (Option (Array Expr))
   | e, n + 1 => do
     if e.isAppOfArity ``Array.push 3 then
       return (← pushChain? (e.getArg! 1) n).map (·.push (e.getArg! 2))
-    -- the empty array, however written (`#[]`, `Array.empty`, `Array.mkEmpty`, ...)
-    let α ← inferType e
-    if ← withDefault (isDefEq e (← mkAppOptM ``Array.empty #[(← whnf α).appArg!])) then return some #[]
+    -- the empty array, however written (`#[]`, `Array.empty`, `Array.mkEmpty`, ...), seen at
+    -- reducible transparency: at the default one `isDefEq` with `#[]` computes an array the run
+    -- writes as a function of its inputs (`sha512Digest` of `RAND`'s seed), for long
+    let e ← whnfR e
+    if e.isAppOfArity ``List.toArray 2 || e.isAppOfArity ``Array.mk 2 then
+      return if (← whnfR (e.getArg! 1)).isAppOfArity ``List.nil 1 then some #[] else none
+    if e.isAppOf ``Array.empty || e.isAppOf ``Array.mkEmpty || e.isAppOf ``Array.emptyWithCapacity then
+      return some #[]
     return none
 
 /-- `Array.extract a i j` (and `Array.take`, an `extract` from 0) of an array written out from the
