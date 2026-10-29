@@ -844,7 +844,9 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
   let mut left : List MVarId := []
   for g' in gs do
     for g'' in ← checkExists g' do
+      -- a number read from `n` bits is below `2 ^ n` (a field of the data taken from the message)
       let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl), ← `(tactic| assumption),
+        ← `(tactic| exact VM.bitsToNat_readBits_lt _ _),
         ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
         ← `(tactic| (simp only [$sargs,*]; done)), ← `(tactic| (dsimp only; simp only [$sargs,*]; omega))]
       let mut closed := false
