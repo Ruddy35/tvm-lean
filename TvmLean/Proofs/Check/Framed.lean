@@ -43,7 +43,11 @@ Besides:
 * the terms a step leaves that `check_step` does not reduce are written out (`check_unstick`: the
   gas of a tuple, a cell the code built);
 * `c7` that a step wrote (`RAND`) is made a variable again (`check_forget_c7`,
-  TvmLean/Proofs/Check/Forget.lean).
+  TvmLean/Proofs/Check/Forget.lean);
+* a read of an unsigned integer that a handler lifts from `Except` into the VM (the storage prices
+  that `GETSTORAGEFEE` reads from the unpacked configuration) is written out
+  (`Spec.run_takeBitsAsNatCellUnd` in `check_run_simp`): the value and the rest, or cell_und, an
+  `if` the run splits on.
 -/
 
 namespace TvmLean.Check
@@ -278,6 +282,9 @@ attribute [check_close] Array.push_empty
 
 -- an exception an instruction raises kept under a name (`check_dead`)
 attribute [check_run_simp ↓] TvmLean.VmState.instrEnd_error_dead
+
+-- a read of an unsigned integer lifted from `Except` into the VM (`GETSTORAGEFEE`)
+attribute [check_run_simp] TvmLean.Spec.run_takeBitsAsNatCellUnd
 
 namespace TvmLean
 
