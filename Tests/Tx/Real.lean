@@ -1,5 +1,6 @@
 import Tests.Tx.Gen
 import Tests.Tx.StorageContract
+import Tests.Tx.Corpus
 import TvmLean.Proofs.Contracts.Wallet3Code
 
 /-!
@@ -88,7 +89,9 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
 - the storage contract of TON Storage (`storage/storage-daemon/smartcont/storage-contract.fc`,
   `Tests/Tx/StorageContract.lean`): every operation of `recv_internal`, proofs of storage (Merkle
   proofs of microchunk trees) valid and invalid, external messages; and 500 random internal messages
-  from a fixed seed, each at its own version (`StorageContract.randomCases`).
+  from a fixed seed, each at its own version (`StorageContract.randomCases`);
+- the most used contracts of the mainnet (`Tests/Tx/Corpus.lean`, `Corpus.cases`):
+  wallet v4r2.
 -/
 
 namespace Tests.Tx
@@ -417,6 +420,6 @@ def realCases (contracts : List (String × Cell)) (cfg0 : Cell) (versions : List
         ("transfer", mc stranger, #[], #[]), ("from-basechain", (0, stranger), q 0x6e565052, #[])] do
       out := out.push (mk s!"config/internal/{n}" (cfgAcc cfg) (intMsg (-1) cfgAddr 2000000000 true none body
         (bodyRefs := refs) (src := src)))
-  return out ++ (← StorageContract.randomCases stCode cfg0 versions)
+  return out ++ (← Corpus.cases get cfg0 versions) ++ (← StorageContract.randomCases stCode cfg0 versions)
 
 end Tests.Tx

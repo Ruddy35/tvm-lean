@@ -144,6 +144,7 @@ lean_lib TvmLeanTests where
     `Tests.Tx.Oracle,
     `Tests.Tx.Gen,
     `Tests.Tx.StorageContract,
+    `Tests.Tx.Corpus,
     `Tests.Tx.Real,
     `Tests.Tx.Coverage
   ]

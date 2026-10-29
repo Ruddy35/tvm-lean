@@ -1,6 +1,7 @@
 // Real contracts for the transaction oracle (Tests/Tx/Real.lean): the code the reference compiles
 // from FunC (crypto/smartcont/auto/*.fif), their initial data and messages signed with a fixed key
-// (wallet v3, highload wallet v2, the elector, the configuration contract).
+// (wallet v3, highload wallet v2, the elector, the configuration contract); then the most used
+// contracts of the mainnet, their code checked against its hash (Tests/Tx/Corpus.lean).
 // Prints one line per cell, "name base64-BOC"; tools/txoracle/contracts.txt is its output:
 //   fift -I <ton>/crypto/fift/lib:<ton>/crypto/smartcont:<ton>/storage/storage-daemon/smartcont \
 //     -s tools/txoracle/contracts.fif > tools/txoracle/contracts.txt
@@ -563,3 +564,67 @@ updd "nothere" z$ own cats dabody "dnsauto.body.update-missing" put
 stcode hashu 0xb4f9d928599d2f9be748f8a04af86a3cb2ff2053634df62b275545f6152b1d1a <>
   abort"storage-contract.fif is not storage-contract-code.boc"
 stcode "storage.code" put
+
+// --- wallet v4r2 (ton-blockchain/wallet-contract, func/wallet-v4-code.fc): the code of the
+// reference's crypto/smc-envelope/SmartContractCode.cpp ("wallet-v4-r2"), checked against its well-known
+// hash. Data: seqno subwallet_id public_key plugins (HashmapE 264: wc:int8 ++ hash:uint256 -> empty). An
+// external message is signature subwallet_id valid_until seqno op:8, then for op 0 (mode ^msg)*, op 1
+// wc:int8 balance:Grams ^state_init ^body (deploy and install a plugin), op 2 and 3 wc_n_address:264
+// amount:Grams query_id:64 (install, remove a plugin); the wallet commits the new seqno before it reads
+// op. Internal: a plugin's "plug" query_id grams:Grams extra:(HashmapE 32) (it requests funds) and
+// "dstr" query_id (it removes itself); everything else is accepted silently.
+"te6cckECFAEAAtQAART/APSkE/S88sgLAQIBIAIDAgFIBAUE+PKDCNcYINMf0x/THwL4I7vyZO1E0NMf0x/T//QE0VFDuvKhUVG68qIF+QFUEGT5EPKj+AAkpMjLH1JAyx9SMMv/UhD0AMntVPgPAdMHIcAAn2xRkyDXSpbTB9QC+wDoMOAhwAHjACHAAuMAAcADkTDjDQOkyMsfEssfy/8QERITAubQAdDTAyFxsJJfBOAi10nBIJJfBOAC0x8hghBwbHVnvSKCEGRzdHK9sJJfBeAD+kAwIPpEAcjKB8v/ydDtRNCBAUDXIfQEMFyBAQj0Cm+hMbOSXwfgBdM/yCWCEHBsdWe6kjgw4w0DghBkc3RyupJfBuMNBgcCASAICQB4AfoA9AQw+CdvIjBQCqEhvvLgUIIQcGx1Z4MesXCAGFAEywUmzxZY+gIZ9ADLaRfLH1Jgyz8gyYBA+wAGAIpQBIEBCPRZMO1E0IEBQNcgyAHPFvQAye1UAXKwjiOCEGRzdHKDHrFwgBhQBcsFUAPPFiP6AhPLassfyz/JgED7AJJfA+ICASAKCwBZvSQrb2omhAgKBrkPoCGEcNQICEekk30pkQzmkD6f+YN4EoAbeBAUiYcVnzGEAgFYDA0AEbjJftRNDXCx+AA9sp37UTQgQFA1yH0BDACyMoHy//J0AGBAQj0Cm+hMYAIBIA4PABmtznaiaEAga5Drhf/AABmvHfaiaEAQa5DrhY/AAG7SB/oA1NQi+QAFyMoHFcv/ydB3dIAYyMsFywIizxZQBfoCFMtrEszMyXP7AMhAFIEBCPRR8qcCAHCBAQjXGPoA0z/IVCBHgQEI9FHyp4IQbm90ZXB0gBjIywXLAlAGzxZQBPoCFMtqEssfyz/Jc/sAAgBsgQEI1xj6ANM/MFIkgQEI9Fnyp4IQZHN0cnB0gBjIywXLAlAFzxZQA/oCE8tqyx8Syz/Jc/sAAAr0AMntVGliJeU="
+  base64>B B>boc constant w4code
+w4code hashu 0xfeb5ff6820e2ff0d9483e7e0d62c817d846789fb4ae580c878866d959dabd5c0 <> abort"w4code: not wallet v4r2"
+698983191 constant w4sub
+{ <b rot 8 i, swap 256 u, b> <s } : wc-addr    // ( wc addr -- slice ): wc:int8 ++ addr:uint256
+// ( seqno plugins -- data ): one plugin 0:2222..22 (the source of the cases' internal messages) or none
+{ <b rot 32 u, w4sub 32 u, pub B, swap dict, b> } : w4data
+dictnew <b b> <s 0 dest wc-addr rot 264 sdict!+ drop constant w4plugins
+0 null w4data constant w4data0
+<b b{0011} s, w4code ref, w4data0 ref, null dict, b> constant w4init
+w4init hashu constant w4addr
+w4code "wallet4.code" put
+w4data0 "wallet4.data" put
+0 w4plugins w4data "wallet4.data.plugin" put
+0xffffffff null w4data "wallet4.data.last-seqno" put
+<b w4addr 256 u, b> "wallet4.addr" put
+{ <b 3 roll 32 u, rot 32 u, swap 32 u, } : w4head   // ( sub valid_until seqno -- b )
+{ w4addr swap signed-ext } : w4ext                  // the body inline
+{ w4addr swap signed-ext-ref } : w4ext-ref          // the body in a reference
+w4sub 1800000000 0 w4head 0 8 u, 3 8 u, 500000000 transfer ref, b> w4ext "wallet4.msg.ok" put
+w4sub 1800000000 0 w4head 0 8 u, 3 8 u, 100000000 transfer ref, 1 8 u, 200000000 transfer ref,
+  0 8 u, 5000000000000 transfer ref, 2 8 u, 300000000 transfer ref, b> w4ext "wallet4.msg.four" put
+w4sub 1800000000 0 w4head 0 8 u, 128 8 u, 0 transfer ref, b> w4ext "wallet4.msg.all" put
+w4sub 1800000000 0 w4head 0 8 u, 0 8 u, 5000000000000 transfer ref, b> w4ext "wallet4.msg.too-much" put
+w4sub 1800000000 0 w4head 0 8 u, b> w4ext "wallet4.msg.none" put
+w4sub 1800000000 0 w4head b> w4ext "wallet4.msg.no-op" put
+w4sub 1800000000 0 w4head 7 8 u, b> w4ext "wallet4.msg.unknown-op" put
+w4sub 1690000000 0 w4head 0 8 u, 3 8 u, 500000000 transfer ref, b> w4ext "wallet4.msg.expired" put
+w4sub 1800000000 7 w4head 0 8 u, 3 8 u, 500000000 transfer ref, b> w4ext "wallet4.msg.seqno" put
+1 1800000000 0 w4head 0 8 u, 3 8 u, 500000000 transfer ref, b> w4ext "wallet4.msg.subwallet" put
+w4sub 1800000000 0xffffffff w4head 0 8 u, b> w4ext "wallet4.msg.last-seqno" put
+pk-other key !
+w4sub 1800000000 0 w4head 0 8 u, 3 8 u, 500000000 transfer ref, b> w4ext "wallet4.msg.bad-signature" put
+pk key !
+// op 1: deploy a plugin (a StateInit with the code x{} and empty data) with 0.05 Gram and install it
+<b b{0011} s, <b b> ref, <b b> ref, null dict, b> constant w4plugin-init
+w4sub 1800000000 0 w4head 1 8 u, 0 8 i, 50000000 Gram, w4plugin-init ref, <b 0x6e6f7465 32 u, 1 64 u, b> ref, b>
+  w4ext-ref "wallet4.msg.deploy-plugin" put
+// op 2: install 0:4444..44 (sends it 0.05 Gram "note"), and 0:2222..22 (installed in wallet4.data.plugin)
+w4sub 1800000000 0 w4head 2 8 u, 0 other wc-addr s, 50000000 Gram, 1 64 u, b> w4ext-ref "wallet4.msg.install" put
+w4sub 1800000000 0 w4head 2 8 u, 0 dest wc-addr s, 50000000 Gram, 1 64 u, b> w4ext-ref "wallet4.msg.install-plugin" put
+// op 3: remove 0:2222..22 (sends it 0.05 Gram "dstr"), and 0:4444..44 (never installed)
+w4sub 1800000000 0 w4head 3 8 u, 0 dest wc-addr s, 50000000 Gram, 1 64 u, b> w4ext-ref "wallet4.msg.remove-plugin" put
+w4sub 1800000000 0 w4head 3 8 u, 0 other wc-addr s, 50000000 Gram, 1 64 u, b> w4ext-ref "wallet4.msg.remove-other" put
+// the first message (seqno 0, no order) with the StateInit, as wallets deploy it
+w4addr w4init w4sub 1800000000 0 w4head 0 8 u, b> signed-ext-init "wallet4.msg.deploy" put
+// internal bodies: a plugin requests 0.1 Gram, 50 Gram, 0.1 Gram and 500 units of extra currency 7;
+// removes itself; a request without query_id; a comment, an unknown operation
+<b 0x706c7567 32 u, 1 64 u, 100000000 Gram, null dict, b> "wallet4.body.plug" put
+<b 0x706c7567 32 u, 1 64 u, 50000000000 Gram, null dict, b> "wallet4.body.plug-too-much" put
+<b 0x706c7567 32 u, 1 64 u, 100000000 Gram, 500 7 of-cc dict, b> "wallet4.body.plug-extra" put
+<b 0x64737472 32 u, 1 64 u, b> "wallet4.body.dstr" put
+<b 0x706c7567 32 u, b> "wallet4.body.plug-short" put
+<b 0 32 u, "hi" $, b> "wallet4.body.comment" put
+<b 0x12345678 32 u, 1 64 u, b> "wallet4.body.unknown" put
