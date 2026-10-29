@@ -572,7 +572,8 @@ def regen_probes() -> None:
 
 def probe_module(name: str, b64: str) -> str:
     """A Lean file: the probe's code as a literal and the theorem that every run of an external
-    message (global version from 4) keeps the invariant `Inv` (`True`), by `ran_case`."""
+    message (global version from 4) keeps the invariant `Inv` (`True`) and commits an action list of
+    the actions of the model's instructions (`Acts`, any code for `SETCODE`), by `ran_case`."""
     import base64
     import boc2lean
     cells, roots = boc2lean.parse_boc(base64.b64decode(b64))
@@ -594,7 +595,7 @@ set_option maxHeartbeats 20000000 in
 set_option maxRecDepth 100000 in
 set_option check.maxSteps 3000 in
 theorem probe : ∀ bal val msg body,
-    RunsKeep code Inv (computePhaseStack bal val msg body true) (4 ≤ ·) := by
+    RunsKeepActs code Inv (Acts fun _ => True) (computePhaseStack bal val msg body true) (4 ≤ ·) := by
   ran_case [Inv]
 
 end {ns}
