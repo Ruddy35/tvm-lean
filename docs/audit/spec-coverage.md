@@ -1,6 +1,6 @@
 # Покрытие инструкций символьным исполнением
 
-Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `5d8374b`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
+Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `e6c77e9`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
 
 ```sh
 export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут
@@ -34,22 +34,22 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 
 | Семейство | Форм | Лемма | Лемма с условием | Лемма вне contract-check (из них развёртка) | Развёртка обработчика | Не исполняется | Покрыто / развёртка / не исполняется сейчас |
 |---|---:|---:|---:|---:|---:|---:|---|
-| stack | 50 | 48 | 0 | 0 (0) | 0 | 2 | 48 / 0 / 2 |
-| arith | 246 | 134 | 3 | 0 (0) | 10 | 99 | 137 / 10 / 99 |
-| cell | 199 | 82 | 2 | 0 (0) | 93 | 22 | 84 / 93 / 22 |
-| cont/flow | 85 | 13 | 4 | 0 (0) | 51 | 17 | 17 / 51 / 17 |
-| loops | 16 | 7 | 0 | 0 (0) | 8 | 1 | 7 / 8 / 1 |
+| stack | 50 | 49 | 0 | 0 (0) | 0 | 1 | 49 / 0 / 1 |
+| arith | 246 | 221 | 15 | 0 (0) | 10 | 0 | 236 / 10 / 0 |
+| cell | 199 | 104 | 2 | 0 (0) | 93 | 0 | 106 / 93 / 0 |
+| cont/flow | 85 | 13 | 4 | 0 (0) | 53 | 15 | 17 / 53 / 15 |
+| loops | 16 | 8 | 0 | 0 (0) | 8 | 0 | 8 / 8 / 0 |
 | exceptions | 17 | 7 | 0 | 0 (0) | 10 | 0 | 7 / 10 / 0 |
 | dict | 143 | 1 | 74 | 0 (0) | 49 | 19 | 75 / 49 / 19 |
-| tuple | 34 | 27 | 2 | 0 (0) | 2 | 3 | 29 / 2 / 3 |
+| tuple | 34 | 30 | 2 | 0 (0) | 2 | 0 | 32 / 2 / 0 |
 | msg/actions | 13 | 2 | 3 | 0 (0) | 6 | 2 | 5 / 6 / 2 |
 | tonenv/c7 | 55 | 2 | 11 | 0 (0) | 37 | 5 | 13 / 37 / 5 |
 | crypto | 50 | 3 | 0 | 0 (0) | 33 | 14 | 3 / 33 / 14 |
 | debug | 7 | 0 | 0 | 0 (0) | 7 | 0 | 0 / 7 / 0 |
-| misc | 4 | 0 | 0 | 0 (0) | 0 | 4 | 0 / 0 / 4 |
-| **всего** | **919** | **326** | **99** | **0** **(0)** | **306** | **188** | **425 / 306 / 188** |
+| misc | 4 | 4 | 0 | 0 (0) | 0 | 0 | 4 / 0 / 0 |
+| **всего** | **919** | **444** | **111** | **0** **(0)** | **308** | **56** | **555 / 308 / 56** |
 
-Лемм `vm_spec`: 333, из них в импортах contract-check 333; вне их: нет.
+Лемм `vm_spec`: 372, из них в импортах contract-check 372; вне их: нет.
 
 ## Шаблоны управления
 
@@ -95,45 +95,35 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 |---|---:|---:|---:|---:|---:|---:|---:|---|
 | `wallet3` | 59 | 36 | 59 | 0 | 0 | 0 | 0 | — |
 | `highload2` | 125 | 61 | 118 | 0 | 0 | 7 | 0 | `LDDICT`, `DICTIGETNEXT`, `DICTUREMMIN`, `PUSHREFCONT`, `STDICT` |
-| `elector` | 2158 | 138 | 1965 | 0 | 0 | 188 | 5 | `CALLREF`, `STDICT`, `LDDICT`, `CONFIGOPTPARAM`, `POPCTR`, `DICTUGETPREV`, `REWRITESTDADDR`, `DICTUGETNEXT`, `PLDDICT`, `PUSHREFCONT`, `CHKSIGNS` (нет), `MULRSHIFT#` и ещё 7 |
-| `config` | 1294 | 130 | 1202 | 0 | 0 | 87 | 5 | `CALLREF`, `STDICT`, `POPCTR`, `PUSHCTR`, `CONFIGOPTPARAM`, `LDDICT`, `DICTIGETOPTREF`, `MULRSHIFT#`, `BLESS`, `CHKSIGNS` (нет), `DICTISETGETOPTREF`, `DICTUGETPREV` и ещё 8 |
-| `dns` | 436 | 100 | 407 | 0 | 0 | 28 | 1 | `CALLREF`, `LDDICT`, `PUSHCTR`, `STDICT`, `POPCTR`, `SDCUTLAST`, `BLESS`, `DICTUGETOPTREF`, `DICTUREMMIN`, `DICTUSETGETOPTREF`, `IFJMPREF`, `IFREF` и ещё 4 |
+| `elector` | 2158 | 138 | 1967 | 0 | 0 | 188 | 3 | `CALLREF`, `STDICT`, `LDDICT`, `CONFIGOPTPARAM`, `POPCTR`, `DICTUGETPREV`, `REWRITESTDADDR`, `DICTUGETNEXT`, `PLDDICT`, `PUSHREFCONT`, `CHKSIGNS` (нет), `MULRSHIFT#` и ещё 5 |
+| `config` | 1294 | 130 | 1205 | 0 | 0 | 87 | 2 | `CALLREF`, `STDICT`, `POPCTR`, `PUSHCTR`, `CONFIGOPTPARAM`, `LDDICT`, `DICTIGETOPTREF`, `MULRSHIFT#`, `BLESS`, `CHKSIGNS` (нет), `DICTISETGETOPTREF`, `DICTUGETPREV` и ещё 6 |
+| `dns` | 436 | 100 | 408 | 0 | 0 | 28 | 0 | `CALLREF`, `LDDICT`, `PUSHCTR`, `STDICT`, `POPCTR`, `SDCUTLAST`, `BLESS`, `DICTUGETOPTREF`, `DICTUREMMIN`, `DICTUSETGETOPTREF`, `IFJMPREF`, `IFREF` и ещё 3 |
 | `simple-wallet` | 38 | 30 | 38 | 0 | 0 | 0 | 0 | — |
 | `wallet2` | 53 | 36 | 53 | 0 | 0 | 0 | 0 | — |
-| `pow` | 311 | 85 | 297 | 0 | 0 | 8 | 6 | `ADDRAND` (нет), `CALLREF`, `LSHIFT#DIVR` (нет), `MULRSHIFTR#`, `RANDU256`, `IFREFELSE`, `LSHIFT#DIV` (нет) |
-| `multisig` | 538 | 108 | 498 | 0 | 0 | 39 | 1 | `CALLREF`, `LDDICT`, `PUSHCTR`, `STDICT`, `DICTUGETNEXT`, `DICTUREMMIN`, `SDSKIPLAST`, `SETGASLIMIT`, `STUX` (нет) |
+| `pow` | 311 | 85 | 300 | 0 | 0 | 8 | 3 | `ADDRAND` (нет), `CALLREF`, `MULRSHIFTR#`, `RANDU256`, `IFREFELSE` |
+| `multisig` | 538 | 108 | 499 | 0 | 0 | 39 | 0 | `CALLREF`, `LDDICT`, `PUSHCTR`, `STDICT`, `DICTUGETNEXT`, `DICTUREMMIN`, `SDSKIPLAST`, `SETGASLIMIT` |
 | `restricted3` | 163 | 63 | 150 | 0 | 0 | 13 | 0 | `CALLREF`, `LDDICT`, `DICTIGETPREVEQ`, `STDICT`, `CONFIGOPTPARAM`, `PUSHREFCONT` |
 | `pchan` | 572 | 85 | 551 | 0 | 0 | 21 | 0 | `THROWANYIFNOT`, `CALLREF`, `IFREFELSE`, `IFREFELSEREF`, `THROWANYIF` |
 | `highload1` | 72 | 46 | 70 | 0 | 0 | 2 | 0 | `DICTIGETNEXT`, `LDDICT` |
 | `simple-wallet-ext` | 67 | 39 | 65 | 0 | 0 | 2 | 0 | `PUSHCTR` |
 | `restricted1` | 129 | 57 | 124 | 0 | 0 | 5 | 0 | `CONFIGOPTPARAM`, `CALLREF`, `REWRITESTDADDR` |
 | `restricted2` | 143 | 62 | 132 | 0 | 0 | 11 | 0 | `CALLREF`, `DICTIGETPREVEQ`, `LDDICT`, `STDICT`, `CONFIGOPTPARAM` |
-| `dnsauto` | 875 | 120 | 825 | 0 | 0 | 47 | 3 | `CALLREF`, `LDDICT`, `DICTUMIN`, `GETGLOB`, `SDSKIPLAST`, `IFJMPREF`, `PUSHREFCONT`, `SDCUTLAST`, `SHA256U`, `STDICT`, `CDATASIZE` (нет), `DICTUGETOPTREF` и ещё 5 |
+| `dnsauto` | 875 | 120 | 828 | 0 | 0 | 47 | 0 | `CALLREF`, `LDDICT`, `DICTUMIN`, `GETGLOB`, `SDSKIPLAST`, `IFJMPREF`, `PUSHREFCONT`, `SDCUTLAST`, `SHA256U`, `STDICT`, `DICTUGETOPTREF`, `DICTUMAX` и ещё 2 |
 | `storage` | 388 | 85 | 378 | 0 | 0 | 10 | 0 | `PUSHCTR`, `CALLREF`, `IFREFELSE`, `IFJMPREF`, `RAND`, `XCTOS` |
 
 ## Что не покрыто
 
-**stack** (2): `BLKSWX` (прогон обработчика: предел heartbeats); `REVX` (прогон обработчика: предел heartbeats).
+**stack** (1): `REVX` (прогон обработчика: предел heartbeats).
 
-**arith** (99): `ADDRSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `ADDRSHIFTMODR` (прогон обработчика: предел глубины рекурсии simp); `ADDRSHIFTMODC` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTR` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTC` (прогон обработчика: предел глубины рекурсии simp); `MODPOW2` (прогон обработчика: предел глубины рекурсии simp); `MODPOW2R` (прогон обработчика: предел глубины рекурсии simp); `MODPOW2C` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTMODR` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTMODC` (прогон обработчика: предел глубины рекурсии simp); `QADDRSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `QADDRSHIFTMODR` (прогон обработчика: предел глубины рекурсии simp); `QADDRSHIFTMODC` (прогон обработчика: предел глубины рекурсии simp); `QRSHIFTR` (прогон обработчика: предел глубины рекурсии simp); `QRSHIFTC` (прогон обработчика: предел глубины рекурсии simp); `QMODPOW2` (прогон обработчика: предел глубины рекурсии simp); `QMODPOW2R` (прогон обработчика: предел глубины рекурсии simp); `QMODPOW2C` (прогон обработчика: предел глубины рекурсии simp); `QRSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `QRSHIFTMODR` (прогон обработчика: предел глубины рекурсии simp); `QRSHIFTMODC` (прогон обработчика: предел глубины рекурсии simp); `MULADDRSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `MULADDRSHIFTRMOD` (прогон обработчика: предел глубины рекурсии simp); `MULADDRSHIFTCMOD` (прогон обработчика: предел глубины рекурсии simp); `MULRSHIFT` (прогон обработчика: предел глубины рекурсии simp); `MULRSHIFTR` (прогон обработчика: предел глубины рекурсии simp); `MULRSHIFTC` (прогон обработчика: предел глубины рекурсии simp); `MULMODPOW2` (прогон обработчика: предел глубины рекурсии simp); `MULMODPOW2R` (прогон обработчика: предел глубины рекурсии simp); `MULMODPOW2C` (прогон обработчика: предел глубины рекурсии simp); `MULRSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `MULRSHIFTRMOD` (прогон обработчика: предел глубины рекурсии simp); `MULRSHIFTCMOD` (прогон обработчика: предел глубины рекурсии simp); `QMULADDRSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `QMULADDRSHIFTRMOD` (прогон обработчика: предел глубины рекурсии simp); `QMULADDRSHIFTCMOD` (прогон обработчика: предел глубины рекурсии simp); `QMULRSHIFT` (прогон обработчика: предел глубины рекурсии simp); `QMULRSHIFTR` (прогон обработчика: предел глубины рекурсии simp); `QMULRSHIFTC` (прогон обработчика: предел глубины рекурсии simp); `QMULMODPOW2` (прогон обработчика: предел глубины рекурсии simp); `QMULMODPOW2R` (прогон обработчика: предел глубины рекурсии simp); `QMULMODPOW2C` (прогон обработчика: предел глубины рекурсии simp); `QMULRSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `QMULRSHIFTRMOD` (прогон обработчика: предел глубины рекурсии simp); `QMULRSHIFTCMOD` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTADDDIVMOD` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTADDDIVMODR` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTADDDIVMODC` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTDIV` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTDIVR` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTDIVC` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTMODR` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTMODC` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTDIVMOD` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTDIVMODR` (прогон обработчика: предел глубины рекурсии simp); `LSHIFTDIVMODC` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTADDDIVMOD` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTADDDIVMODR` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTADDDIVMODC` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTDIV` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTDIVR` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTDIVC` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTMOD` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTMODR` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTMODC` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTDIVMOD` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTDIVMODR` (прогон обработчика: предел глубины рекурсии simp); `QLSHIFTDIVMODC` (прогон обработчика: предел глубины рекурсии simp); `ADDRSHIFT#MOD` (прогон обработчика: предел глубины рекурсии simp); `ADDRSHIFTR#MOD` (прогон обработчика: предел глубины рекурсии simp); `ADDRSHIFTC#MOD` (прогон обработчика: предел глубины рекурсии simp); `RSHIFT#` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTR#` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTC#` (прогон обработчика: предел глубины рекурсии simp); `MODPOW2#` (прогон обработчика: предел глубины рекурсии simp); `MODPOW2R#` (прогон обработчика: предел глубины рекурсии simp); `MODPOW2C#` (прогон обработчика: предел глубины рекурсии simp); `RSHIFT#MOD` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTR#MOD` (прогон обработчика: предел глубины рекурсии simp); `RSHIFTC#MOD` (прогон обработчика: предел глубины рекурсии simp); `MULADDRSHIFT#MOD` (прогон обработчика: предел глубины рекурсии simp); `MULADDRSHIFTR#MOD` (прогон обработчика: предел глубины рекурсии simp); `MULADDRSHIFTC#MOD` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#ADDDIVMOD` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#ADDDIVMODR` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#ADDDIVMODC` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#DIV` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#DIVR` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#DIVC` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#MOD` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#MODR` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#MODC` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#DIVMOD` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#DIVMODR` (прогон обработчика: предел глубины рекурсии simp); `LSHIFT#DIVMODC` (прогон обработчика: предел глубины рекурсии simp); `RSHIFT_ALT` (прогон обработчика: предел глубины рекурсии simp); `QRSHIFT_ALT` (прогон обработчика: предел глубины рекурсии simp).
-
-**cell** (22): `BDEPTH` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `BCHKREFS` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика: предел глубины рекурсии simp); `BCHKBITREFS` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика: предел глубины рекурсии simp); `BCHKREFSQ` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика: предел глубины рекурсии simp); `BCHKBITREFSQ` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика: предел глубины рекурсии simp); `SUBSLICE` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика: предел heartbeats); `STVARINT16` (прогон обработчика: предел глубины рекурсии simp); `STVARINT32` (прогон обработчика: предел глубины рекурсии simp); `STIX` (прогон обработчика: предел глубины рекурсии simp); `STUX` (прогон обработчика: предел глубины рекурсии simp); `STIXR` (прогон обработчика: предел глубины рекурсии simp); `STUXR` (прогон обработчика: предел глубины рекурсии simp); `STIXQ` (прогон обработчика: предел глубины рекурсии simp); `STUXQ` (прогон обработчика: предел глубины рекурсии simp); `STIXRQ` (прогон обработчика: предел глубины рекурсии simp); `STUXRQ` (прогон обработчика: предел глубины рекурсии simp); `LDIQ` (прогон обработчика: предел глубины рекурсии simp); `LDUQ` (прогон обработчика: предел глубины рекурсии simp); `PLDIQ` (прогон обработчика: предел глубины рекурсии simp); `PLDUQ` (прогон обработчика: предел глубины рекурсии simp); `BCHKBITS_VAR` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика: предел глубины рекурсии simp); `BCHKBITSQ_VAR` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика: предел глубины рекурсии simp).
-
-**cont/flow** (17): `CALLCC` (прогон обработчика: предел глубины рекурсии simp); `CALLXVARARGS` (прогон обработчика остановился на VM.call); `RETVARARGS` (прогон обработчика остановился на VM.jump); `CALLCCVARARGS` (прогон обработчика: предел heartbeats); `RUNVMX` (прогон обработчика: предел глубины рекурсии simp); `RETURNVARARGS` (прогон обработчика: предел heartbeats); `SETCONTVARARGS` (прогон обработчика: предел heartbeats); `BLESSVARARGS` (прогон обработчика: предел heartbeats); `SETCONTCTRMANYX` (прогон обработчика остановился на ForIn.forIn); `BOOLEVAL` (прогон обработчика: предел глубины рекурсии simp); `SETCONTCTRMANY` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `JMPXARGS` (прогон обработчика остановился на VM.jump); `RETARGS` (прогон обработчика остановился на VM.jump); `RETURNARGS` (прогон обработчика: предел heartbeats); `RUNVM` (прогон обработчика: предел глубины рекурсии simp); `CALLXARGS` (прогон обработчика остановился на VM.call); `CALLXARGS_1` (прогон обработчика остановился на VM.call).
-
-**loops** (1): `AGAINBRK` (прогон обработчика: предел глубины рекурсии simp).
+**cont/flow** (15): `CALLXVARARGS` (прогон обработчика остановился на VM.call); `RETVARARGS` (прогон обработчика остановился на VM.jump); `CALLCCVARARGS` (прогон обработчика: предел heartbeats); `RUNVMX` (прогон обработчика: предел глубины рекурсии simp); `RETURNVARARGS` (прогон обработчика: предел heartbeats); `SETCONTVARARGS` (прогон обработчика: предел heartbeats); `BLESSVARARGS` (прогон обработчика: предел heartbeats); `SETCONTCTRMANYX` (прогон обработчика остановился на ForIn.forIn); `SETCONTCTRMANY` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `JMPXARGS` (прогон обработчика остановился на VM.jump); `RETARGS` (прогон обработчика остановился на VM.jump); `RETURNARGS` (прогон обработчика: предел heartbeats); `RUNVM` (прогон обработчика: предел глубины рекурсии simp); `CALLXARGS` (прогон обработчика остановился на VM.call); `CALLXARGS_1` (прогон обработчика остановился на VM.call).
 
 **dict** (19): `DICTMINREF` (прогон обработчика: предел heartbeats); `DICTIMINREF` (прогон обработчика: предел heartbeats); `DICTUMINREF` (прогон обработчика: предел heartbeats); `DICTMAXREF` (прогон обработчика: предел heartbeats); `DICTIMAXREF` (прогон обработчика: предел heartbeats); `DICTUMAXREF` (прогон обработчика: предел heartbeats); `DICTREMMIN` (прогон обработчика: предел heartbeats); `DICTREMMINREF` (прогон обработчика: предел heartbeats); `DICTIREMMINREF` (прогон обработчика: предел heartbeats); `DICTUREMMINREF` (прогон обработчика: предел heartbeats); `DICTREMMAX` (прогон обработчика: предел heartbeats); `DICTREMMAXREF` (прогон обработчика: предел heartbeats); `DICTIREMMAXREF` (прогон обработчика: предел heartbeats); `DICTUREMMAXREF` (прогон обработчика: предел heartbeats); `DICTREPLACEB` (прогон обработчика: предел heartbeats); `DICTIREPLACEB` (прогон обработчика: предел heartbeats); `DICTUREPLACEB` (прогон обработчика: предел heartbeats); `SUBDICTGET` (прогон обработчика: предел heartbeats); `SUBDICTRPGET` (прогон обработчика: предел heartbeats).
-
-**tuple** (3): `UNPACKFIRSTVAR` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `EXPLODEVAR` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `SETINDEXVARQ` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика: предел heartbeats).
 
 **msg/actions** (2): `RAWRESERVEX` (прогон обработчика: предел heartbeats); `SENDMSG` (прогон обработчика: предел heartbeats).
 
 **tonenv/c7** (5): `GETSTORAGEFEE` (прогон обработчика: предел heartbeats); `GETFORWARDFEE` (прогон обработчика: предел heartbeats); `GETFORWARDFEESIMPLE` (прогон обработчика: предел heartbeats); `ADDRAND` (прогон обработчика: предел heartbeats); `GETEXTRABALANCE` (прогон обработчика: предел heartbeats).
 
 **crypto** (14): `CHKSIGNS` (прогон обработчика: предел heartbeats); `P256_CHKSIGNS` (прогон обработчика: предел heartbeats); `RIST255_MULBASE` (прогон обработчика: предел heartbeats); `RIST255_QMULBASE` (прогон обработчика: предел heartbeats); `BLS_AGGREGATE` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `BLS_FASTAGGREGATEVERIFY` (прогон обработчика остановился на ForIn.forIn); `BLS_AGGREGATEVERIFY` (прогон обработчика остановился на ForIn.forIn); `BLS_G1_MULTIEXP` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `BLS_G2_MULTIEXP` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `BLS_PAIRING` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `HASHEXT` (прогон обработчика: предел heartbeats); `HASHEXTR` (прогон обработчика: предел heartbeats); `HASHEXTA` (прогон обработчика: предел heartbeats); `HASHEXTAR` (прогон обработчика: предел heartbeats).
-
-**misc** (4): `CDATASIZEQ` (прогон обработчика остановился на MonadExcept.tryCatch); `CDATASIZE` (прогон обработчика остановился на MonadExcept.tryCatch); `SDATASIZEQ` (прогон обработчика остановился на ForIn.forIn); `SDATASIZE` (прогон обработчика остановился на ForIn.forIn).
 
 ## Все формы
 
@@ -152,7 +142,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `PICK` | лемма | pick | развёртка | лемма срабатывает; посчитан, ветвлений 20 |
 | `ROLL` | лемма | roll | развёртка | лемма срабатывает; стоит на ForIn.forIn |
 | `ROLLREV` | лемма | rollRev | развёртка | лемма срабатывает; стоит на ForIn.forIn |
-| `BLKSWX` | не исполняется | — | развёртка | предел heartbeats |
+| `BLKSWX` | лемма | blkSwapX | развёртка | лемма срабатывает; предел heartbeats |
 | `REVX` | не исполняется | — | развёртка | предел heartbeats |
 | `DROPX` | лемма | dropX | развёртка | лемма срабатывает; посчитан, ветвлений 20 |
 | `TUCK` | лемма | tuck, tuck_any | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
@@ -279,28 +269,28 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `QDIVMOD` | лемма | divMod_nan_dividend, divMod_nan_divisor, divmod | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `QDIVMODR` | лемма | divMod_nan_dividend, divMod_nan_divisor, divmod | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `QDIVMODC` | лемма | divMod_nan_dividend, divMod_nan_divisor, divmod | развёртка | лемма срабатывает; предел глубины рекурсии simp |
-| `ADDRSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `ADDRSHIFTMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `ADDRSHIFTMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MODPOW2` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MODPOW2R` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MODPOW2C` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QADDRSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QADDRSHIFTMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QADDRSHIFTMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QRSHIFTR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QRSHIFTC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMODPOW2` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMODPOW2R` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMODPOW2C` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QRSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QRSHIFTMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QRSHIFTMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `ADDRSHIFTMOD` | лемма с условием | addShrModVar | развёртка | предел глубины рекурсии simp |
+| `ADDRSHIFTMODR` | лемма с условием | addShrModVar | развёртка | предел глубины рекурсии simp |
+| `ADDRSHIFTMODC` | лемма с условием | addShrModVar | развёртка | предел глубины рекурсии simp |
+| `RSHIFTR` | лемма | shrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFTC` | лемма | shrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MODPOW2` | лемма | modPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MODPOW2R` | лемма | modPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MODPOW2C` | лемма | modPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFTMOD` | лемма | shrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFTMODR` | лемма | shrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFTMODC` | лемма | shrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QADDRSHIFTMOD` | лемма с условием | addShrModVar | развёртка | предел глубины рекурсии simp |
+| `QADDRSHIFTMODR` | лемма с условием | addShrModVar | развёртка | предел глубины рекурсии simp |
+| `QADDRSHIFTMODC` | лемма с условием | addShrModVar | развёртка | предел глубины рекурсии simp |
+| `QRSHIFTR` | лемма | shrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QRSHIFTC` | лемма | shrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMODPOW2` | лемма | modPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMODPOW2R` | лемма | modPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMODPOW2C` | лемма | modPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QRSHIFTMOD` | лемма | shrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QRSHIFTMODR` | лемма | shrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QRSHIFTMODC` | лемма | shrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `MULADDDIVMOD` | лемма | muladddivmod | развёртка | лемма срабатывает; посчитан, ветвлений 19 |
 | `MULADDDIVMODR` | лемма | muladddivmod | развёртка | лемма срабатывает; посчитан, ветвлений 19 |
 | `MULADDDIVMODC` | лемма | muladddivmod | развёртка | лемма срабатывает; посчитан, ветвлений 19 |
@@ -325,54 +315,54 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `QMULDIVMOD` | лемма | muldivmod | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `QMULDIVMODR` | лемма | muldivmod | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `QMULDIVMODC` | лемма | muldivmod | развёртка | лемма срабатывает; предел глубины рекурсии simp |
-| `MULADDRSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULADDRSHIFTRMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULADDRSHIFTCMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULRSHIFT` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULRSHIFTR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULRSHIFTC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULMODPOW2` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULMODPOW2R` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULMODPOW2C` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULRSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULRSHIFTRMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULRSHIFTCMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULADDRSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULADDRSHIFTRMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULADDRSHIFTCMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULRSHIFT` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULRSHIFTR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULRSHIFTC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULMODPOW2` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULMODPOW2R` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULMODPOW2C` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULRSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULRSHIFTRMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QMULRSHIFTCMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTADDDIVMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTADDDIVMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTADDDIVMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTDIV` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTDIVR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTDIVC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTDIVMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTDIVMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFTDIVMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTADDDIVMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTADDDIVMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTADDDIVMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTDIV` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTDIVR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTDIVC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTDIVMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTDIVMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `QLSHIFTDIVMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `MULADDRSHIFTMOD` | лемма | mulAddShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULADDRSHIFTRMOD` | лемма | mulAddShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULADDRSHIFTCMOD` | лемма | mulAddShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULRSHIFT` | лемма | mulShrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULRSHIFTR` | лемма | mulShrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULRSHIFTC` | лемма | mulShrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULMODPOW2` | лемма | mulModPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULMODPOW2R` | лемма | mulModPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULMODPOW2C` | лемма | mulModPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULRSHIFTMOD` | лемма | mulShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULRSHIFTRMOD` | лемма | mulShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULRSHIFTCMOD` | лемма | mulShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULADDRSHIFTMOD` | лемма | mulAddShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULADDRSHIFTRMOD` | лемма | mulAddShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULADDRSHIFTCMOD` | лемма | mulAddShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULRSHIFT` | лемма | mulShrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULRSHIFTR` | лемма | mulShrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULRSHIFTC` | лемма | mulShrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULMODPOW2` | лемма | mulModPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULMODPOW2R` | лемма | mulModPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULMODPOW2C` | лемма | mulModPow2Var | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULRSHIFTMOD` | лемма | mulShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULRSHIFTRMOD` | лемма | mulShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QMULRSHIFTCMOD` | лемма | mulShrModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTADDDIVMOD` | лемма с условием | shlAddDivModVar | развёртка | предел глубины рекурсии simp |
+| `LSHIFTADDDIVMODR` | лемма с условием | shlAddDivModVar | развёртка | предел глубины рекурсии simp |
+| `LSHIFTADDDIVMODC` | лемма с условием | shlAddDivModVar | развёртка | предел глубины рекурсии simp |
+| `LSHIFTDIV` | лемма | shlDivVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTDIVR` | лемма | shlDivVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTDIVC` | лемма | shlDivVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTMOD` | лемма | shlModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTMODR` | лемма | shlModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTMODC` | лемма | shlModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTDIVMOD` | лемма | shlDivModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTDIVMODR` | лемма | shlDivModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFTDIVMODC` | лемма | shlDivModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTADDDIVMOD` | лемма с условием | shlAddDivModVar | развёртка | предел глубины рекурсии simp |
+| `QLSHIFTADDDIVMODR` | лемма с условием | shlAddDivModVar | развёртка | предел глубины рекурсии simp |
+| `QLSHIFTADDDIVMODC` | лемма с условием | shlAddDivModVar | развёртка | предел глубины рекурсии simp |
+| `QLSHIFTDIV` | лемма | shlDivVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTDIVR` | лемма | shlDivVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTDIVC` | лемма | shlDivVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTMOD` | лемма | shlModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTMODR` | лемма | shlModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTMODC` | лемма | shlModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTDIVMOD` | лемма | shlDivModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTDIVMODR` | лемма | shlDivModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `QLSHIFTDIVMODC` | лемма | shlDivModVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `ADDINT` | лемма | addInt | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `MULINT` | лемма | mulInt | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `QADDINT` | лемма | qaddInt | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
@@ -392,21 +382,21 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `QFITS` | лемма | fits | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `QUFITS` | лемма | ufits | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `PUSHPOW2` | лемма | pushPow2 | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
-| `ADDRSHIFT#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `ADDRSHIFTR#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `ADDRSHIFTC#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFT#` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTR#` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTC#` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MODPOW2#` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MODPOW2R#` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MODPOW2C#` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFT#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTR#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `RSHIFTC#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULADDRSHIFT#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULADDRSHIFTR#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `MULADDRSHIFTC#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `ADDRSHIFT#MOD` | лемма | addShrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `ADDRSHIFTR#MOD` | лемма | addShrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `ADDRSHIFTC#MOD` | лемма | addShrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFT#` | лемма | shrConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFTR#` | лемма | shrConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFTC#` | лемма | shrConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MODPOW2#` | лемма | modPow2Const | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MODPOW2R#` | лемма | modPow2Const | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MODPOW2C#` | лемма | modPow2Const | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFT#MOD` | лемма | shrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFTR#MOD` | лемма | shrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `RSHIFTC#MOD` | лемма | shrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULADDRSHIFT#MOD` | лемма | mulAddShrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULADDRSHIFTR#MOD` | лемма | mulAddShrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `MULADDRSHIFTC#MOD` | лемма | mulAddShrModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `MULRSHIFT#` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
 | `MULRSHIFTR#` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
 | `MULRSHIFTC#` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
@@ -416,28 +406,28 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `MULRSHIFT#MOD` | развёртка обработчика | — | развёртка | посчитан, ветвлений 10 |
 | `MULRSHIFTR#MOD` | развёртка обработчика | — | развёртка | посчитан, ветвлений 10 |
 | `MULRSHIFTC#MOD` | развёртка обработчика | — | развёртка | посчитан, ветвлений 10 |
-| `LSHIFT#ADDDIVMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#ADDDIVMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#ADDDIVMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#DIV` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#DIVR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#DIVC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#MOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#MODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#MODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#DIVMOD` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#DIVMODR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LSHIFT#DIVMODC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `LSHIFT#ADDDIVMOD` | лемма | shlAddDivModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#ADDDIVMODR` | лемма | shlAddDivModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#ADDDIVMODC` | лемма | shlAddDivModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#DIV` | лемма | shlDivConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#DIVR` | лемма | shlDivConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#DIVC` | лемма | shlDivConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#MOD` | лемма | shlModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#MODR` | лемма | shlModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#MODC` | лемма | shlModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#DIVMOD` | лемма | shlDivModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#DIVMODR` | лемма | shlDivModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LSHIFT#DIVMODC` | лемма | shlDivModConst | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `LSHIFT_VAR` | лемма | lshift | развёртка | лемма срабатывает; посчитан, ветвлений 19 |
 | `LSHIFT` | лемма | lshiftConst | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `QLSHIFT_VAR` | лемма | lshiftVar | развёртка | лемма срабатывает; посчитан, ветвлений 19 |
 | `QLSHIFT` | лемма | lshiftConst | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `RSHIFT_VAR` | лемма | rshift | развёртка | лемма срабатывает; посчитан, ветвлений 14 |
 | `RSHIFT` | лемма | rshiftConst | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `RSHIFT_ALT` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `RSHIFT_ALT` | лемма | shrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `QRSHIFT_VAR` | лемма | rshiftVar | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
 | `QRSHIFT` | лемма | rshiftConst | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `QRSHIFT_ALT` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `QRSHIFT_ALT` | лемма | shrVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `PUSHINT_4` | лемма | pushInt | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `PUSHINT_8` | лемма | pushInt | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `PUSHINT_16` | лемма | pushInt | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
@@ -483,17 +473,17 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `STSLICERQ` | лемма | stSlice_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STBRQ` | лемма | stb_rev | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `ENDXC` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `BDEPTH` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |
+| `BDEPTH` | лемма | bdepth | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; стоит на ForIn.forIn |
 | `BBITS` | лемма | bbits | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `BREFS` | лемма | brefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 0 |
 | `BBITREFS` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 0 |
 | `BREMBITS` | лемма | brembits | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 0 |
 | `BREMREFS` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 0 |
 | `BREMBITREFS` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 0 |
-| `BCHKREFS` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | предел глубины рекурсии simp |
-| `BCHKBITREFS` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | предел глубины рекурсии simp |
-| `BCHKREFSQ` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | предел глубины рекурсии simp |
-| `BCHKBITREFSQ` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | предел глубины рекурсии simp |
+| `BCHKREFS` | лемма | bchkRefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел глубины рекурсии simp |
+| `BCHKBITREFS` | лемма | bchkBitRefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел глубины рекурсии simp |
+| `BCHKREFSQ` | лемма | bchkRefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел глубины рекурсии simp |
+| `BCHKBITREFSQ` | лемма | bchkBitRefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел глубины рекурсии simp |
 | `STZEROES` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
 | `STONES` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
 | `STSAME` | развёртка обработчика | — | развёртка | посчитан, ветвлений 23 |
@@ -510,7 +500,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `SSKIPFIRST` | лемма | sskipfirst | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `SCUTLAST` | лемма | scutlast | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `SSKIPLAST` | лемма | sskiplast | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
-| `SUBSLICE` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | предел heartbeats |
+| `SUBSLICE` | лемма | subslice | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел heartbeats |
 | `SPLIT` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 23 |
 | `SPLITQ` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 23 |
 | `XCTOS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
@@ -538,21 +528,21 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `LDGRAMS` | лемма | ldGrams | блок: liftM (вне модели, нет леммы vm_run) | лемма срабатывает; стоит на liftM |
 | `LDVARINT16` | лемма | ldVarInt | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STGRAMS` | лемма | stGrams | развёртка | лемма срабатывает; посчитан, ветвлений 14 |
-| `STVARINT16` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `STVARINT16` | лемма | stVarInt | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `LDVARUINT32` | лемма | ldVarInt | развёртка | лемма срабатывает; стоит на liftM |
 | `LDVARINT32` | лемма | ldVarInt | развёртка | лемма срабатывает; стоит на liftM |
 | `STVARUINT32` | лемма | stVarUInt | развёртка | лемма срабатывает; предел глубины рекурсии simp |
-| `STVARINT32` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `STVARINT32` | лемма | stVarInt | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `LDMSGADDR` | лемма | ldMsgAddr, ldMsgAddr_any, ldMsgAddr_error | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `LDMSGADDRQ` | лемма с условием | ldMsgAddr, ldMsgAddr_error | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `STIX` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `STUX` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `STIXR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `STUXR` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `STIXQ` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `STUXQ` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `STIXRQ` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `STUXRQ` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `STIX` | лемма | stIntVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `STUX` | лемма | stIntVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `STIXR` | лемма | stIntVar_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `STUXR` | лемма | stIntVar_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `STIXQ` | лемма | stIntVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `STUXQ` | лемма | stIntVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `STIXRQ` | лемма | stIntVar_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `STUXRQ` | лемма | stIntVar_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STILE4` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `STULE4` | развёртка обработчика | — | развёртка | посчитан, ветвлений 10 |
 | `STILE8` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
@@ -596,10 +586,10 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `STURQ` | лемма | stIntFixed_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `PLDI` | лемма | loadInt | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `PLDU` | лемма | loadInt | развёртка | лемма срабатывает; предел глубины рекурсии simp |
-| `LDIQ` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `LDUQ` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `PLDIQ` | не исполняется | — | развёртка | предел глубины рекурсии simp |
-| `PLDUQ` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `LDIQ` | лемма | loadIntQ | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `LDUQ` | лемма | loadIntQ | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `PLDIQ` | лемма | loadIntQ | развёртка | лемма срабатывает; предел глубины рекурсии simp |
+| `PLDUQ` | лемма | loadIntQ | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `PLDUZ` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `PLDSLICE` | лемма | loadSliceFixed, loadSliceFixed_any | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `LDSLICEQ` | лемма | loadSliceFixed_any | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
@@ -627,9 +617,9 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `LDU_ALT` | лемма | loadInt | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `LDSLICE` | лемма | loadSliceFixed, loadSliceFixed_any | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `LDSLICE_ALT` | лемма | loadSliceFixed, loadSliceFixed_any | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `BCHKBITS_VAR` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | предел глубины рекурсии simp |
+| `BCHKBITS_VAR` | лемма | bchkBits | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел глубины рекурсии simp |
 | `BCHKBITS` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 6 |
-| `BCHKBITSQ_VAR` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | предел глубины рекурсии simp |
+| `BCHKBITSQ_VAR` | лемма | bchkBits | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел глубины рекурсии simp |
 | `BCHKBITSQ` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 6 |
 | `PUSHSLICE` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `PUSHSLICE_REFS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
@@ -656,7 +646,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `RET` | лемма | ret, ret_quit | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `RETALT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `RETBOOL` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
-| `CALLCC` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `CALLCC` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `JMPXDATA` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `CALLXVARARGS` | не исполняется | — | развёртка | стоит на VM.call; остаются термами: VM.call |
 | `RETVARARGS` | не исполняется | — | развёртка | стоит на VM.jump; остаются термами: VM.jump |
@@ -693,7 +683,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `THENRET` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `THENRETALT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `INVERT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `BOOLEVAL` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `BOOLEVAL` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `SAMEALT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `SAMEALTSAVE` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `SETCONTCTRMANY` v9 | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |
@@ -755,7 +745,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `UNTILENDBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `WHILEBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `WHILEENDBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `AGAINBRK` | не исполняется | — | развёртка | предел глубины рекурсии simp |
+| `AGAINBRK` | лемма | againBrk | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `AGAINENDBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 5 |
 
 ### exceptions
@@ -937,11 +927,11 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `TUPLEVAR` | лемма | mktupleVar | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; стоит на ForIn.forIn |
 | `INDEXVAR` | лемма | indexVar | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 19 |
 | `UNTUPLEVAR` | лемма | untupleVar | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; стоит на ForIn.forIn |
-| `UNPACKFIRSTVAR` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |
-| `EXPLODEVAR` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |
+| `UNPACKFIRSTVAR` | лемма | unpackFirstVar | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; стоит на ForIn.forIn |
+| `EXPLODEVAR` | лемма | explodeVar | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; стоит на ForIn.forIn |
 | `SETINDEXVAR` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 19 |
 | `INDEXVARQ` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 19 |
-| `SETINDEXVARQ` | не исполняется | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | предел heartbeats |
+| `SETINDEXVARQ` | лемма | setIndexVarQ, setIndexVarQ_null | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел heartbeats |
 | `TLEN` | лемма | tlen | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 6 |
 | `QTLEN` | лемма | qtlen, qtlen_other | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 6 |
 | `ISTUPLE` | лемма | isTuple | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 0 |
@@ -1116,8 +1106,8 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 
 | Форма | Статус | Леммы | Обработчик | Прогон |
 |---|---|---|---|---|
-| `CDATASIZEQ` | не исполняется | — | развёртка | стоит на MonadExcept.tryCatch |
-| `CDATASIZE` | не исполняется | — | развёртка | стоит на MonadExcept.tryCatch |
-| `SDATASIZEQ` | не исполняется | — | развёртка | стоит на ForIn.forIn |
-| `SDATASIZE` | не исполняется | — | развёртка | стоит на ForIn.forIn |
+| `CDATASIZEQ` | лемма | cdataSize, cdataSize_null | развёртка | лемма срабатывает; стоит на VM.visitDataSizeCell._unary; остаются термами: VM.visitDataSizeCell._unary |
+| `CDATASIZE` | лемма | cdataSize, cdataSize_null | развёртка | лемма срабатывает; стоит на VM.visitDataSizeCell._unary; остаются термами: VM.visitDataSizeCell._unary |
+| `SDATASIZEQ` | лемма | sdataSize | развёртка | лемма срабатывает; стоит на ForIn.forIn |
+| `SDATASIZE` | лемма | sdataSize | развёртка | лемма срабатывает; стоит на ForIn.forIn |
 
