@@ -628,3 +628,89 @@ w4addr w4init w4sub 1800000000 0 w4head 0 8 u, b> signed-ext-init "wallet4.msg.d
 <b 0x706c7567 32 u, b> "wallet4.body.plug-short" put
 <b 0 32 u, "hi" $, b> "wallet4.body.comment" put
 <b 0x12345678 32 u, 1 64 u, b> "wallet4.body.unknown" put
+
+// --- wallet v5r1 (ton-blockchain/wallet-contract-v5, contracts/wallet_v5.fc): the code of its
+// build/wallet_v5.compiled.json, checked against its well-known hash. Data: is_signature_allowed:1
+// seqno:32 wallet_id:32 public_key:256 extensions (HashmapE 256: address hash -> int1 -1). A signed
+// request is prefix wallet_id valid_until seqno, the actions, the signature (the last 512 bits, over
+// the rest of the body): 0x7369676e in an external message, 0x73696e74 in an internal one. The
+// actions: Maybe ^OutList (only action_send_msg, set as c5; an external one must have the +2 mode bit)
+// then has_other:1 and the extended actions (8-bit prefix: 2 add an extension, 3 remove one, 4
+// allow/disallow the signature, only by an extension), the next in the last reference. An extension
+// (an address of the wallet's workchain in the dictionary) sends 0x6578746e query_id and actions.
+B{b5ee9c7241021401000281000114ff00f4a413f4bcf2c80b01020120020d020148030402dcd020d749c120915b8f6320d70b1f2082106578746ebd21821073696e74bdb0925f03e082106578746eba8eb48020d72101d074d721fa4030fa44f828fa443058bd915be0ed44d0810141d721f4058307f40e6fa1319130e18040d721707fdb3ce03120d749810280b99130e070e2100f020120050c020120060902016e07080019adce76a2684020eb90eb85ffc00019af1df6a2684010eb90eb858fc00201480a0b0017b325fb51341c75c875c2c7e00011b262fb513435c280200019be5f0f6a2684080a0eb90fa02c0102f20e011e20d70b1f82107369676ebaf2e08a7f0f01e68ef0eda2edfb218308d722028308d723208020d721d31fd31fd31fed44d0d200d31f20d31fd3ffd70a000af90140ccf9109a28945f0adb31e1f2c087df02b35007b0f2d0845125baf2e0855036baf2e086f823bbf2d0882292f800de01a47fc8ca00cb1f01cf16c9ed542092f80fde70db3cd81003f6eda2edfb02f404216e926c218e4c0221d73930709421c700b38e2d01d72820761e436c20d749c008f2e09320d74ac002f2e09320d71d06c712c2005230b0f2d089d74cd7393001a4e86c128407bbf2e093d74ac000f2e093ed55e2d20001c000915be0ebd72c08142091709601d72c081c12e25210b1e30f20d74a111213009601fa4001fa44f828fa443058baf2e091ed44d0810141d718f405049d7fc8ca0040048307f453f2e08b8e14038307f45bf2e08c22d70a00216e01b3b0f2d090e2c85003cf1612f400c9ed54007230d72c08248e2d21f2e092d200ed44d0d2005113baf2d08f54503091319c01810140d721d70a00f2e08ee2c8ca0058cf16c9ed5493f2c08de20010935bdb31e1d74cd0b4d6c35e}
+  B>boc constant w5code
+w5code hashu 0x20834b7b72b112147e1b2fb457b84e74d1a30f04f737d4f62a668e9552d2b72f <> abort"w5code: not wallet v5r1"
+2147483409 constant w5wid   // the default wallet_id of a mainnet basechain wallet
+// ( allowed? seqno extensions -- data )
+{ <b 3 roll 1 i, rot 32 u, w5wid 32 u, pub B, swap dict, b> } : w5data
+// ( addr -- extensions ): the one extension 0:addr
+{ <b -1 1 i, b> <s swap dictnew 256 udict!+ drop } : w5ext1
+-1 0 null w5data constant w5data0
+<b b{0011} s, w5code ref, w5data0 ref, null dict, b> constant w5init
+w5init hashu constant w5addr
+w5code "wallet5.code" put
+w5data0 "wallet5.data" put
+-1 0 dest w5ext1 w5data "wallet5.data.ext" put
+0 0 dest w5ext1 w5data "wallet5.data.disabled-ext" put
+0 0 null w5data "wallet5.data.disabled" put
+<b w5addr 256 u, b> "wallet5.addr" put
+<b b> constant nil-acts
+{ <b 3 roll ref, 0x0ec3c86d 32 u, rot 8 u, swap ref, b> } : act+   // ( list mode msg -- list' )
+{ <b 0x7369676e 32 u, 3 roll 32 u, rot 32 u, swap 32 u, } : w5head      // ( wallet_id valid_until seqno -- b )
+{ <b 0x73696e74 32 u, 3 roll 32 u, rot 32 u, swap 32 u, } : w5ihead     // the same, signed_internal
+{ dup b> hashu key @ ed25519_sign_uint B, b> } : w5sign                   // ( b -- body ): signed at the end
+{ <b b{1000100} s, 0 w5addr addr, 0 Gram, b{01} s, swap ref, b> } : w5ext     // ( body -- ext-msg ), in a reference
+{ <b b{1000100} s, 0 w5addr addr, 0 Gram, b{00} s, swap <s s, b> } : w5ext-inline
+{ w5wid 1800000000 0 w5head } : w5ok      // ( -- b ): the head of a valid external request
+{ w5wid 1800000000 0 w5ihead } : w5iok    // the same, internal
+nil-acts 3 500000000 transfer act+ constant acts-one
+nil-acts 3 100000000 transfer act+ 3 200000000 transfer act+ 130 0 transfer act+ constant acts-three
+w5ok acts-one dict, 0 1 i, w5sign w5ext "wallet5.msg.ok" put
+w5ok acts-one dict, 0 1 i, w5sign w5ext-inline "wallet5.msg.ok-inline" put
+w5ok acts-three dict, 0 1 i, w5sign w5ext "wallet5.msg.three" put
+w5ok nil-acts 1 100000000 transfer act+ dict, 0 1 i, w5sign w5ext "wallet5.msg.mode-1" put
+w5ok nil-acts 2 5000000000000 transfer act+ dict, 0 1 i, w5sign w5ext "wallet5.msg.too-much-ignored" put
+// an action_set_code in the list; a send_msg with a 9-bit mode; 255 and 256 sends
+w5ok <b nil-acts ref, 0xad4de08e 32 u, w5code ref, b> dict, 0 1 i, w5sign w5ext "wallet5.msg.set-code-action" put
+w5ok <b nil-acts ref, 0x0ec3c86d 32 u, 3 9 u, 100000000 transfer ref, b> dict, 0 1 i, w5sign w5ext "wallet5.msg.bad-mode-bits" put
+nil-acts { 3 1000000 transfer act+ } 255 times constant acts-255
+w5ok acts-255 dict, 0 1 i, w5sign w5ext "wallet5.msg.send-255" put
+w5ok acts-255 3 1000000 transfer act+ dict, 0 1 i, w5sign w5ext "wallet5.msg.send-256" put
+// extended actions
+w5ok null dict, 1 1 u, 2 8 u, 0 other Addr, w5sign w5ext "wallet5.msg.add-ext" put
+w5ok null dict, 1 1 u, 2 8 u, 0 dest Addr, w5sign w5ext "wallet5.msg.add-ext-existing" put
+w5ok null dict, 1 1 u, 2 8 u, -1 other Addr, w5sign w5ext "wallet5.msg.add-ext-masterchain" put
+w5ok null dict, 1 1 u, 3 8 u, 0 dest Addr, w5sign w5ext "wallet5.msg.remove-ext" put
+w5ok null dict, 1 1 u, 3 8 u, 0 other Addr, w5sign w5ext "wallet5.msg.remove-ext-missing" put
+w5ok null dict, 1 1 u, 4 8 u, 0 1 i, w5sign w5ext "wallet5.msg.set-signature" put
+w5ok null dict, 1 1 u, 7 8 u, w5sign w5ext "wallet5.msg.unsupported-action" put
+w5ok null dict, 1 1 u, 2 8 u, 0 other Addr, <b 3 8 u, 0 other Addr, b> ref, w5sign w5ext "wallet5.msg.add-remove" put
+w5ok acts-one dict, 1 1 u, 2 8 u, 0 other Addr, w5sign w5ext "wallet5.msg.send-add-ext" put
+w5ok null dict, 0 1 i, w5sign w5ext "wallet5.msg.none" put
+<b 0x12345678 32 u, w5wid 32 u, 1800000000 32 u, 0 32 u, null dict, 0 1 i, w5sign w5ext "wallet5.msg.bad-prefix" put
+<b 0x1234 16 u, b> w5ext "wallet5.msg.short" put
+w5wid 1800000000 5 w5head acts-one dict, 0 1 i, w5sign w5ext "wallet5.msg.seqno" put
+w5wid 1 + 1800000000 0 w5head acts-one dict, 0 1 i, w5sign w5ext "wallet5.msg.wallet-id" put
+w5wid 1690000000 0 w5head acts-one dict, 0 1 i, w5sign w5ext "wallet5.msg.expired" put
+pk-other key ! w5ok acts-one dict, 0 1 i, w5sign w5ext "wallet5.msg.bad-signature" put pk key !
+// the first request (seqno 0, no action) with the StateInit, the body in a reference
+w5ok null dict, 0 1 i, w5sign <b b{1000100} s, 0 w5addr addr, 0 Gram, b{11} s, w5init ref, b{1} s, swap ref, b>
+  "wallet5.msg.deploy" put
+// internal bodies: signed requests (from anyone), and an extension's actions
+w5iok acts-one dict, 0 1 i, w5sign "wallet5.body.signed" put
+w5iok nil-acts 0 100000000 transfer act+ dict, 0 1 i, w5sign "wallet5.body.signed-mode-0" put
+w5wid 1800000000 5 w5ihead acts-one dict, 0 1 i, w5sign "wallet5.body.signed-seqno" put
+pk-other key ! w5iok acts-one dict, 0 1 i, w5sign "wallet5.body.signed-bad-signature" put pk key !
+<b 0x73696e74 32 u, 0 100 u, b> "wallet5.body.signed-short" put
+{ <b 0x6578746e 32 u, 1 64 u, } : w5x   // ( -- b ): an extension's request, query_id 1
+w5x acts-one dict, 0 1 i, b> "wallet5.body.ext-send" put
+w5x null dict, 1 1 u, 4 8 u, 0 1 i, b> "wallet5.body.ext-disallow" put
+w5x null dict, 1 1 u, 4 8 u, -1 1 i, b> "wallet5.body.ext-allow" put
+w5x null dict, 1 1 u, 3 8 u, 0 dest Addr, <b 4 8 u, 0 1 i, b> ref, b> "wallet5.body.ext-remove-disallow" put
+w5x null dict, 1 1 u, 3 8 u, 0 dest Addr, b> "wallet5.body.ext-remove-self" put
+w5x null dict, 1 1 u, 2 8 u, 0 other Addr, b> "wallet5.body.ext-add" put
+w5x null dict, 1 1 u, 9 8 u, b> "wallet5.body.ext-unsupported" put
+w5x <b nil-acts ref, 0x0ec3c86d 32 u, 3 8 u, 100000000 transfer ref, <b b> ref, b> dict, 0 1 i, b> "wallet5.body.ext-bad-c5" put
+<b 0 32 u, "hi" $, b> "wallet5.body.comment" put
+<b 0xffffffff 32 u, 0x73696e74 32 u, b> "wallet5.body.bounced" put
