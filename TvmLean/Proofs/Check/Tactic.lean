@@ -1023,6 +1023,7 @@ def cutGoal (g : MVarId) (sub : List MVarId → TacticM (Array MessageData)) :
   g.withContext do
   let ty ← instantiateMVars (← g.getType)
   let m ← mkFreshExprSyntheticOpaqueMVar ty tag
+  let mctx0 ← getMCtx
   let fails ← sub [m.mvarId!]
   unless fails.isEmpty do return fails
   let pos ← describePos tag
@@ -1037,6 +1038,9 @@ def cutGoal (g : MVarId) (sub : List MVarId → TacticM (Array MessageData)) :
     progressLine s!"a cut at {pos}: its proof term instantiated in {t1 - t0} ms, \
       {← pf.numObjs} objects, depth {pf.approxDepth}"
   let c ← mkAuxTheorem ty pf
+  -- the assignments made on the paths below are in the theorem: dropped, so that a long run does
+  -- not keep every step of every path it has proved
+  setMCtx mctx0
   g.assign c
   progressLine s!"a cut at {pos}: its theorem made (checked by the kernel) in {(← IO.monoMsNow) - t1} ms"
   return #[]
@@ -1145,8 +1149,11 @@ syntax (name := checkPaths) "check_paths" " [" Lean.Parser.Tactic.simpArg,* "]" 
             | (simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt]; done)
             | simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt]
             | check_step [$args,*])))]
-    let fails ← explore step args.elemsAndSeps (check.cut.get (← getOptions)) budget alts 10000
-      (← getUnsolvedGoals)
+    -- no info trees: they would keep the metavariable context before and after every step of
+    -- every path (the memory of a long run)
+    let fails ← withEnableInfoTree false <|
+      explore step args.elemsAndSeps (check.cut.get (← getOptions)) budget alts 10000
+        (← getUnsolvedGoals)
     if fails.isEmpty then setGoals [] else throwReports fails
   | _ => throwUnsupportedSyntax
 
