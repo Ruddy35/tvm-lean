@@ -9,7 +9,8 @@ The codes, data, addresses, external messages and internal message bodies are ma
 owner of every contract is 0:2222..22, the source of the internal messages unless said otherwise;
 another account is 0:4444..44.
 
-- wallet v4r2 (`wallet4Cases`).
+- wallet v4r2 (`wallet4Cases`);
+- wallet v5r1 (`wallet5Cases`).
 -/
 
 namespace Tests.Tx.Corpus
@@ -85,6 +86,58 @@ def wallet4Cases (get : String → Except String Cell) (mk : String → Cell →
     (intMsgCell 0 addr 100000000 Cell.empty))
   return out
 
+/-- Wallet v5r1 (`ton-blockchain/wallet-contract-v5`, `wallet_v5.fc`; `mk`, `get` as for
+`wallet4Cases`). External requests with 1 Gram and with 0.002 Gram: one send (in a reference and
+inline), three, a send without the +2 mode bit (137 after the commit), one for more than the balance
+with +2, an `action_set_code` in the list and a send with a 9-bit mode (147), 255 and 256 sends; the
+extended actions: add an extension (0:4444..44; in the masterchain: 145), remove one that is not there
+(140), allow the signature (only an extension may: 146), an unsupported action (141), add and remove in
+a chain, a send and an add; no action; a wrong prefix (138), a body of 16 bits, a wrong seqno, wallet
+id, signature, an expired request. With the extension 0:2222..22: add it again (139), remove it, a
+send; with the signature disabled (132 while there is an extension; without one the wallet works);
+deployment with the `StateInit`. Internal messages: signed requests (from anyone: a send, a send with
+mode 0, a wrong seqno, a wrong signature, too short), a comment, an empty body, a bounced message;
+the extension's requests from 0:2222..22 when it is one (a send, disallow the signature, remove itself
+and disallow (142), remove itself, add another, an unsupported action, a list with a send of three
+references (147)), when it is not, from 0:4444..44 and from the masterchain; with the signature
+disabled: disallow again (143), allow, remove the last extension (144), a send, a signed request. -/
+def wallet5Cases (get : String → Except String Cell) (mk : String → Cell → Cell → TxCase) :
+    Except String (Array TxCase) := do
+  let code ← get "wallet5.code"
+  let addr := (← get "wallet5.addr").bits
+  let data (n : String) := get s!"wallet5.data{n}"
+  let acc (d : Cell) (bal : Nat) := mkAccount 0 addr (.active code d) bal 1700000000 0 1000
+  let mut out : Array TxCase := #[]
+  let fresh := ["ok", "ok-inline", "three", "mode-1", "too-much-ignored", "set-code-action", "bad-mode-bits", "send-255",
+    "send-256", "add-ext", "add-ext-masterchain", "remove-ext-missing", "set-signature", "unsupported-action", "add-remove",
+    "send-add-ext", "none", "bad-prefix", "short", "seqno", "wallet-id", "expired", "bad-signature"]
+  for (dname, d, ns, bals) in [("fresh", "", fresh, [("rich", 1000000000), ("poor", 2000000)]),
+      ("ext", ".ext", ["add-ext-existing", "remove-ext", "ok", "add-ext"], [("rich", 1000000000)]),
+      ("disabled-ext", ".disabled-ext", ["ok", "none"], [("rich", 1000000000)]),
+      ("disabled", ".disabled", ["ok", "none"], [("rich", 1000000000)])] do
+    for (bname, bal) in bals do
+      for (n, m) in ← msgs get "wallet5" ns do
+        out := out.push (mk s!"wallet5/{dname}/{n}/{bname}" (acc (← data d) bal) m)
+  let deploy ← get "wallet5.msg.deploy"
+  out := out.push (mk "wallet5/deploy/uninit" (mkAccount 0 addr .uninit 1000000000 1700000000 0 1000) deploy)
+  out := out.push (mk "wallet5/deploy/uninit-poor" (mkAccount 0 addr .uninit 300000 1700000000 0 1000) deploy)
+  out := out.push (mk "wallet5/deploy/none" (mkAccount 0 addr .none 0 0 0 0) deploy)
+  let body (n : String) := get s!"wallet5.body.{n}"
+  let int (name : String) (d : String) (b : Cell) (src : Int × BitString := owner) (bounced := false) : Except String TxCase := do
+    return mk s!"wallet5/{name}" (acc (← data d) 1000000000)
+      (intMsgCell 0 addr 100000000 b (src := src) (bounce := !bounced) (bounced := bounced))
+  for n in ["signed", "signed-mode-0", "signed-seqno", "signed-bad-signature", "signed-short", "comment", "ext-send"] do
+    out := out.push (← int s!"fresh/internal/{n}" "" (← body n) (src := stranger))
+  out := out.push (← int "fresh/internal/empty" "" Cell.empty)
+  out := out.push (← int "fresh/internal/bounced" "" (← body "bounced") (bounced := true))
+  for n in ["ext-send", "ext-disallow", "ext-remove-disallow", "ext-remove-self", "ext-add", "ext-unsupported", "ext-bad-c5"] do
+    out := out.push (← int s!"ext/internal/{n}" ".ext" (← body n))
+  out := out.push (← int "ext/internal/ext-send/stranger" ".ext" (← body "ext-send") (src := stranger))
+  out := out.push (← int "ext/internal/ext-send/masterchain" ".ext" (← body "ext-send") (src := (-1, owner.2)))
+  for n in ["ext-disallow", "ext-allow", "ext-remove-self", "ext-send", "signed"] do
+    out := out.push (← int s!"disabled-ext/internal/{n}" ".disabled-ext" (← body n))
+  return out
+
 /-- The cases of the corpus at each version of `versions`, as `Tests.Tx.realCases` makes its own
 (`get`: the cells of `tools/txoracle/contracts.txt`; `cfg0` the configuration). -/
 def cases (get : String → Except String Cell) (cfg0 : Cell) (versions : List Nat) : Except String (Array TxCase) := do
@@ -94,6 +147,7 @@ def cases (get : String → Except String Cell) (cfg0 : Cell) (versions : List N
     let mk (name : String) (acc msg : Cell) : TxCase :=
       { name := s!"v{v}/real/{name}", config := cfg, account := acc, msg, now := 1700000200, lt := 3000000, seed }
     out := out ++ (← wallet4Cases get mk)
+    out := out ++ (← wallet5Cases get mk)
   return out
 
 end Tests.Tx.Corpus
