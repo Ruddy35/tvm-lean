@@ -1,6 +1,6 @@
 # Покрытие инструкций символьным исполнением
 
-Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `2223285`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
+Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `cf7faf3`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
 
 ```sh
 export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут
@@ -36,20 +36,20 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 |---|---:|---:|---:|---:|---:|---:|---|
 | stack | 50 | 49 | 0 | 0 (0) | 0 | 1 | 49 / 0 / 1 |
 | arith | 246 | 221 | 15 | 0 (0) | 10 | 0 | 236 / 10 / 0 |
-| cell | 199 | 104 | 2 | 0 (0) | 93 | 0 | 106 / 93 / 0 |
-| cont/flow | 85 | 13 | 4 | 0 (0) | 53 | 15 | 17 / 53 / 15 |
+| cell | 199 | 105 | 2 | 0 (0) | 92 | 0 | 107 / 92 / 0 |
+| cont/flow | 85 | 23 | 3 | 0 (0) | 44 | 15 | 26 / 44 / 15 |
 | loops | 16 | 8 | 0 | 0 (0) | 8 | 0 | 8 / 8 / 0 |
 | exceptions | 17 | 7 | 0 | 0 (0) | 10 | 0 | 7 / 10 / 0 |
-| dict | 143 | 1 | 74 | 0 (0) | 49 | 19 | 75 / 49 / 19 |
+| dict | 143 | 4 | 74 | 0 (0) | 45 | 20 | 78 / 45 / 20 |
 | tuple | 34 | 30 | 2 | 0 (0) | 2 | 0 | 32 / 2 / 0 |
 | msg/actions | 13 | 2 | 3 | 0 (0) | 6 | 2 | 5 / 6 / 2 |
 | tonenv/c7 | 55 | 2 | 11 | 0 (0) | 37 | 5 | 13 / 37 / 5 |
 | crypto | 50 | 3 | 0 | 0 (0) | 33 | 14 | 3 / 33 / 14 |
 | debug | 7 | 0 | 0 | 0 (0) | 7 | 0 | 0 / 7 / 0 |
 | misc | 4 | 4 | 0 | 0 (0) | 0 | 0 | 4 / 0 / 0 |
-| **всего** | **919** | **444** | **111** | **0** **(0)** | **308** | **56** | **555 / 308 / 56** |
+| **всего** | **919** | **458** | **110** | **0** **(0)** | **294** | **57** | **568 / 294 / 57** |
 
-Лемм `vm_spec`: 372, из них в импортах contract-check 372; вне их: нет.
+Лемм `vm_spec`: 398, из них в импортах contract-check 398; вне их: нет.
 
 ## Шаблоны управления
 
@@ -59,16 +59,16 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 |---|---|---|---|---|---|
 | переход/вызов обычного продолжения без замыкания (`EXECUTE`/`CALLX`, `JMPX`, `IF`, `IFNOT`, `IFJMP`, `IFNOTJMP`, `IFELSE`, `RET`, `IFRET`) | исполняется | `Spec.execute`, `Spec.jmpx`, `Spec.if_`, `Spec.ifnot`, `Spec.ifjmp`, `Spec.ifnotjmp`, `Spec.ifelse`, `Spec.ret`, `Spec.ifret` (`Exec/Spec/Flow.lean`); `VM.run_jump_ordinary`, `VM.run_call_plain` | `callx`, `jmpx`, `ifelse-unknown` | — | — |
 | переход/вызов продолжения с замыканием или `nargs` (`SETCONTARGS`, `BLESSARGS`, затем `EXECUTE`/`JMPX`) | исполняется | `Spec.setContArgs_ord`, `VM.run_jump_ordinary_cdata`, `VM.run_call_ordinary_cdata` (`Exec/Closure.lean`) | `closure-call`, `closure-jump` | — | — |
-| `CALLXARGS` / `JMPXARGS` / `RETARGS` (число аргументов и результатов) | нет | обработчик; `VM.call`/`VM.jump` с `passArgs` | `callxargs`, `jmpxargs`, `retargs` | callxargs: failed at cell code, bit 32: CALLXARGS 2,1; jmpxargs: failed at cell code, bit 40: JMPXARGS 2; retargs: failed at cell code, bit 40: CALLXARGS 0,1 | у `VM.call`/`VM.jump` с числом аргументов или результатов (`passArgs`, `retArgs`) нет леммы `vm_run` |
+| `CALLXARGS` / `JMPXARGS` / `RETARGS` (число аргументов и результатов) | исполняется | обработчик; `VM.call`/`VM.jump` с `passArgs` | `callxargs`, `jmpxargs`, `retargs` | — | — |
 | `CALLCC` и варианты (текущее продолжение как значение) | исполняется | обработчик (`VM.extractCc`) | `callcc`, `callccargs` | — | — |
-| `RETALT` / `c1` (альтернативный возврат) | нет | обработчик | `retalt` | retalt: failed (the run stops) | после `RETALT` (переход в `c1`) следующий шаг остаётся `VmState.stepFinish` состояния |
+| `RETALT` / `c1` (альтернативный возврат) | исполняется | обработчик | `retalt` | — | — |
 | `REPEAT` / `UNTIL` с известным числом итераций | исполняется | `Spec.repeat_`, `Spec.until_` (`Exec/Spec/Loop.lean`); правило цикла (`vm_loop_c5`) | `repeat-const`, `until-const` | — | — |
-| `REPEAT` / `UNTIL` / `WHILE` с неизвестным числом итераций, значение на стеке | частично | правило цикла `VmState.runWith_inv` в голове цикла (`vm_loop_c5`, `Contracts/Wallet3Run/Tactic.lean`): полезная нагрузка вершины стека обобщена, `c5` — `SafeActs` | `repeat-unknown`, `repeat-data`, `until-data`, `while-data` | repeat-unknown: failed (the run stops); repeat-data: failed (the run stops) | `REPEAT` с неизвестным числом итераций: правило цикла обобщает значения на стеке, но не счётчик в продолжении цикла (`repeatBody … n`), и цикл разворачивается, пока прогон не упрётся в предел heartbeats; `UNTIL`/`WHILE` со значением на стеке исполняются |
-| `REPEATEND` / `UNTILEND` / `WHILEEND` / `AGAINEND` (тело — остаток кода) | частично | `Spec.untilEnd`, `Spec.whileEnd`, `Spec.againEnd`; `REPEATEND` — обработчиком | `repeatend`, `untilend`, `whileend`, `againend` | repeatend: failed (the run stops) | у `REPEATEND` тот же счётчик, что у `REPEAT` (не кончается: предел heartbeats); `UNTILEND`, `WHILEEND`, `AGAINEND` исполняются |
-| циклы `BRK` (`c1` — выход; `RETALT` выходит из цикла) | частично | обработчики | `againbrk`, `repeatbrk`, `untilbrk`, `whilebrk` | repeatbrk: failed at cell code, bit 128: REPEATBRK; untilbrk: failed at cell code, bit 96: UNTILBRK; whilebrk: failed at cell code, bit 104: WHILEBRK | `REPEATBRK`, `UNTILBRK`, `WHILEBRK` останавливаются на инструкции (леммы нет, прогон обработчика не считается); `AGAINBRK` исполняется |
+| `REPEAT` / `UNTIL` / `WHILE` с неизвестным числом итераций, значение на стеке | исполняется | правило цикла `VmState.runWith_inv` в голове цикла (`vm_loop_c5`, `Contracts/Wallet3Run/Tactic.lean`): полезная нагрузка вершины стека обобщена, `c5` — `SafeActs` | `repeat-unknown`, `repeat-data`, `until-data`, `while-data` | — | — |
+| `REPEATEND` / `UNTILEND` / `WHILEEND` / `AGAINEND` (тело — остаток кода) | исполняется | `Spec.untilEnd`, `Spec.whileEnd`, `Spec.againEnd`; `REPEATEND` — обработчиком | `repeatend`, `untilend`, `whileend`, `againend` | — | — |
+| циклы `BRK` (`c1` — выход; `RETALT` выходит из цикла) | исполняется | обработчики | `againbrk`, `repeatbrk`, `untilbrk`, `whilebrk` | — | — |
 | `AGAIN` без выхода (кончается нехваткой газа) | исполняется | `Spec.again` и правило цикла | `again` | — | — |
-| цикл в цикле | нет | вложенные правила цикла (`check_loop_close` берёт последний `ih`) | `loop-in-loop` | loop-in-loop: failed (the run stops) | `REPEAT` в `REPEAT`: внутренний счётчик, как выше (не кончается: предел heartbeats) |
-| `TRY` / `TRYARGS`: исключение ловит обработчик (`c2`) | частично | обработчик; `VM.run_throwToHandler` | `try-throw`, `try-nothrow`, `tryargs` | try-throw: failed (the run stops); tryargs: failed (the run stops) | `TRY` без исключения исполняется; с исключением, пойманным обработчиком, и `TRYARGS` прогон не кончается (предел heartbeats) |
+| цикл в цикле | исполняется | вложенные правила цикла (`check_loop_close` берёт последний `ih`) | `loop-in-loop` | — | — |
+| `TRY` / `TRYARGS`: исключение ловит обработчик (`c2`) | исполняется | обработчик; `VM.run_throwToHandler` | `try-throw`, `try-nothrow`, `tryargs` | — | — |
 | `THROW*` в обработчик по умолчанию (прогон останавливается с кодом выхода) | исполняется | `Spec.throw`, `Spec.throwIf`, `Spec.throwIfNot`, `Spec.throwArg`, `Spec.throwAny`; `VM.run_throwToHandler`, продолжение `excQuit` разворачивается | `throw`, `throwarg`, `throwif-unknown`, `throwifnot-unknown` | — | — |
 | неявный `RET` в конце ячейки, неявный `JMPREF` на следующую ссылку | исполняется | `stepCode`: `VmState.stepOnceWith_implicitRet'`, `VmState.stepOnceWith_implicitJmpRef'` | `implicit-jmpref`, `nop` | — | — |
 | `CALLREF` / `JMPREF` / `IF*REF` (продолжения в ссылках) | исполняется | обработчики (ссылка загружается как ячейка) | `callref`, `jmpref`, `ifjmpref` | — | — |
@@ -76,14 +76,14 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `CALLDICT` / `JMPDICT` / `PREPAREDICT` (процедуры через `c3`) | исполняется | `Spec.callDict`, `Spec.jmpDict`, `Spec.prepareDict` | `calldict`, `jmpdict`, `preparedict` | — | — |
 | `RUNVM` / `RUNVMX` (дочерняя VM) | нет | обработчик; прогон дочерней VM (`VmState.runWith`) рекурсивен | `runvm` | runvm: failed at cell code, bit 32: RUNVM 0 (the run is there) | прогон дочерней VM (`VmState.runWith`) — рекурсивная функция: обработчик не считается |
 | `SETCP` с кодовой страницей не 0, `SETCPX` | исполняется | обработчик; `stepCode` требует `cp = 0` | `setcp1`, `setcpx` | — | — |
-| действия `SENDRAWMSG` / `RAWRESERVE` (`c5`) | частично | `Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` закрывает `c5` (`Check/Tactic.lean`) | `sendrawmsg`, `rawreserve` | rawreserve: failed at cell code, bit 32: the implicit RET at the end of the cell | `SENDRAWMSG` исполняется; действие `RAWRESERVE 0 0` не закрывает `safe_acts_close` |
+| действия `SENDRAWMSG` / `RAWRESERVE` (`c5`) | исполняется | `Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` закрывает `c5` (`Check/Tactic.lean`) | `sendrawmsg`, `rawreserve` | — | — |
 | действия `SETCODE` / `SETLIBCODE` / `CHANGELIB` / `SENDMSG` / `RAWRESERVEX` | нет | `Spec.setCode` исполняется; `ran_case` доказывает только инварианты неизменного кода, `SafeActs` допускает лишь `SENDRAWMSG` и `RAWRESERVE` | `setcode`, `setlibcode`, `changelib`, `sendmsg` | setcode: failed at cell code, bit 24: the implicit RET at the end of the cell; setlibcode: failed at cell code, bit 32: the implicit RET at the end of the cell; changelib: failed at cell code, bit 32: the implicit RET at the end of the cell; sendmsg: failed at cell code, bit 16: SENDMSG (the run is there) | по замыслу: `ran_case` доказывает инварианты неизменного кода, `SafeActs` допускает лишь `SENDRAWMSG` и `RAWRESERVE`; `SENDMSG` к тому же версии 4 |
-| изменение `c4` / `c5` / `c7` (`POP c4`, `POP c5`, `POP c7`, `SETGLOB`) | частично | `Spec.popRoot` (`c4`); остальное — обработчиком | `c4-update`, `c5-update`, `c7-update`, `setglob` | c5-update: failed (the run stops); c7-update: failed (the run stops); setglob: failed at cell code, bit 8: SETGLOB 1 | `POP c4` исполняется; после `POP c5` и `POP c7` следующий шаг остаётся `VmState.stepFinish` состояния; `SETGLOB` останавливается на инструкции |
-| `COMMIT` | нет | `Spec.commit`; `keeps_haltResult` проверяет зафиксированное состояние | `commit` | commit: failed (the run stops) | после `COMMIT` (`Spec.commit`: проверки `tryCommit` над `c4` и `c5`) следующий шаг остаётся `VmState.stepFinish` состояния |
+| изменение `c4` / `c5` / `c7` (`POP c4`, `POP c5`, `POP c7`, `SETGLOB`) | исполняется | `Spec.popRoot` (`c4`); остальное — обработчиком | `c4-update`, `c5-update`, `c7-update`, `setglob` | — | — |
+| `COMMIT` | исполняется | `Spec.commit`; `keeps_haltResult` проверяет зафиксированное состояние | `commit` | — | — |
 | `ACCEPT` / `SETGASLIMIT` | исполняется | `Spec.accept`, `GasLimits.changeLimit_infty_min`; `SETGASLIMIT` — обработчиком | `accept`, `setgaslimit` | — | — |
-| `DICTGET` / `DICTSET` по словарю, которого прогон не знает | нет | `Spec.dictGetInt_*` требуют фактов `dictLookupLoads`: замкнутых или гипотезы; `Exec/FramedDict.lean` — для обрамлённых ячеек | `dictget-unknown`, `dictset-unknown` | dictget-unknown: failed at cell code, bit 64: DICTUGET; dictset-unknown: failed at cell code, bit 80: DICTUSET | `DICTUGET`/`DICTUSET` по словарю из сообщения: леммам нужны факты `dictLookupLoads`, обработчик останавливается на загрузках ячеек поиска (`registerCellLoad` неизвестных ячеек) |
-| перебор неизвестного словаря (`GETNEXT`/`PREV`/`MIN`/`MAX`) | нет | обработчик | `dictgetnext-unknown`, `dictmin-unknown` | dictgetnext-unknown: failed at cell code, bit 64: DICTUGETNEXT; dictmin-unknown: failed at cell code, bit 48: DICTUMIN | `GETNEXT`/`MIN` по неизвестному словарю: леммы нет, обработчик останавливается на инструкции |
-| чтение конфигурации (`CONFIGPARAM`, `CONFIGOPTPARAM`) | нет | обработчик | `configparam`, `configoptparam` | configparam: failed (the run stops); configoptparam: failed (the run stops) | поиск в словаре конфигурации (`dictLookupWithCells` по неизвестному корню из `c7`) остаётся термом, и прогон останавливается на форме значения |
+| `DICTGET` / `DICTSET` по словарю, которого прогон не знает | частично | `Spec.dictGetInt_*` требуют фактов `dictLookupLoads`: замкнутых или гипотезы; `Exec/FramedDict.lean` — для обрамлённых ячеек | `dictget-unknown`, `dictset-unknown` | dictset-unknown: failed at cell code, bit 104: the implicit RET at the end of the cell (the run is there) | `DICTUGET`/`DICTUSET` по словарю из сообщения: леммам нужны факты `dictLookupLoads`, обработчик останавливается на загрузках ячеек поиска (`registerCellLoad` неизвестных ячеек) |
+| перебор неизвестного словаря (`GETNEXT`/`PREV`/`MIN`/`MAX`) | нет | обработчик | `dictgetnext-unknown`, `dictmin-unknown` | dictgetnext-unknown: failed at cell code, bit 24: POP 0 (the run is there); dictmin-unknown: failed at cell code, bit 24: POP 0 (the run is there) | `GETNEXT`/`MIN` по неизвестному словарю: леммы нет, обработчик останавливается на инструкции |
+| чтение конфигурации (`CONFIGPARAM`, `CONFIGOPTPARAM`) | исполняется | обработчик | `configparam`, `configoptparam` | — | — |
 | параметры `c7` (`NOW`, `BALANCE`, `MYADDR`, `GETPARAM`) при неизвестном `c7` | исполняется | `Spec.getParam` и синонимы требуют гипотезы `c7[0]! = .tuple params`; иначе обработчик | `now` | — | — |
 | опкод глобальной версии > 0 (например `GASCONSUMED`, v4) при символьной версии | исполняется | `stepCode`: `k ≤ globalVersion` — `decide` при известной версии, иначе `omega` из гипотез о версии (`hgv`); не решено — `if` на `k ≤ gv` (`VmState.stepOnceWith_instrVer'`) | `gasconsumed-v4` | — | — |
 
@@ -126,7 +126,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 
 **cont/flow** (15): `CALLXVARARGS` (прогон обработчика остановился на VM.call); `RETVARARGS` (прогон обработчика остановился на VM.jump); `CALLCCVARARGS` (прогон обработчика: предел heartbeats); `RUNVMX` (прогон обработчика: предел глубины рекурсии simp); `RETURNVARARGS` (прогон обработчика: предел heartbeats); `SETCONTVARARGS` (прогон обработчика: предел heartbeats); `BLESSVARARGS` (прогон обработчика: предел heartbeats); `SETCONTCTRMANYX` (прогон обработчика остановился на ForIn.forIn); `SETCONTCTRMANY` (обработчик: ForIn.forIn (вне модели, нет леммы vm_run); прогон обработчика остановился на ForIn.forIn); `JMPXARGS` (прогон обработчика остановился на VM.jump); `RETARGS` (прогон обработчика остановился на VM.jump); `RETURNARGS` (прогон обработчика: предел heartbeats); `RUNVM` (прогон обработчика: предел глубины рекурсии simp); `CALLXARGS` (прогон обработчика остановился на VM.call); `CALLXARGS_1` (прогон обработчика остановился на VM.call).
 
-**dict** (19): `DICTMINREF` (прогон обработчика: предел heartbeats); `DICTIMINREF` (прогон обработчика: предел heartbeats); `DICTUMINREF` (прогон обработчика: предел heartbeats); `DICTMAXREF` (прогон обработчика: предел heartbeats); `DICTIMAXREF` (прогон обработчика: предел heartbeats); `DICTUMAXREF` (прогон обработчика: предел heartbeats); `DICTREMMIN` (прогон обработчика: предел heartbeats); `DICTREMMINREF` (прогон обработчика: предел heartbeats); `DICTIREMMINREF` (прогон обработчика: предел heartbeats); `DICTUREMMINREF` (прогон обработчика: предел heartbeats); `DICTREMMAX` (прогон обработчика: предел heartbeats); `DICTREMMAXREF` (прогон обработчика: предел heartbeats); `DICTIREMMAXREF` (прогон обработчика: предел heartbeats); `DICTUREMMAXREF` (прогон обработчика: предел heartbeats); `DICTREPLACEB` (прогон обработчика: предел heartbeats); `DICTIREPLACEB` (прогон обработчика: предел heartbeats); `DICTUREPLACEB` (прогон обработчика: предел heartbeats); `SUBDICTGET` (прогон обработчика: предел heartbeats); `SUBDICTRPGET` (прогон обработчика: предел heartbeats).
+**dict** (20): `DICTMINREF` (прогон обработчика: предел heartbeats); `DICTIMINREF` (прогон обработчика: предел heartbeats); `DICTUMINREF` (прогон обработчика: предел heartbeats); `DICTMAXREF` (прогон обработчика: предел heartbeats); `DICTIMAXREF` (прогон обработчика: предел heartbeats); `DICTUMAXREF` (прогон обработчика: предел heartbeats); `DICTREMMIN` (прогон обработчика: предел heartbeats); `DICTREMMINREF` (прогон обработчика: предел heartbeats); `DICTIREMMINREF` (прогон обработчика: предел heartbeats); `DICTUREMMINREF` (прогон обработчика: предел heartbeats); `DICTREMMAX` (прогон обработчика: предел heartbeats); `DICTREMMAXREF` (прогон обработчика: предел heartbeats); `DICTIREMMAXREF` (прогон обработчика: предел heartbeats); `DICTUREMMAX` (прогон обработчика: предел heartbeats); `DICTUREMMAXREF` (прогон обработчика: предел heartbeats); `DICTREPLACEB` (прогон обработчика: предел heartbeats); `DICTIREPLACEB` (прогон обработчика: предел heartbeats); `DICTUREPLACEB` (прогон обработчика: предел heartbeats); `SUBDICTGET` (прогон обработчика: предел heartbeats); `SUBDICTRPGET` (прогон обработчика: предел heartbeats).
 
 **msg/actions** (2): `RAWRESERVEX` (прогон обработчика: предел heartbeats); `SENDMSG` (прогон обработчика: предел heartbeats).
 
@@ -605,7 +605,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `PLDSLICEQ` | лемма | loadSliceFixed_any | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `PUSHREF` | лемма | pushRef | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `PUSHREFSLICE` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
-| `PUSHREFCONT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
+| `PUSHREFCONT` | лемма | pushRefCont | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `SDBEGINSX` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
 | `SDBEGINSXQ` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
 | `SDBEGINS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
@@ -706,16 +706,16 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `BLESSARGS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
 | `IFBITJMP` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
 | `IFNBITJMP` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
-| `CALLREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
-| `JMPREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
+| `CALLREF` | лемма | callRef | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
+| `JMPREF` | лемма | jmpRef | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `JMPREFDATA` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
-| `IFREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
-| `IFNOTREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
-| `IFJMPREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
-| `IFNOTJMPREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
-| `IFREFELSE` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
-| `IFELSEREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
-| `IFREFELSEREF` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads, VM.call |
+| `IFREF` | лемма | ifref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
+| `IFNOTREF` | лемма | ifnotref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
+| `IFJMPREF` | лемма | ifjmpref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
+| `IFNOTJMPREF` | лемма | ifnotjmpref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
+| `IFREFELSE` | лемма | ifrefElse | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
+| `IFELSEREF` | лемма | ifelseRef | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
+| `IFREFELSEREF` | лемма | ifrefElseRef | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads, VM.call |
 | `IFBITJMPREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
 | `IFNBITJMPREF` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
 | `SETCONTCTR` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
@@ -728,8 +728,8 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `RUNVM` v4 | не исполняется | — | развёртка | предел глубины рекурсии simp |
 | `CALLDICT` | лемма | callDict | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `CALLDICT_LONG` | лемма | callDict | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
-| `PUSHCTR` | лемма с условием | pushRoot (1/7 аргументов) | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `POPCTR` | лемма с условием | popRoot (1/7 аргументов) | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PUSHCTR` | лемма | pushCtr0, pushCtr1, pushCtr2, pushCtr3, pushCtr5, pushCtr7, pushRoot | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `POPCTR` | лемма с условием | popCtr0, popCtr1, popCtr2, popCtr3, popCtr5, popCtr7, popRoot | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `CALLXARGS` | не исполняется | — | развёртка | стоит на VM.call; остаются термами: VM.call |
 | `CALLXARGS_1` | не исполняется | — | развёртка | стоит на VM.call; остаются термами: VM.call |
 | `SETCP` | лемма с условием | setcp0 (1/240 аргументов) | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
@@ -783,12 +783,12 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 
 | Форма | Статус | Леммы | Обработчик | Прогон |
 |---|---|---|---|---|
-| `STDICT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
+| `STDICT` | лемма | stdict_cell, stdict_null | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `SKIPDICT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
 | `LDDICTS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
 | `PLDDICTS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
-| `LDDICT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 20 |
-| `PLDDICT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 20 |
+| `LDDICT` | лемма | lddict | развёртка | лемма срабатывает; посчитан, ветвлений 20 |
+| `PLDDICT` | лемма | plddict | развёртка | лемма срабатывает; посчитан, ветвлений 20 |
 | `LDDICTQ` | развёртка обработчика | — | развёртка | посчитан, ветвлений 20 |
 | `PLDDICTQ` | развёртка обработчика | — | развёртка | посчитан, ветвлений 20 |
 | `PFXDICTSET` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
@@ -877,7 +877,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `DICTREMMAXREF` | не исполняется | — | развёртка | предел heartbeats |
 | `DICTIREMMAX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTIREMMAXREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTUREMMAX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTUREMMAX` | не исполняется | — | развёртка | предел heartbeats |
 | `DICTUREMMAXREF` | не исполняется | — | развёртка | предел heartbeats |
 | `DICTSETB` | лемма с условием | dictSetSliceBEmpty_flag, dictSetSliceBEmpty_set, dictSetSliceB_flag, dictSetSliceB_set | развёртка | предел heartbeats |
 | `DICTISETB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntBEmpty_set, dictSetIntB_flag, dictSetIntB_set | развёртка | предел heartbeats |
