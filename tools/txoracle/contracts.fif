@@ -808,3 +808,72 @@ jinternal 100000000000 Gram, b{00} s, 0 dest Addr, 0 Gram, b{0} s, b> constant j
 <b 3 32 u, 7 64 u, 0 other Addr, b> "body.change-admin" jput
 <b 3 32 u, 7 64 u, b{00} s, b> "body.change-admin-none" jput
 <b 4 32 u, 7 64 u, jcontent2 ref, b> "body.change-content" jput
+
+// --- NFT (TEP-62) of ton-blockchain/token-contract: the collection (nft/nft-collection.fc, the same
+// code from 5046bca to 1182ad9), the item as it is most used on the mainnet ("nft": nft-item.fc at
+// 5046bca, its nft/build/nft-item-code.fif assembled by the reference fift) and the item of 1182ad9
+// ("nft2": it also requires the forward_payload bit and estimates the forward fee as 3/2 of the
+// message's), the others compiled by the reference func (the same text as the repository's
+// nft/build/*.fif); checked against their code hashes. Collection data: owner next_item_index:64
+// ^(^collection_content ^common_content) ^item_code ^(royalty_factor:16 royalty_base:16 address); item
+// data: index:64 collection, then owner ^content once the collection initialized it. The owner of
+// the collection and of the item is 0:2222..22 (the source of the cases' internal messages).
+"te6ccgECDQEAAdAAART/APSkE/S88sgLAQIBYgIDAgLOBAUACaEfn+AFAgEgBgcCASALDALXDIhxwCSXwPg0NMDAXGwkl8D4PpA+kAx+gAxcdch+gAx+gAw8AIEs44UMGwiNFIyxwXy4ZUB+kDUMBAj8APgBtMf0z+CEF/MPRRSMLqOhzIQN14yQBPgMDQ0NTWCEC/LJqISuuMCXwSED/LwgCAkAET6RDBwuvLhTYAH2UTXHBfLhkfpAIfAB+kDSADH6AIIK+vCAG6EhlFMVoKHeItcLAcMAIJIGoZE24iDC//LhkiGOPoIQBRONkchQCc8WUAvPFnEkSRRURqBwgBDIywVQB88WUAX6AhXLahLLH8s/Im6zlFjPFwGRMuIByQH7ABBHlBAqN1viCgBycIIQi3cXNQXIy/9QBM8WECSAQHCAEMjLBVAHzxZQBfoCFctqEssfyz8ibrOUWM8XAZEy4gHJAfsAAIICjjUm8AGCENUydtsQN0QAbXFwgBDIywVQB88WUAX6AhXLahLLH8s/Im6zlFjPFwGRMuIByQH7AJMwMjTiVQLwAwA7O1E0NM/+kAg10nCAJp/AfpA1DAQJBAj4DBwWW1tgAB0A8jLP1jPFgHPFszJ7VSA="
+  base64>B B>boc constant nicode
+nicode hashu 0x4c9123828682fa6f43797ab41732bca890cae01766e0674100250516e0bf8d42 <> abort"nicode: not the code of hash 4c912382"
+"te6ccgECDgEAAdwAART/APSkE/S88sgLAQIBYgIDAgLOBAUACaEfn+AFAgEgBgcCASAMDQLPDIhxwCSXwPg0NMDAXGwkl8D4PpA+kAx+gAxcdch+gAx+gAwc6m0APACBLOOFDBsIjRSMscF8uGVAfpA1DAQI/AD4AbTH9M/ghBfzD0UUjC64wIwNDQ1NYIQL8smohK64wJfBIQP8vCAICQARPpEMHC68uFNgAqwyEDdeMkATUTXHBfLhkfpAIfAB+kDSADH6ACDXScIA8uLEggr68IAboSGUUxWgod4i1wsBwwAgkgahkTbiIML/8uGSIZQQKjdb4w0CkzAyNOMNVQLwAwoLAHJwghCLdxc1BcjL/1AEzxYQJIBAcIAQyMsFUAfPFlAF+gIVy2oSyx/LPyJus5RYzxcBkTLiAckB+wAAfIIQBRONkchQCc8WUAvPFnEkSRRURqBwgBDIywVQB88WUAX6AhXLahLLH8s/Im6zlFjPFwGRMuIByQH7ABBHAGom8AGCENUydtsQN0QAbXFwgBDIywVQB88WUAX6AhXLahLLH8s/Im6zlFjPFwGRMuIByQH7AAA7O1E0NM/+kAg10nCAJp/AfpA1DAQJBAj4DBwWW1tgAB0A8jLP1jPFgHPFszJ7VSA="
+  base64>B B>boc constant ni2code
+ni2code hashu 0xba4d975d2b66231c1f0a0ccca6e8ff8f7ba0610c4b7639584b8e98303dc3128c <> abort"ni2code: not the code of hash ba4d975d"
+"te6ccgECEwEAAf4AART/APSkE/S88sgLAQIBYgIDAgLNBAUCASANDgPr0QY4BIrfAA6GmBgLjYSK3wfSAYAOmP6Z/2omh9IGmf6mpqGEEINJ6cqClAXUcUG6+CgOhBCFRlgFa4QAhkZYKoAueLEn0BCmW1CeWP5Z+A54tkwCB9gHAbKLnjgvlwyJLgAPGBEuABcYEZAmAB8YEvgsIH+XhAYHCAIBIAkKAGA1AtM/UxO78uGSUxO6AfoA1DAoEDRZ8AaOEgGkQ0PIUAXPFhPLP8zMzMntVJJfBeIApjVwA9QwjjeAQPSWb6UgjikGpCCBAPq+k/LBj96BAZMhoFMlu/L0AvoA1DAiVEsw8AYjupMCpALeBJJsIeKz5jAyUERDE8hQBc8WE8s/zMzMye1UACgB+kAwQUTIUAXPFhPLP8zMzMntVAIBIAsMAD1FrwBHAh8AV3gBjIywVYzxZQBPoCE8trEszMyXH7AIAC0AcjLP/gozxbJcCDIywET9AD0AMsAyYAAbPkAdMjLAhLKB8v/ydCACASAPEAAlvILfaiaH0gaZ/qamoYLehqGCxABDuLXTHtRND6QNM/1NTUMBAkXwTQ1DHUMNBxyMsHAc8WzMmAIBIBESAC+12v2omh9IGmf6mpqGDYg6GmH6Yf9IBhAALbT0faiaH0gaZ/qamoYCi+CeAI4APgCw"
+  base64>B B>boc constant nccode
+nccode hashu 0x8e5aab17e2e503bec75c2f453b9dacf11a98bbb2cc202994710952a7271c7780 <> abort"nccode: not the code of hash 8e5aab17"
+<b <b 1 8 u, "https://example.org/collection.json" $, b> ref, <b "https://example.org/nft/" $, b> ref, b> constant ncontent
+<b 5 16 u, 100 16 u, 0 dest Addr, b> constant nroyalty
+<b 0 dest Addr, 5 64 u, ncontent ref, nicode ref, nroyalty ref, b> constant ncdata
+nccode ncdata addr-of constant ncaddr
+nccode "nft.collection.code" put
+ncdata "nft.data.collection" put
+<b ncaddr 256 u, b> "nft.addr.collection" put
+{ <b swap 64 u, 0 ncaddr Addr, b> } : nidata0                              // ( index -- data ): not initialized
+{ <b rot 64 u, 0 ncaddr Addr, 0 rot Addr, <b "3.json" $, b> ref, b> } : nidata   // ( index owner -- data )
+// ( code prefix -- ): the item's code, data (index 3: initialized, not yet), and item 5 as the
+// collection deploys it (StateInit, address)
+{ jpfx ! dup "item.code" jput
+  3 dest nidata "data.item" jput  3 nidata0 "data.item-new" jput
+  dup 3 nidata0 addr-of <b swap 256 u, b> "addr.item" jput
+  5 nidata0 init-of dup "init.item5" jput hashu <b swap 256 u, b> "addr.item5" jput
+} : nfamily
+nicode "nft." nfamily
+ni2code "nft2." nfamily
+// the item's bodies: the collection's initialization (no op), transfer to 0:4444..44 (response
+// 0:2222..22, forward 0.01 Gram), get_static_data
+<b 0 dest Addr, <b "3.json" $, b> ref, b> "nft.body.init" put
+{ <b 0x5fcc3d14 32 u, 7 64 u, } : ntransfer   // ( -- b ) then new_owner response custom:1 fwd payload
+ntransfer 0 other Addr, 0 dest Addr, 0 1 u, 10000000 Gram, b{0} s, b> "nft.body.transfer" put
+ntransfer 0 other Addr, b{00} s, 0 1 u, 0 Gram, b{0} s, b> "nft.body.transfer-plain" put
+ntransfer 0 other Addr, b{00} s, 0 1 u, 0 Gram, b> "nft.body.transfer-no-payload" put
+ntransfer 0 other Addr, 0 dest Addr, 0 1 u, 10000000 Gram, b{1} s, <b 0 32 u, "hi" $, b> ref, b> "nft.body.transfer-payload-ref" put
+ntransfer 0 other Addr, 0 dest Addr, 1 1 u, <b 1 8 u, b> ref, 0 Gram, b{0} s, b> "nft.body.transfer-custom" put
+ntransfer -1 other Addr, 0 dest Addr, 0 1 u, 0 Gram, b{0} s, b> "nft.body.transfer-masterchain" put
+ntransfer 0 other Addr, -1 dest Addr, 0 1 u, 0 Gram, b{0} s, b> "nft.body.transfer-response-masterchain" put
+ntransfer 0 other Addr, 0 dest Addr, 0 1 u, 10000000000 Gram, b{0} s, b> "nft.body.transfer-big-forward" put
+<b 0x2fcb26a2 32 u, 7 64 u, b> "nft.body.get-static-data" put
+<b 0x12345678 32 u, 7 64 u, b> "nft.body.unknown" put
+<b 0x1234 16 u, b> "nft.body.short" put
+// the collection's: royalty parameters, deploy item 5 (the next), 2 (deployed), 9 (beyond the next),
+// a batch of 5, 6, 7, of 5 and 9, of 250 items from 5, change the owner
+<b 0x693d3950 32 u, 7 64 u, b> "nft.body.royalty" put
+{ <b 0 dest Addr, <b "5.json" $, b> ref, b> } : nitem-content
+{ <b 1 32 u, 7 64 u, swap 64 u, 50000000 Gram, nitem-content ref, b> } : ndeploy   // ( index -- body )
+5 ndeploy "nft.body.deploy" put
+2 ndeploy "nft.body.deploy-existing" put
+9 ndeploy "nft.body.deploy-gap" put
+// ( D index -- D' ): a batch entry, 0.05 Gram and the content
+{ <b 50000000 Gram, nitem-content ref, b> <s swap rot 64 udict!+ drop } : nbatch+
+{ <b 2 32 u, 7 64 u, swap ref, b> } : nbatch   // ( D -- body )
+dictnew 5 nbatch+ 6 nbatch+ 7 nbatch+ nbatch "nft.body.batch" put
+dictnew 5 nbatch+ 9 nbatch+ nbatch "nft.body.batch-gap" put
+dictnew 5 { dup 1+ -rot nbatch+ swap } 250 times drop nbatch "nft.body.batch-250" put
+<b 3 32 u, 7 64 u, 0 other Addr, b> "nft.body.change-owner" put
+<b 1 32 u, b> "nft.body.deploy-no-query" put
+nitem-content "nft.body.init5" put
