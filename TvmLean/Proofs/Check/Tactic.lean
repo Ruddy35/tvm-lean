@@ -607,6 +607,12 @@ elab "check_split" : tactic => do
   let c := if isIf then e.getArg! 1 else mkConst ``True
   let viaVmSplit := !isIf || c.isConstOf ``True || c.isConstOf ``False ||
     (!c.hasFVar && !c.hasMVar && (c.find? fun x => x.isAppOf ``True || x.isAppOf ``False).isSome)
+  -- with `check.debug` and `check.progress`: what every split is on (path statistics)
+  if check.debug.get (← getOptions) && check.progress.get (← getOptions) then
+    let what ← g.withContext (ppExpr (if isIf then c else e))
+    let h ← IO.FS.Handle.mk "/dev/stderr" .append
+    h.putStrLn s!"[check]   split-on {if isIf then "if" else "match"}: {(toString what).replace "\n" " " |>.take 500}"
+    h.flush
   if viaVmSplit then
     evalTactic (← `(tactic| vm_split))
     -- with `check.debug`, what a split into many paths was on
