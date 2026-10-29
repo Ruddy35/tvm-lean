@@ -145,6 +145,9 @@ import TvmLean.Proofs.Contracts.StorageRun.Sender
 import TvmLean.Proofs.Contracts.StorageRun.Internal
 import TvmLean.Proofs.Contracts.StorageInduction
 import TvmLean.Proofs.Exec.Spec.Actions
+import TvmLean.Proofs.Tx.Acts
+import TvmLean.Proofs.Tx.Upgrade
+import TvmLean.Proofs.Check.Upgrade
 
 /-!
 # All proof modules together

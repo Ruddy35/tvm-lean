@@ -22,6 +22,7 @@ import TvmLean.Proofs.Exec.Spec.CellSize
 import TvmLean.Proofs.Exec.Spec.StackVar
 import TvmLean.Proofs.Exec.Spec.LoopBrk
 import TvmLean.Proofs.Exec.Closure
+import TvmLean.Proofs.Tx.Acts
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`
@@ -72,9 +73,16 @@ path that commits.
   (the hypotheses of the path but those about the gas, which are counted) and the goal left.
 * `ran_preserves [hints]`: the six statements of `ran_preserves_of` by `ran_case` in one proof
   (`tools/contract-check` states them as six theorems instead, which Lean elaborates in parallel).
+* A contract whose code may change: `RunsKeepActs`/`KeepsActs` state the runs with the action list
+  described by a predicate `A` instead of `SafeActs`, `Acts K` (TvmLean/Proofs/Tx/Acts.lean: the
+  actions of every instruction of the model, each `SETCODE` installing a code that satisfies `K`);
+  `ran_case` proves them the same way, the action list closed by `acts_close` and the conditions
+  `K` it leaves closed as the data is (TvmLean/Proofs/Check/Upgrade.lean: the induction). A loop
+  head keeps the invariant `SafeActs` of `c5`, so an action other than `SENDRAWMSG` and `RAWRESERVE`
+  before a loop stops the run there.
 
-What it does not do: code that changes itself (`SETCODE`), that adds other actions, that runs a
-loop inside a loop whose exit it cannot tell, recursion that is not a loop, and data that `P` does
+What it does not do: with `Keeps`, code that changes itself (`SETCODE`) or adds other actions (with
+`KeepsActs`, before a loop head only); code that runs a loop inside a loop whose exit it cannot tell, recursion that is not a loop, and data that `P` does
 not give as a term the run can read (it then splits on the unknown sizes of the cell and fails).
 -/
 
@@ -102,6 +110,19 @@ def RunsKeep (code : Cell) (P : Option Cell → Prop) (stack : Stack) (G : Nat �
   ∀ data : Option Cell, P data → ∀ (c7 : Value) (gl gm gc : Int) (gv : Nat), G gv →
     ∀ (libs : Array Cell) (mdd : Nat) (mll : Option Nat) (lc : Array (Array UInt8)) (fuel : Nat),
       Keeps P (VmState.runWith execInstr fuel
+        (start code (data.getD Cell.empty) stack c7 gl gm gc gv libs mdd mll lc))
+
+/-- `Keeps P r` with the committed action list described by `A` instead of `SafeActs` (for a contract
+that may change its code: `Acts K`, TvmLean/Proofs/Tx/Acts.lean). -/
+def KeepsActs (P : Option Cell → Prop) (A : Cell → Prop) (r : StepResult) : Prop :=
+  r.state.cstate.committed = true → P (some r.state.cstate.c4) ∧ A r.state.cstate.c5
+
+/-- `RunsKeep code P stack G` with the committed action lists described by `A` (`KeepsActs`). -/
+def RunsKeepActs (code : Cell) (P : Option Cell → Prop) (A : Cell → Prop) (stack : Stack) (G : Nat → Prop) :
+    Prop :=
+  ∀ data : Option Cell, P data → ∀ (c7 : Value) (gl gm gc : Int) (gv : Nat), G gv →
+    ∀ (libs : Array Cell) (mdd : Nat) (mll : Option Nat) (lc : Array (Array UInt8)) (fuel : Nat),
+      KeepsActs P A (VmState.runWith execInstr fuel
         (start code (data.getD Cell.empty) stack c7 gl gm gc gv libs mdd mll lc))
 
 /-- The stack of a tick-tock transaction (`ComputeStack`). -/
@@ -179,6 +200,31 @@ theorem keeps_continue {P : Option Cell → Prop} (st : VmState)
     (h1 : st.cstate.committed = true → P (some st.cstate.c4) ∧ SafeActs st.cstate.c5) :
     Keeps P (StepResult.continue st) := h1
 
+/-- `keeps_haltResult` for `KeepsActs`. -/
+theorem keepsActs_haltResult {P : Option Cell → Prop} {A : Cell → Prop} (ec : Int) (st : VmState)
+    (h1 : st.cstate.committed = true → P (some st.cstate.c4) ∧ A st.cstate.c5)
+    (h2 : ec = -1 ∨ ec = -2 → P (some st.regs.c4) ∧ A st.regs.c5) :
+    KeepsActs P A (VmState.haltResult ec st) := by
+  unfold KeepsActs VmState.haltResult
+  by_cases hec : ec = -1 ∨ ec = -2
+  · rw [if_pos hec]
+    rcases tryCommit_cases st with h | h
+    · rw [h]
+      intro _
+      exact h2 hec
+    · rw [h]
+      exact h1
+  · rw [if_neg hec]
+    exact h1
+
+theorem keepsActs_halt {P : Option Cell → Prop} {A : Cell → Prop} (ec : Int) (st : VmState)
+    (h1 : st.cstate.committed = true → P (some st.cstate.c4) ∧ A st.cstate.c5) :
+    KeepsActs P A (StepResult.halt ec st) := h1
+
+theorem keepsActs_continue {P : Option Cell → Prop} {A : Cell → Prop} (st : VmState)
+    (h1 : st.cstate.committed = true → P (some st.cstate.c4) ∧ A st.cstate.c5) :
+    KeepsActs P A (StepResult.continue st) := h1
+
 /-! ## Reading bits that `natToBits` wrote
 
 Data given by `P` as a term (`Data.encode d`: `Cell.mkOrdinary (natToBits a 32 ++ ...) #[]`) is
@@ -231,6 +277,36 @@ macro_rules
 /-- `vm_c5_close` (the invariant of `c5` at a loop head of `vm_loop_c5`) for `SafeActs`. -/
 macro_rules
   | `(tactic| vm_c5_close) => `(tactic| safe_acts_close)
+
+/-- `Acts K c5` (TvmLean/Proofs/Tx/Acts.lean): the empty list, a hypothesis (of `Acts` or `SafeActs`),
+or an action added to one, first at reducible transparency (the actions as the specifications write
+them, `OutAction.*`), then at the default one; the condition `K` of the code of each `SETCODE` is
+left as a goal. -/
+syntax "acts_close" : tactic
+macro_rules
+  | `(tactic| acts_close) => `(tactic| first
+      | with_reducible exact Acts.empty
+      | with_reducible assumption
+      | with_reducible exact SafeActs.acts (by with_reducible assumption)
+      | (with_reducible refine Acts.send _ _ ?_; acts_close)
+      | (with_reducible refine Acts.reserve _ _ ?_; acts_close)
+      | (with_reducible refine Acts.reserveExtra _ _ _ ?_; acts_close)
+      | (with_reducible refine Acts.setCode _ ?_ ?_; acts_close)
+      | (with_reducible refine Acts.setLibCode _ _ ?_; acts_close)
+      | (with_reducible refine Acts.changeLib _ _ ?_; acts_close)
+      | exact Acts.empty
+      | (refine Acts.send _ _ ?_; acts_close)
+      | (refine Acts.reserve _ _ ?_; acts_close)
+      | (refine Acts.reserveExtra _ _ _ ?_; acts_close)
+      | (refine Acts.setCode _ ?_ ?_; acts_close)
+      | (refine Acts.setLibCode _ _ ?_; acts_close)
+      | (refine Acts.changeLib _ _ ?_; acts_close))
+
+/-- The action list of a path that commits (`commitPath`): `SafeActs` by `safe_acts_close`, `Acts K`
+by `acts_close` (which leaves the conditions `K` of the codes). -/
+syntax "check_acts_close" : tactic
+macro_rules
+  | `(tactic| check_acts_close) => `(tactic| first | safe_acts_close | acts_close)
 
 end TvmLean
 
@@ -501,9 +577,10 @@ macro_rules
 
 /-! ## The ends of the paths -/
 
-/-- The parts of `Keeps P r`. -/
+/-- The parts of `Keeps P r` (or `KeepsActs P A r`): `P` and `r`. -/
 def keepsParts? (t : Expr) : MetaM (Option (Expr × Expr)) := do
   let t ← instantiateMVars t
+  if t.isAppOfArity ``KeepsActs 3 then return some (t.getArg! 0, t.getArg! 2)
   unless t.isAppOfArity ``Keeps 2 do return none
   return some (t.getArg! 0, t.getArg! 1)
 
@@ -686,19 +763,22 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
   let .app P a1 := a | return some (← report g what ec [g])
   let x := a1.appArg!
   let x' ← projTerm x
-  let_expr SafeActs y := b | return some (← report g what ec [g])
+  -- the predicate of the action list: `SafeActs`, or that of `KeepsActs` (`Acts K`)
+  let .app A y := b | return some (← report g what ec [g])
   let y' ← projTerm y
   let tag ← g.getTag
   let pa := mkApp P (← mkAppM ``Option.some #[x'])
-  let pb ← mkAppM ``SafeActs #[y']
+  let pb := mkApp A y'
   let gA ← mkFreshExprSyntheticOpaqueMVar pa tag
   let gB ← mkFreshExprSyntheticOpaqueMVar pb tag
   g.assign (← mkAppM ``And.intro #[gA, gB])
-  -- the action list
-  match ← tryTac gB.mvarId! (← `(tactic| safe_acts_close)) 200000 with
-  | some [] => pure ()
-  | _ => return some (← report g (what ++ ": the action list is not made of SENDRAWMSG and RAWRESERVE actions")
-      ec [gB.mvarId!])
+  -- the action list; what it leaves (the condition `K` on the code of a `SETCODE` of `Acts K`) is
+  -- closed as the data is
+  let ks ← match ← tryTac gB.mvarId! (← `(tactic| check_acts_close)) 200000 with
+    | some ks => pure ks
+    | none => return some (← report g (what ++ (if A.isConstOf ``SafeActs then
+        ": the action list is not made of SENDRAWMSG and RAWRESERVE actions"
+        else ": the action list is not made of the actions allowed")) ec [gB.mvarId!])
   -- the data
   let mut gP := gA.mvarId!
   let pTy ← instantiateMVars (← gP.getType)
@@ -706,6 +786,28 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
     unless n == ``Exists || n == ``And || n == ``Eq do
       if let some pTy' ← unfoldDefinition? pTy then
         gP ← gP.replaceTargetDefEq pTy'.headBeta
+  -- with the conditions the action list left, each unfolded as the data is: one goal, their
+  -- conjunction
+  unless ks.isEmpty do
+    let mut parts : Array Expr := #[← instantiateMVars (← gP.getType)]
+    for k in ks do
+      let kTy := (← instantiateMVars (← k.getType)).headBeta
+      let kTy ← match kTy.getAppFn with
+        | .const n _ =>
+          if n == ``Exists || n == ``And || n == ``Eq then pure kTy
+          else pure ((← unfoldDefinition? kTy).map (·.headBeta) |>.getD kTy)
+        | _ => pure kTy
+      parts := parts.push kTy
+    let conj ← parts.pop.foldrM (fun x acc => mkAppM ``And #[x, acc]) parts.back!
+    let gC ← mkFreshExprSyntheticOpaqueMVar conj tag
+    let gls := gP :: ks
+    let mut rest := gC
+    for i in [0:gls.length] do
+      if i + 1 == gls.length then gls[i]!.assign rest
+      else
+        gls[i]!.assign (← mkAppM ``And.left #[rest])
+        rest ← mkAppM ``And.right #[rest]
+    gP := gC.mvarId!
   let simpTac ← `(tactic| simp only [Builder.finalize, Builder.storeBits, Builder.empty,
     Array.empty_append, Array.append_empty, Array.append_assoc, Option.some.injEq,
     Int.toNat_natCast_add_one, Int.toNat_natCast, bitsToNat_natToBits, natToBits_size,
@@ -718,7 +820,8 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
   let mut left : List MVarId := []
   for g' in gs do
     for g'' in ← checkExists g' do
-      let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl), ← `(tactic| assumption),
+      let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl),
+        ← `(tactic| with_reducible assumption), ← `(tactic| assumption),
         ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
         ← `(tactic| (simp only [$sargs,*]; done)), ← `(tactic| (dsimp only; simp only [$sargs,*]; omega))]
       let mut closed := false
@@ -742,10 +845,14 @@ def closeLeaf (g : MVarId) (args : Array Syntax) :
       a recursion, a loop it cannot close, an unknown it cannot split on, a step longer than \
       `check.stepHeartbeats`, the steps of `check.maxSteps` used up)" none [g])
   let some (_, r) ← keepsParts? t | return some (← report g "not the end of a run" none [g])
+  let acts := t.isAppOfArity ``KeepsActs 3
   let (lemma, ec?) :=
-    if r.isAppOfArity ``VmState.haltResult 2 then (``keeps_haltResult, some (r.getArg! 0))
-    else if r.isAppOfArity ``StepResult.halt 2 then (``keeps_halt, some (r.getArg! 0))
-    else if r.isAppOfArity ``StepResult.continue 1 then (``keeps_continue, none)
+    if r.isAppOfArity ``VmState.haltResult 2 then
+      (if acts then ``keepsActs_haltResult else ``keeps_haltResult, some (r.getArg! 0))
+    else if r.isAppOfArity ``StepResult.halt 2 then
+      (if acts then ``keepsActs_halt else ``keeps_halt, some (r.getArg! 0))
+    else if r.isAppOfArity ``StepResult.continue 1 then
+      (if acts then ``keepsActs_continue else ``keeps_continue, none)
     else (Name.anonymous, none)
   if lemma.isAnonymous then return some (← report g "the end of the run is not a halt" none [g])
   let gs ← g.apply (← mkConstWithFreshMVarLevels lemma)
@@ -998,7 +1105,7 @@ open Lean Elab Tactic in
       let (_, g') ← g.intro1P
       g := g'
     replaceMainGoal [g]
-    evalTactic (← `(tactic| unfold TvmLean.Check.RunsKeep))
+    evalTactic (← `(tactic| first | unfold TvmLean.Check.RunsKeep | unfold TvmLean.Check.RunsKeepActs))
     let (_, gr) ← (← getMainGoal).introN 13
       [`data, `hP, `c7, `gl, `gm, `gc, `gv, `hgv, `libs, `mdd, `mll, `lc, `fuel]
     replaceMainGoal [gr]
