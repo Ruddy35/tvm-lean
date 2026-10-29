@@ -1216,7 +1216,8 @@ syntax (name := checkPaths) "check_paths" " [" Lean.Parser.Tactic.simpArg,* "]" 
     let maxSteps := check.maxSteps.get (← getOptions)
     let budget ← IO.mkRef (if maxSteps == 0 then 1000000000 else maxSteps)
     -- the alternatives of `check_one_step`, each on its own (`check.debug`)
-    let alts := #[("check_havoc", ← `(tactic| check_havoc)),
+    let alts := #[("check_extra_step", ← `(tactic| check_extra_step [$args,*])),
+      ("check_havoc", ← `(tactic| check_havoc)),
       ("check_step_finish", ← `(tactic| check_step_finish)),
       ("check_split", ← `(tactic| (check_split <;> (try vm_prune_cheap) <;> (try check_dict_facts)))),
       ("check_step", ← `(tactic| (vm_not_at_loop_head; check_mark_pos; check_step [$args,*]))),
