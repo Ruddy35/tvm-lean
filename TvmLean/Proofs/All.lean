@@ -28,6 +28,12 @@ import TvmLean.Proofs.Exec.Spec.Tuple
 import TvmLean.Proofs.Exec.Pilot.Tuple
 import TvmLean.Proofs.Exec.Spec.CellExt
 import TvmLean.Proofs.Exec.Pilot.CellExt
+import TvmLean.Proofs.Exec.Spec.ArithRound
+import TvmLean.Proofs.Exec.Spec.ArithShift
+import TvmLean.Proofs.Exec.Spec.ArithShiftMod
+import TvmLean.Proofs.Exec.Spec.ArithMulShift
+import TvmLean.Proofs.Exec.Spec.ArithShlDiv
+import TvmLean.Proofs.Exec.Pilot.ArithShift
 import TvmLean.Proofs.WF.Defs
 import TvmLean.Proofs.WF.Library
 import TvmLean.Proofs.WF.Monad

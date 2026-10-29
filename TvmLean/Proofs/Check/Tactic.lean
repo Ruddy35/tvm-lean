@@ -11,6 +11,10 @@ import TvmLean.Proofs.Exec.Spec.DictDel
 import TvmLean.Proofs.Exec.Spec.DictSetGet
 import TvmLean.Proofs.Exec.Spec.MsgAddr
 import TvmLean.Proofs.Exec.Spec.MsgExt
+import TvmLean.Proofs.Exec.Spec.ArithShift
+import TvmLean.Proofs.Exec.Spec.ArithShiftMod
+import TvmLean.Proofs.Exec.Spec.ArithMulShift
+import TvmLean.Proofs.Exec.Spec.ArithShlDiv
 import TvmLean.Proofs.Exec.Closure
 
 /-!
