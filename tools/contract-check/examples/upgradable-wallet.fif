@@ -1,0 +1,30 @@
+// An upgradable wallet, the example of tools/contract-check for a contract whose code may change
+// (upgradable-wallet.lean). The data is `seqno:uint32 public_key:uint256`, as in the simple wallet.
+// An external message `signature:bits512 seqno:uint32 op:uint32` with one reference, signed with the
+// key (the signature of the hash of the message after the signature) and carrying the stored seqno,
+// is accepted: the seqno grows by one, then with op 1 the reference becomes the code (SETCODE), else
+// it is sent as a message in mode 3 (SENDRAWMSG). Internal messages and tick-tock change nothing.
+// Writes upgradable-wallet.boc next to this file (run from the root of the repository):
+//   fift -I <ton>/crypto/fift/lib -s tools/contract-check/examples/upgradable-wallet.fif
+"Asm.fif" include
+
+<{
+  INC IFRET                            // only an external message (selector -1) goes on
+  // bal val msg body
+  9 PUSHPOW2 LDSLICEX                  // bal val msg sig rest
+  DUP HASHSU                           // bal val msg sig rest h
+  SWAP                                 // bal val msg sig h rest
+  32 LDU 32 LDU                        // bal val msg sig h mseq op rest
+  c4 PUSH CTOS 32 LDU 256 LDU ENDS     // bal val msg sig h mseq op rest seqno key
+  s5 PUSH s7 PUSH s2 PUSH              // ... seqno key h sig key
+  CHKSIGNU 33 THROWIFNOT               // the signature of the rest of the message, with the key
+  s1 PUSH s5 PUSH EQUAL 34 THROWIFNOT  // the seqno of the message is the stored one
+  ACCEPT
+  SWAP INC                             // ... op rest key seqno+1
+  NEWC 32 STU 256 STU ENDC c4 POP      // the data: seqno+1 and the key
+  SWAP 1 EQINT                         // ... rest (op = 1)
+  <{ LDREF DROP SETCODE }> PUSHCONT     // op 1: the reference is the new code
+  <{ LDREF DROP 3 INT SENDRAWMSG }> PUSHCONT
+  IFELSE
+}>c
+boc>B "tools/contract-check/examples/upgradable-wallet.boc" B>file

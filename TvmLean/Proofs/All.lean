@@ -156,6 +156,7 @@ import TvmLean.Proofs.Exec.Spec.Actions
 import TvmLean.Proofs.Tx.Acts
 import TvmLean.Proofs.Tx.Upgrade
 import TvmLean.Proofs.Check.Upgrade
+import TvmLean.Proofs.Check.Contracts.UpgradableWallet
 
 /-!
 # All proof modules together
