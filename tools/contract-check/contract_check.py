@@ -2,7 +2,7 @@
 """contract-check: prove an invariant of a contract's data over all transactions, or show where it breaks.
 
     contract-check <code> <Inv.lean> [--name N] [--out FILE] [--wrap CMD] [--module M]
-                   [--only KINDS] [--cut N] [--single] [--no-check]
+                   [--only KINDS] [--cut N] [--single] [--split] [--no-check]
     contract-check <code> --precheck
 
 `<code>` is the contract's code as a BOC: a file (binary, base64 or hex text), or any source of
@@ -52,7 +52,10 @@ of its last step (cell, bit, instruction), its exit code, its path condition (th
 path but those about the gas, which are counted) and the goal left.
 
 `--only runs_ext,runs_int,...`: only the runs of these kinds of transaction (no theorem over all
-transactions: a quicker look at one kind). `--cut N`: cut the paths every N steps into auxiliary
+transactions: a quicker look at one kind). `--split`: the same theorems checked in parts, the six
+runs at once in processes of their own, `reachable` over them (`check_split`): in one module Lean
+checks them one after another, since each run evaluates the code literal, a definition of that
+module (TON Storage: its two runs of internal messages take nearly all the time). `--cut N`: cut the paths every N steps into auxiliary
 theorems (`check.cut`, default 40; 0: no cut). `--single`: one theorem `preserves` by
 `ran_preserves` instead of six. `--no-check`: only generate the module.
 
@@ -152,7 +155,10 @@ def code_literal(source: str, ns: str) -> tuple[str, str]:
     return "\n".join(parts), source
 
 
-def generate(args: argparse.Namespace) -> tuple[str, str]:
+def generate(args: argparse.Namespace) -> tuple[str, str, dict]:
+    """The module's text, its namespace, and its parts for `--split`: `common` (the imports, the
+    code, the invariant, the fast twins), `open` (what each module of runs opens), `runs` (the
+    theorem of each kind) and `tail` (`preserves`, `reachable`, the axioms)."""
     inv_text = Path(args.inv).read_text()
     imports, inv_body, d = parse_inv(inv_text)
     name = args.name or re.sub(r"[^A-Za-z0-9]", "", Path(args.inv).stem.title()) or "Contract"
@@ -218,7 +224,9 @@ def generate(args: argparse.Namespace) -> tuple[str, str]:
     out.append(f"end {ns}\n")
     out.append("-- the fast twins of the code's literal, for the closed facts of its runs (`vm.fastFacts`)\n"
                f"set_option Elab.async false in\nfast_twin {ns}.code\n")
-    out.append(f"namespace {ns}\n\nopen TvmLean TvmLean.Tx TvmLean.Check\n\nset_option vm.fastFacts true\n")
+    parts: dict = {"common": "\n".join(out), "runs": {}}
+    parts["open"] = f"namespace {ns}\n\nopen TvmLean TvmLean.Tx TvmLean.Check\n\nset_option vm.fastFacts true\n"
+    out.append(parts["open"])
     pbind = (" " + params) if params else ""
     Pfull = f"({P})"
     if args.single:
@@ -242,17 +250,19 @@ theorem preserves{pbind} : ∀ data c4 c5, {Pfull} data → Ran code data c4 c5 
         for thm, stack, g, binders, desc in KINDS:
             if only is not None and thm not in only:
                 continue
-            out.append(f"""set_option maxHeartbeats 0 in
+            parts["runs"][thm] = f"""set_option maxHeartbeats 0 in
 set_option maxRecDepth 100000 in{cut_opt}
 /-- The runs of {desc}: a run that commits keeps the invariant. -/
 theorem {thm}{pbind} : {binders}
     RunsKeep code {Pfull} ({stack}) {g} := by
   ran_case [{hints}]
-""")
+"""
+            out.append(parts["runs"][thm])
         args_app = (" " + papp) if papp else ""
         if only is not None:
             out.append(f"end {ns}\n")
-            return "\n".join(out), ns
+            return "\n".join(out), ns, parts
+        tail_start = len(out)
         out.append(f"""/-- **Every committed run keeps the invariant** (the obligation of `Reachable.code_fixed`). -/
 theorem preserves{pbind} : ∀ data c4 c5, {Pfull} data → Ran code data c4 c5 →
     {Pfull} (some c4) ∧ ∀ c, ¬ActionIn c5 (.setCode c) :=
@@ -276,7 +286,9 @@ end {ns}
 
 #print axioms {ns}.reachable
 """)
-    return "\n".join(out), ns
+    if not args.single:
+        parts["tail"] = "\n".join(out[tail_start:])
+    return "\n".join(out), ns, parts
 
 
 def theorem_at(module: str) -> dict[int, str]:
@@ -341,6 +353,83 @@ def report(output: str, ns: str, module: str, partial_check: bool = False) -> tu
     return False, "\n\n".join(lines)
 
 
+SPLIT_PKG = "ContractCheckSplit"
+
+
+def check_split(args: argparse.Namespace, ns: str, parts: dict, out: Path, lake: str) -> None:
+    """`--split`: the module checked in parts, each a module of its own compiled by `lean -o` into
+    `<out>.split/` (on `LEAN_PATH`): first the code, the invariant and the fast twins
+    (`ContractCheckSplit.Common`), then the six runs at once, each in a process of its own, then
+    `preserves` and `reachable` over them (`ContractCheckSplit.Main`). The theorems are those of the
+    module; what differs is that the runs import the code instead of declaring it: Lean checks the
+    theorems of one module one after another once their runs evaluate a definition of that module
+    (the code literal), whatever `LEAN_NUM_THREADS` says."""
+    root = out.with_suffix(".split")
+    if root.exists():
+        shutil.rmtree(root)
+    pkg = root / SPLIT_PKG
+    pkg.mkdir(parents=True)
+    common = f"{SPLIT_PKG}.Common"
+    texts = {"Common": parts["common"]}
+    for thm, block in parts["runs"].items():
+        texts[thm] = f"import {common}\n\n{parts['open']}\n{block}\nend {ns}\n"
+    texts["Main"] = ("\n".join([f"import {common}"] + [f"import {SPLIT_PKG}.{t}" for t in parts["runs"]])
+                     + "\n\n" + parts["open"] + "\n" + parts["tail"])
+    for name, text in texts.items():
+        (pkg / f"{name}.lean").write_text(text)
+    env = dict(os.environ)
+    env.setdefault("LEAN_NUM_THREADS", "2")
+    env["LEAN_PATH"] = str(root) + (os.pathsep + env["LEAN_PATH"] if env.get("LEAN_PATH") else "")
+    t0 = time.time()
+    deadline = t0 + args.timeout if args.timeout else None
+    outputs: dict[str, str] = {}
+    codes: dict[str, int | None] = {}
+
+    def stage(names: list[str]) -> bool:
+        procs = {}
+        for name in names:
+            f = pkg / f"{name}.lean"
+            cmd = (args.wrap.split() if args.wrap else []) + [
+                lake, "env", "lean", "--tstack=65536", f"--root={root}", "-o", str(f.with_suffix(".olean")), str(f)]
+            logf = open(pkg / f"{name}.log", "w")
+            procs[name] = (subprocess.Popen(cmd, cwd=REPO, env=env, stdout=logf, stderr=subprocess.STDOUT,
+                                            text=True, start_new_session=True), logf)
+        timed_out = False
+        while any(p.poll() is None for p, _ in procs.values()):
+            if deadline is not None and time.time() > deadline:
+                for p, _ in procs.values():
+                    if p.poll() is None:
+                        os.killpg(p.pid, signal.SIGKILL)
+                timed_out = True
+                break
+            time.sleep(2)
+        for name, (p, logf) in procs.items():
+            p.wait()
+            logf.close()
+            outputs[name] = (pkg / f"{name}.log").read_text()
+            codes[name] = p.returncode
+        return not timed_out and all(codes[n] == 0 for n in names)
+
+    ok = stage(["Common"]) and stage(list(parts["runs"])) and stage(["Main"])
+    dt = time.time() - t0
+    log = out.with_suffix(".log")
+    log.write_text("".join(f"=== {n}\n{o}" for n, o in outputs.items()))
+    if deadline is not None and time.time() > deadline and not ok:
+        print(f"NOT PROVED ({dt:.0f} s): {ns}: stopped after {args.timeout} s (the checker's output: {log})")
+        sys.exit(1)
+    msgs = []
+    for name, output in outputs.items():
+        good, msg = report(output, ns, texts[name], partial_check=(name != "Main"))
+        if not good or codes[name] != 0:
+            msgs.append(msg)
+    if ok and not msgs:
+        _, msg = report(outputs["Main"], ns, texts["Main"])
+        print(f"PROVED ({dt:.0f} s): {ns}.reachable\n  {msg}\n  (checked in parts: {pkg})")
+    else:
+        print(f"NOT PROVED ({dt:.0f} s): {ns} (the checker's output: {log})\n\n" + "\n\n".join(msgs))
+        sys.exit(1)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("code", help="the code: a BOC file, or a tools/boc2lean source (list:..., b64:..., hex:...)")
@@ -364,6 +453,8 @@ def main() -> None:
     ap.add_argument("--max-steps", type=int, help="at most this many steps of each run (`check.maxSteps`): "
                     "the paths not ended then are reported where they stand")
     ap.add_argument("--no-check", action="store_true", help="only generate the module")
+    ap.add_argument("--split", action="store_true", help="check the module in parts, the six runs at once "
+                    "in processes of their own (see `check_split`); not with --module, --single, --only")
     ap.add_argument("--precheck", action="store_true", help="only print what of the code symbolic execution "
                     "does not cover (tools/spec-coverage), before a proof")
     args = ap.parse_args()
@@ -376,7 +467,7 @@ def main() -> None:
     if not args.inv:
         ap.error("the Inv.lean file is needed (or --precheck)")
 
-    text, ns = generate(args)
+    text, ns, parts = generate(args)
     if args.out:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -387,6 +478,11 @@ def main() -> None:
     if args.no_check:
         return
     lake = shutil.which("lake") or str(Path.home() / ".elan" / "bin" / "lake")
+    if args.split:
+        if args.module or args.single or args.only:
+            ap.error("--split checks the six runs: not with --module, --single or --only")
+        check_split(args, ns, parts, out, lake)
+        return
     if args.module:
         # a module of the repository's libraries: built by `lake` (its `.olean` kept)
         check = [lake, "build", args.module]

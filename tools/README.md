@@ -88,7 +88,9 @@ body by the framed rules (any slice, any value, or an exception), `LDMSGADDR` of
 data the run wrote (ordinary by definition), an exception that ends the run closed at once (kept as
 `VmState.raiseDead`), `c7` after `RAND` made a variable again (TvmLean/Proofs/Check/Forget.lean);
 its Inv file tags with `check_close` (TvmLean/Proofs/Check/Attr.lean) what the ends of the paths
-unfold (`Data.encode` written out, compared with the cell the code built).
+unfold (`Data.encode` written out, compared with the cell the code built). Its two runs of internal
+messages take nearly all the time; `--split` checks the six runs at once, in processes of their own
+(in one module Lean checks them one after another).
 
 ## What symbolic execution covers: instructions, patterns, a contract's code
 
