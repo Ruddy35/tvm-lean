@@ -36,6 +36,10 @@ import TvmLean.Proofs.Exec.Spec.ArithShlDiv
 import TvmLean.Proofs.Exec.Pilot.ArithShift
 import TvmLean.Proofs.Exec.Spec.TupleVar
 import TvmLean.Proofs.Exec.Pilot.TupleVar
+import TvmLean.Proofs.Exec.Spec.CellCheck
+import TvmLean.Proofs.Exec.Spec.CellIntVar
+import TvmLean.Proofs.Exec.Spec.CellSize
+import TvmLean.Proofs.Exec.Pilot.CellVar
 import TvmLean.Proofs.WF.Defs
 import TvmLean.Proofs.WF.Library
 import TvmLean.Proofs.WF.Monad

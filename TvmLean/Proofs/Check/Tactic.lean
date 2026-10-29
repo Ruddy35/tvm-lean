@@ -16,6 +16,9 @@ import TvmLean.Proofs.Exec.Spec.ArithShiftMod
 import TvmLean.Proofs.Exec.Spec.ArithMulShift
 import TvmLean.Proofs.Exec.Spec.ArithShlDiv
 import TvmLean.Proofs.Exec.Spec.TupleVar
+import TvmLean.Proofs.Exec.Spec.CellCheck
+import TvmLean.Proofs.Exec.Spec.CellIntVar
+import TvmLean.Proofs.Exec.Spec.CellSize
 import TvmLean.Proofs.Exec.Closure
 
 /-!
