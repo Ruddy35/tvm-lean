@@ -70,6 +70,17 @@ kind of transaction, the code position (cell, bit, instruction), the exit code, 
 and the goal left. `--only runs_ext,...` checks some kinds of transaction only, `--cut N` sets
 how often a path is cut into auxiliary theorems.
 
+A contract whose code may change (`SETCODE`) adds the line `-- contract-check: code K`: `K` is the
+condition on a code a committed run installs, a predicate on the body of the message (`none` for
+tick-tock) and the code (e.g. "the body is signed with the owner's key"). The runs are then stated
+with the action lists `Acts K` (TvmLean/Proofs/Tx/Acts.lean: the actions of every instruction of the
+model, `SETCODE` with a code satisfying `K`), and `reachable` holds while the code is the checked
+one (`TvmLean.Tx.ReachableWhile.good_codes`, TvmLean/Proofs/Tx/Upgrade.lean): the data satisfies the
+invariant while the code is the checked one, and every code the account has is the checked one or
+one that `K` admits for the body of some message (`Installable K`; what an installed code does is
+not known). `code self` (every `SETCODE` installs the code itself) keeps the statement of a code
+that never changes (`TvmLean.Tx.Reachable.code_self`, by `Reachable.spec`).
+
 `--precheck` prints, before a proof, which instructions and control-flow patterns of the code
 symbolic execution does not cover (`tools/spec-coverage`, below).
 
@@ -96,10 +107,12 @@ TvmLean/Proofs/Check/Loops.lean):
 
 `tools/contract-check/examples/` has the invariants of wallet v3, wallet v2 and the simple wallet
 (the code and the key never change), and a false one of wallet v3 (the seqno is always 0: `NOT
-PROVED`, the path of an accepted external message); of the highload wallet v1 (`DICTIGETNEXT` over
-a dictionary of the message), the simple wallet with procedures (`CALLDICT`), the restricted wallet
-v1 (calls with arguments, `CONFIGPARAM`) and the highload wallet v2 (a dictionary in the data and a
-loop over it with a loop invariant). The modules TvmLean/Proofs/Check/Contracts/*.lean were
+PROVED`, the path of an accepted external message); of the highload wallet v1 (`DICTIGETNEXT` over a
+dictionary of the message), the simple wallet with procedures (`CALLDICT`), the restricted wallet v1
+(calls with arguments, `CONFIGPARAM`), the highload wallet v2 (a dictionary in the data and a loop
+over it with a loop invariant) and an upgradable wallet (`upgradable-wallet.fif`, assembled into
+`upgradable-wallet.boc` by the reference Fift: an external message signed with the key may install a
+new code; the condition `Signed key`). The modules TvmLean/Proofs/Check/Contracts/*.lean were
 generated from some of them (`--out` there). It also has the invariants of the corpus of mainnet
 contracts (`Tests/Tx/Corpus.lean`): wallet v4r2 and v5r1 (`wallet4.lean`, `wallet5.lean`: the code,
 the key and the subwallet or wallet id never change, the seqno never decreases), the jetton wallet
