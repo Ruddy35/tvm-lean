@@ -91,7 +91,7 @@ external messages signed with a fixed key, made by `tools/txoracle/contracts.fif
   proofs of microchunk trees) valid and invalid, external messages; and 500 random internal messages
   from a fixed seed, each at its own version (`StorageContract.randomCases`);
 - the most used contracts of the mainnet (`Tests/Tx/Corpus.lean`, `Corpus.cases`):
-  wallet v4r2, wallet v5r1.
+  wallet v4r2, wallet v5r1, jettons.
 -/
 
 namespace Tests.Tx

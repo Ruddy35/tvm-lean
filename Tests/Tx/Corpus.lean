@@ -10,7 +10,9 @@ owner of every contract is 0:2222..22, the source of the internal messages unles
 another account is 0:4444..44.
 
 - wallet v4r2 (`wallet4Cases`);
-- wallet v5r1 (`wallet5Cases`).
+- wallet v5r1 (`wallet5Cases`);
+- the jetton wallet and minter (TEP-74) of `ton-blockchain/token-contract` and the ones most used on
+  the mainnet (`jettonCases`).
 -/
 
 namespace Tests.Tx.Corpus
@@ -138,6 +140,97 @@ def wallet5Cases (get : String → Except String Cell) (mk : String → Cell →
     out := out.push (← int s!"disabled-ext/internal/{n}" ".disabled-ext" (← body n))
   return out
 
+/-- Jettons (TEP-74): the wallet and the discoverable minter of `ton-blockchain/token-contract`
+(`jetton`) and the ones minter.ton.org deploys (`jetton1`), each family with its own minter address
+(`mk`, `get` as for `wallet4Cases`). The wallet of 0:2222..22 (1000 jettons, 1 Gram) gets, with 0.1
+Gram from its owner: transfers (plain, with a notification, the payload in a reference, a custom
+payload, no response, no forward payload (708), all of the balance, more (706), to the masterchain
+(333), a forward amount above the value (709)), burns (plain, no response, more than the balance),
+excesses, an unknown operation, 16 bits, an empty body; a transfer with a notification, a forward fee
+of 0.005 Gram and 0.06 Gram (709 for one family only: their gas constants differ); from 0:4444..44 a
+transfer and a burn (705); a transfer with 0.03 Gram (709), a burn with 0.01 (707), a transfer with
+0.0005 Gram (out of gas); internal transfers from the minter (plain, with a notification, without a
+response, a forward amount above the value, a mint from addr_none) and from 0:4444..44 (707); bounced
+internal transfers, burn notifications and transfers (709). The empty wallet gets a transfer (706). The
+wallet of 0:4444..44 gets the internal transfer of 0:2222..22's wallet, active, and deploying it
+(absent and uninitialized) as the wallet sends it, and the minter's mint deploying it. The minter
+(1 Gram) gets from its admin: mints (plain, with a notification, a message without the jetton amount
+or without a message (cell underflow), no query id), admin and content changes, wallet address
+requests (with and without the owner, for the masterchain, for addr_none), an unknown operation, 16
+bits, an empty body; mint and changes from 0:4444..44 (73), a request from it; a request with 0.005
+Gram (75); burn notifications from 0:2222..22's wallet (plain, no response, more than the supply: a
+negative total supply does not store) and from 0:2222..22 itself (74); a bounced mint; a mint with a
+balance of 0.01 Gram. -/
+def jettonCases (get : String → Except String Cell) (mk : String → Cell → Cell → TxCase) :
+    Except String (Array TxCase) := do
+  let body (n : String) := get s!"jetton.body.{n}"
+  let mut out : Array TxCase := #[]
+  for fam in ["jetton", "jetton1"] do
+    let c (n : String) := get s!"{fam}.{n}"
+    let wcode ← c "wallet.code"
+    let mcode ← c "minter.code"
+    let maddr := (← c "addr.minter").bits
+    let waddr := (← c "addr.wallet").bits
+    let oaddr := (← c "addr.wallet-other").bits
+    let wacc (d : Cell) (a : BitString) (bal : Nat := 1000000000) := mkAccount 0 a (.active wcode d) bal 1700000000 0 1000
+    let macc (bal : Nat := 1000000000) : Except String Cell := do return mkAccount 0 maddr (.active mcode (← c "data.minter")) bal 1700000000 0 1000
+    let toW (name : String) (acc : Cell) (n : String) (value : Nat := 100000000) (src : Int × BitString := owner)
+        (bounced := false) (fwdFee : Nat := 0) : Except String TxCase := do
+      return mk s!"{fam}/{name}" acc
+        (intMsgCell 0 waddr value (← body n) (src := src) (bounce := !bounced) (bounced := bounced) (fwdFee := fwdFee))
+    let w ← c "data.wallet"
+    for n in ["transfer", "transfer-notify", "transfer-payload-ref", "transfer-custom", "transfer-no-response",
+        "transfer-no-payload", "transfer-all", "transfer-too-much", "transfer-masterchain", "transfer-big-forward", "burn",
+        "burn-no-response", "burn-too-much", "excesses", "unknown", "short"] do
+      out := out.push (← toW s!"wallet/{n}" (wacc w waddr) n)
+    out := out.push (mk s!"{fam}/wallet/empty" (wacc w waddr) (intMsgCell 0 waddr 100000000 Cell.empty))
+    out := out.push (← toW "wallet/transfer-notify/fwd-fee" (wacc w waddr) "transfer-notify" (fwdFee := 5000000))
+    out := out.push (← toW "wallet/transfer-notify/fwd-fee/0.06" (wacc w waddr) "transfer-notify" 60000000 (fwdFee := 5000000))
+    for n in ["transfer", "burn"] do
+      out := out.push (← toW s!"wallet/{n}/stranger" (wacc w waddr) n (src := stranger))
+    out := out.push (← toW "wallet/transfer/0.03" (wacc w waddr) "transfer" 30000000)
+    out := out.push (← toW "wallet/burn/0.01" (wacc w waddr) "burn" 10000000)
+    out := out.push (← toW "wallet/transfer/out-of-gas" (wacc w waddr) "transfer" 500000)
+    for n in ["internal-transfer", "internal-transfer-notify", "internal-transfer-no-response",
+        "internal-transfer-big-forward", "internal-transfer-mint"] do
+      out := out.push (← toW s!"wallet/{n}" (wacc w waddr) n (src := (0, maddr)))
+    out := out.push (← toW "wallet/internal-transfer/stranger" (wacc w waddr) "internal-transfer" (src := stranger))
+    for n in ["bounced-internal-transfer", "bounced-burn-notification", "bounced-transfer"] do
+      out := out.push (← toW s!"wallet/{n}" (wacc w waddr) n (bounced := true))
+    out := out.push (← toW "wallet-empty/transfer" (wacc (← c "data.wallet-empty") waddr) "transfer")
+    -- the wallet of 0:4444..44: an internal transfer from the wallet of 0:2222..22, and deploying it
+    let fromOwner ← body "internal-transfer-from-owner"
+    let oinit ← c "init.wallet-other"
+    let toOther (b : Cell) (src : Int × BitString) (init : Option Cell) :=
+      intMsgCell 0 oaddr 100000000 b (src := src) (init := init)
+    out := out.push (mk s!"{fam}/wallet-other/internal-transfer-from-owner"
+      (wacc (← c "data.wallet-other") oaddr) (toOther fromOwner (0, waddr) none))
+    out := out.push (mk s!"{fam}/wallet-other/deploy/none" (mkAccount 0 oaddr .none 0 0 0 0)
+      (toOther fromOwner (0, waddr) (some oinit)))
+    out := out.push (mk s!"{fam}/wallet-other/deploy/uninit" (mkAccount 0 oaddr .uninit 1000000 1700000000 0 1000)
+      (toOther fromOwner (0, waddr) (some oinit)))
+    out := out.push (mk s!"{fam}/wallet-other/deploy/mint" (mkAccount 0 oaddr .none 0 0 0 0)
+      (toOther (← body "internal-transfer-mint") (0, maddr) (some oinit)))
+    -- the minter
+    let toM (name : String) (n : String) (value : Nat := 100000000) (src : Int × BitString := owner) (bounced := false)
+        (bal : Nat := 1000000000) : Except String TxCase := do
+      return mk s!"{fam}/{name}" (← macc bal)
+        (intMsgCell 0 maddr value (← body n) (src := src) (bounce := !bounced) (bounced := bounced))
+    for n in ["mint", "mint-notify", "mint-bad-message", "mint-no-message", "mint-no-query", "change-admin",
+        "change-admin-none", "change-content", "provide", "provide-no-include", "provide-masterchain", "provide-none",
+        "unknown", "short"] do
+      out := out.push (← toM s!"minter/{n}" n)
+    out := out.push (mk s!"{fam}/minter/empty" (← macc) (intMsgCell 0 maddr 100000000 Cell.empty))
+    for n in ["mint", "change-admin", "change-content", "provide"] do
+      out := out.push (← toM s!"minter/{n}/stranger" n (src := stranger))
+    out := out.push (← toM "minter/provide/0.005" "provide" 5000000)
+    for n in ["burn-notification", "burn-notification-no-response", "burn-notification-too-much"] do
+      out := out.push (← toM s!"minter/{n}" n (src := (0, waddr)))
+    out := out.push (← toM "minter/burn-notification/owner" "burn-notification")
+    out := out.push (← toM "minter/mint/bounced" "mint" (bounced := true))
+    out := out.push (← toM "minter/mint/poor" "mint" (bal := 10000000))
+  return out
+
 /-- The cases of the corpus at each version of `versions`, as `Tests.Tx.realCases` makes its own
 (`get`: the cells of `tools/txoracle/contracts.txt`; `cfg0` the configuration). -/
 def cases (get : String → Except String Cell) (cfg0 : Cell) (versions : List Nat) : Except String (Array TxCase) := do
@@ -148,6 +241,7 @@ def cases (get : String → Except String Cell) (cfg0 : Cell) (versions : List N
       { name := s!"v{v}/real/{name}", config := cfg, account := acc, msg, now := 1700000200, lt := 3000000, seed }
     out := out ++ (← wallet4Cases get mk)
     out := out ++ (← wallet5Cases get mk)
+    out := out ++ (← jettonCases get mk)
   return out
 
 end Tests.Tx.Corpus

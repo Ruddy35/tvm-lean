@@ -714,3 +714,97 @@ w5x null dict, 1 1 u, 9 8 u, b> "wallet5.body.ext-unsupported" put
 w5x <b nil-acts ref, 0x0ec3c86d 32 u, 3 8 u, 100000000 transfer ref, <b b> ref, b> dict, 0 1 i, b> "wallet5.body.ext-bad-c5" put
 <b 0 32 u, "hi" $, b> "wallet5.body.comment" put
 <b 0xffffffff 32 u, 0x73696e74 32 u, b> "wallet5.body.bounced" put
+
+// --- jettons (TEP-74). "jetton": the jetton wallet and the discoverable jetton minter of
+// ton-blockchain/token-contract (ft/jetton-wallet.fc, ft/jetton-minter-discoverable.fc, at 1182ad9),
+// compiled by the reference func (the same assembler text as the repository's ft/build/*.fif; the
+// wallet is its ft/build/jetton-wallet.boc). "jetton1": the jetton wallet most used on the mainnet and
+// its minter, as minter.ton.org deploys them (ton-defi-org/jetton-deployer-webclient,
+// src/lib/contracts/jetton-*.compiled.json, sources ton-blockchain/minter-contract). Checked against
+// their code hashes. Wallet data: balance:Coins owner master ^code; minter data: total_supply:Coins
+// admin ^content ^wallet_code. The owner of the wallet and the admin of the minter is 0:2222..22 (the
+// source of the cases' internal messages), the other account 0:4444..44.
+"te6ccgECEgEAAzQAART/APSkE/S88sgLAQIBYgIDAgLMBAUAG6D2BdqJofQB9IH0gahhAgHUBgcCAUgICQDDCDHAJJfBOAB0NMDAXGwlRNfA/AL4PpA+kAx+gAxcdch+gAx+gAwc6m0AALTH4IQD4p+pVIgupUxNFnwCOCCEBeNRRlSILqWMUREA/AJ4DWCEFlfB7y6k1nwCuBfBIQP8vCAAET6RDBwuvLhTYAIBIAoLAgEgEBEB8QD0z/6APpAIfAB7UTQ+gD6QPpA1DBRNqFSKscF8uLBKML/8uLCVDRCcFQgE1QUA8hQBPoCWM8WAc8WzMkiyMsBEvQA9ADLAMkg+QBwdMjLAsoHy//J0AT6QPQEMfoAINdJwgDy4sR3gBjIywVQCM8WcPoCF8trE8yAMA/c7UTQ+gD6QPpA1DAI0z/6AFFRoAX6QPpAU1vHBVRzbXBUIBNUFAPIUAT6AljPFgHPFszJIsjLARL0APQAywDJ+QBwdMjLAsoHy//J0FANxwUcsfLiwwr6AFGooYIImJaAggiYloAStgihggjk4cCgGKEn4w8l1wsBwwAjgDQ4PAK6CEBeNRRnIyx8Zyz9QB/oCIs8WUAbPFiX6AlADzxbJUAXMI5FykXHiUAioE6CCCOThwKoAggiYloCgoBS88uLFBMmAQPsAECPIUAT6AljPFgHPFszJ7VQAcFJ5oBihghBzYtCcyMsfUjDLP1j6AlAHzxZQB88WyXGAEMjLBSTPFlAG+gIVy2oUzMlx+wAQJBAjAA4QSRA4N18EAHbCALCOIYIQ1TJ223CAEMjLBVAIzxZQBPoCFstqEssfEss/yXL7AJM1bCHiA8hQBPoCWM8WAc8WzMntVADbO1E0PoA+kD6QNQwB9M/+gD6QDBRUaFSSccF8uLBJ8L/8uLCggjk4cCqABagFrzy4sOCEHvdl97Iyx8Vyz9QA/oCIs8WAc8WyXGAGMjLBSTPFnD6AstqzMmAQPsAQBPIUAT6AljPFgHPFszJ7VSAAgyAINch7UTQ+gD6QPpA1DAE0x+CEBeNRRlSILqCEHvdl94TuhKx8uLF0z8x+gAwE6BQI8hQBPoCWM8WAc8WzMntVIA=="
+  base64>B B>boc constant jwcode
+jwcode hashu 0xa760d629d5343e76d045017d9dc216fc8a307a8377815feb2b0a5c490e733486 <> abort"jwcode: not the code of hash a760d629"
+"te6ccgECDgEAAqMAART/APSkE/S88sgLAQIBYgIDAgLMBAUCA3pgDA0B9dkGOASS+B8ADoaYGAuNhJL4HwfSB9IBj9ABi465D9ABj9ABg51NoAAWmP6Z/2omh9AH0gamoYQAqpOF1HGZqamxsommOC+XAkgX0gfQBqGBBoQDBrkP0AGBKIGigheASKUCgZ5CgCfQEsZ4tmZmT2qnBBCD3uy+8pOF1AYAk7PwUIgG4KhAJqgoB5CgCfQEsZ4sA54tmZJFkZYCJegB6AGWAZJB8gDg6ZGWBZQPl/+ToO8AMZGWCrGeLKAJ9AQnltYlmZmS4/YBBPSO4DY3NwH6APpA+ChUEgZwVCATVBQDyFAE+gJYzxYBzxbMySLIywES9AD0AMsAyfkAcHTIywLKB8v/ydBQBscF8uBKoQNFRchQBPoCWM8WzMzJ7VQB+kAwINcLAcMAkVvjDeCCECx2uXNScLrjAjU3NyPAA+MCNQLABAcICQoAPoIQ1TJ223CAEMjLBVADzxYi+gISy2rLH8s/yYBC+wAB/jZfA4IImJaAFaAVvPLgSwL6QNMAMJXIIc8WyZFt4oIQ0XNUAHCAGMjLBVAFzxYk+gIUy2oTyx8Uyz8j+kQwcLqOM/goRANwVCATVBQDyFAE+gJYzxYBzxbMySLIywES9AD0AMsAyfkAcHTIywLKB8v/ydDPFpZsInABywHi9AALADQzUDXHBfLgSQP6QDBZyFAE+gJYzxbMzMntVABCjhhRJMcF8uBJ1DBDAMhQBPoCWM8WzMzJ7VTgXwWED/LwAArJgED7AAB9rbz2omh9AH0gamoYNhj8FAC4KhAJqgoB5CgCfQEsZ4sA54tmZJFkZYCJegB6AGWAZPyAODpkZYFlA+X/5OhAAB+vFvaiaH0AfSBqahg/qpBA"
+  base64>B B>boc constant jmcode
+jmcode hashu 0x0571976c63ec1b7550230a2609dbedb36e1b64ef8d022a16b34ea57063185b2f <> abort"jmcode: not the code of hash 0571976c"
+"te6ccgECEQEAAyMAART/APSkE/S88sgLAQIBYgIDAgLMBAUAG6D2BdqJofQB9IH0gahhAgHUBgcCASAICQDDCDHAJJfBOAB0NMDAXGwlRNfA/AM4PpA+kAx+gAxcdch+gAx+gAwc6m0AALTH4IQD4p+pVIgupUxNFnwCeCCEBeNRRlSILqWMUREA/AK4DWCEFlfB7y6k1nwC+BfBIQP8vCAAET6RDBwuvLhTYAIBIAoLAIPUAQa5D2omh9AH0gfSBqGAJpj8EIC8aijKkQXUEIPe7L7wndCVj5cWLpn5j9ABgJ0CgR5CgCfQEsZ4sA54tmZPaqQB8VA9M/+gD6QCHwAe1E0PoA+kD6QNQwUTahUirHBfLiwSjC//LiwlQ0QnBUIBNUFAPIUAT6AljPFgHPFszJIsjLARL0APQAywDJIPkAcHTIywLKB8v/ydAE+kD0BDH6ACDXScIA8uLEd4AYyMsFUAjPFnD6AhfLaxPMgMAgEgDQ4AnoIQF41FGcjLHxnLP1AH+gIizxZQBs8WJfoCUAPPFslQBcwjkXKRceJQCKgToIIJycOAoBS88uLFBMmAQPsAECPIUAT6AljPFgHPFszJ7VQC9ztRND6APpA+kDUMAjTP/oAUVGgBfpA+kBTW8cFVHNtcFQgE1QUA8hQBPoCWM8WAc8WzMkiyMsBEvQA9ADLAMn5AHB0yMsCygfL/8nQUA3HBRyx8uLDCvoAUaihggiYloBmtgihggiYloCgGKEnlxBJEDg3XwTjDSXXCwGAPEADXO1E0PoA+kD6QNQwB9M/+gD6QDBRUaFSSccF8uLBJ8L/8uLCBYIJMS0AoBa88uLDghB73ZfeyMsfFcs/UAP6AiLPFgHPFslxgBjIywUkzxZw+gLLaszJgED7AEATyFAE+gJYzxYBzxbMye1UgAHBSeaAYoYIQc2LQnMjLH1Iwyz9Y+gJQB88WUAfPFslxgBDIywUkzxZQBvoCFctqFMzJcfsAECQQIwB8wwAjwgCwjiGCENUydttwgBDIywVQCM8WUAT6AhbLahLLHxLLP8ly+wCTNWwh4gPIUAT6AljPFgHPFszJ7VQ="
+  base64>B B>boc constant jw1code
+jw1code hashu 0xbeb0683ebeb8927fe9fc8ec0a18bc7dd17899689825a121eab46c5a3a860d0ce <> abort"jw1code: not the code of hash beb0683e"
+"te6ccgECDQEAApwAART/APSkE/S88sgLAQIBYgIDAgLMBAUCA3pgCwwC8dkGOASS+B8ADoaYGAuNhJL4HwfSB9IBj9ABi465D9ABj9ABgBaY/pn/aiaH0AfSBqahhACqk4XUcZmpqbGyiaY4L5cCSBfSB9AGoYEGhAMGuQ/QAYEogaKCF4BQpQKBnkKAJ9ASxni2ZmZPaqcEEIPe7L7yk4XXGBQGBwCTtfBQiAbgqEAmqCgHkKAJ9ASxniwDni2ZkkWRlgIl6AHoAZYBkkHyAODpkZYFlA+X/5Og7wAxkZYKsZ4soAn0BCeW1iWZmZLj9gEBwDY3NwH6APpA+ChUEgZwVCATVBQDyFAE+gJYzxYBzxbMySLIywES9AD0AMsAyfkAcHTIywLKB8v/ydBQBscF8uBKoQNFRchQBPoCWM8WzMzJ7VQB+kAwINcLAcMAkVvjDQgBpoIQLHa5c1JwuuMCNTc3I8ADjhozUDXHBfLgSQP6QDBZyFAE+gJYzxbMzMntVOA1AsAEjhhRJMcF8uBJ1DBDAMhQBPoCWM8WzMzJ7VTgXwWED/LwCQA+ghDVMnbbcIAQyMsFUAPPFiL6AhLLassfyz/JgEL7AAH+Nl8DggiYloAVoBW88uBLAvpA0wAwlcghzxbJkW3ighDRc1QAcIAYyMsFUAXPFiT6AhTLahPLHxTLPyP6RDBwuo4z+ChEA3BUIBNUFAPIUAT6AljPFgHPFszJIsjLARL0APQAywDJ+QBwdMjLAsoHy//J0M8WlmwicAHLAeL0AAoACsmAQPsAAH2tvPaiaH0AfSBqahg2GPwUALgqEAmqCgHkKAJ9ASxniwDni2ZkkWRlgIl6AHoAZYBk/IA4OmRlgWUD5f/k6EAAH68W9qJofQB9IGpqGD+qkEA="
+  base64>B B>boc constant jm1code
+jm1code hashu 0x9a0f98dd6fbf225eef8165e4e64417ee931f7eea000653439e7b5dcdc0644cd6 <> abort"jm1code: not the code of hash 9a0f98dd"
+{ <b b{0011} s, rot ref, swap ref, null dict, b> } : init-of   // ( code data -- StateInit )
+<b 1 8 u, "https://example.org/jetton.json" $, b> constant jcontent
+<b 1 8 u, "https://example.org/jetton-2.json" $, b> constant jcontent2
+1000000000000000 constant jsupply       // 10^6 jettons of 9 decimals
+1000000000000 constant jbalance         // 1000 of them in the wallet of 0:2222..22
+variable jpfx
+{ jpfx @ swap $+ put } : jput                     // ( cell name -- ): put "<family>name"
+// ( balance owner master wcode -- data ): a wallet's data
+{ <b 4 roll Gram, 0 4 roll Addr, 0 3 roll Addr, swap ref, b> } : jwdata
+variable jmd  variable jma  variable jwc  variable jmc
+// ( wcode mcode prefix -- ): the codes, data, addresses and wallet StateInits of one family
+{ jpfx ! jmc ! jwc !
+  <b jsupply Gram, 0 dest Addr, jcontent ref, jwc @ ref, b> jmd !
+  jmc @ jmd @ init-of hashu jma !
+  jmc @ "minter.code" jput  jwc @ "wallet.code" jput
+  jmd @ "data.minter" jput  <b jma @ 256 u, b> "addr.minter" jput
+  jbalance dest jma @ jwc @ jwdata "data.wallet" jput
+  0 dest jma @ jwc @ jwdata "data.wallet-empty" jput
+  5000000000 other jma @ jwc @ jwdata "data.wallet-other" jput
+  jwc @ 0 dest jma @ jwc @ jwdata init-of dup "init.wallet" jput hashu <b swap 256 u, b> "addr.wallet" jput
+  jwc @ 0 other jma @ jwc @ jwdata init-of dup "init.wallet-other" jput hashu <b swap 256 u, b> "addr.wallet-other" jput
+} : jfamily
+jwcode jmcode "jetton." jfamily
+jw1code jm1code "jetton1." jfamily
+// the bodies, the same for both families: query_id 7
+"jetton." jpfx !
+{ <b 0x0f8a7ea5 32 u, 7 64 u, } : jtransfer       // ( -- b ) then amount destination response custom fwd payload
+<b 0 32 u, "hi" $, b> constant jcomment
+jtransfer 100000000000 Gram, 0 other Addr, 0 dest Addr, b{0} s, 0 Gram, b{0} s, b> "body.transfer" jput
+jtransfer 100000000000 Gram, 0 other Addr, 0 dest Addr, b{0} s, 10000000 Gram, b{0} s, jcomment <s s, b> "body.transfer-notify" jput
+jtransfer 100000000000 Gram, 0 other Addr, 0 dest Addr, b{0} s, 10000000 Gram, b{1} s, jcomment ref, b> "body.transfer-payload-ref" jput
+jtransfer 100000000000 Gram, 0 other Addr, 0 dest Addr, b{1} s, <b 1 8 u, b> ref, 0 Gram, b{0} s, b> "body.transfer-custom" jput
+jtransfer 100000000000 Gram, 0 other Addr, b{00} s, b{0} s, 0 Gram, b{0} s, b> "body.transfer-no-response" jput
+jtransfer 100000000000 Gram, 0 other Addr, 0 dest Addr, b{0} s, 0 Gram, b> "body.transfer-no-payload" jput
+jtransfer jbalance Gram, 0 other Addr, 0 dest Addr, b{0} s, 0 Gram, b{0} s, b> "body.transfer-all" jput
+jtransfer jbalance 1+ Gram, 0 other Addr, 0 dest Addr, b{0} s, 0 Gram, b{0} s, b> "body.transfer-too-much" jput
+jtransfer 100000000000 Gram, -1 other Addr, 0 dest Addr, b{0} s, 0 Gram, b{0} s, b> "body.transfer-masterchain" jput
+jtransfer 100000000000 Gram, 0 other Addr, 0 dest Addr, b{0} s, 1000000000 Gram, b{0} s, b> "body.transfer-big-forward" jput
+{ <b 0x178d4519 32 u, 7 64 u, } : jinternal       // ( -- b ) then amount from response fwd payload
+jinternal 50000000000 Gram, 0 other Addr, 0 dest Addr, 0 Gram, b{0} s, b> "body.internal-transfer" jput
+jinternal 50000000000 Gram, 0 other Addr, 0 dest Addr, 20000000 Gram, b{0} s, jcomment <s s, b> "body.internal-transfer-notify" jput
+jinternal 50000000000 Gram, 0 other Addr, b{00} s, 0 Gram, b{0} s, b> "body.internal-transfer-no-response" jput
+jinternal 50000000000 Gram, 0 other Addr, 0 dest Addr, 1000000000 Gram, b{0} s, b> "body.internal-transfer-big-forward" jput
+jinternal 100000000000 Gram, 0 dest Addr, 0 dest Addr, 0 Gram, b{0} s, b> "body.internal-transfer-from-owner" jput
+jinternal 100000000000 Gram, b{00} s, 0 dest Addr, 0 Gram, b{0} s, b> "body.internal-transfer-mint" jput
+<b 0x595f07bc 32 u, 7 64 u, 10000000000 Gram, 0 dest Addr, b{0} s, b> "body.burn" jput
+<b 0x595f07bc 32 u, 7 64 u, 10000000000 Gram, b{00} s, b{0} s, b> "body.burn-no-response" jput
+<b 0x595f07bc 32 u, 7 64 u, jbalance 1+ Gram, 0 dest Addr, b{0} s, b> "body.burn-too-much" jput
+<b 0xffffffff 32 u, 0x178d4519 32 u, 7 64 u, 100000000000 Gram, b> "body.bounced-internal-transfer" jput
+<b 0xffffffff 32 u, 0x7bdd97de 32 u, 7 64 u, 10000000000 Gram, b> "body.bounced-burn-notification" jput
+<b 0xffffffff 32 u, 0x0f8a7ea5 32 u, 7 64 u, b> "body.bounced-transfer" jput
+<b 0xd53276db 32 u, 7 64 u, b> "body.excesses" jput
+<b 0x12345678 32 u, 7 64 u, b> "body.unknown" jput
+<b 0x1234 16 u, b> "body.short" jput
+// the minter's: mint (to 0:4444..44, 0.05 Gram with the internal_transfer of 100 jettons from addr_none)
+jinternal 100000000000 Gram, b{00} s, 0 dest Addr, 0 Gram, b{0} s, b> constant jmint-msg
+<b 21 32 u, 7 64 u, 0 other Addr, 50000000 Gram, jmint-msg ref, b> "body.mint" jput
+<b 21 32 u, 7 64 u, 0 other Addr, 50000000 Gram,
+   jinternal 100000000000 Gram, b{00} s, 0 dest Addr, 10000000 Gram, b{0} s, jcomment <s s, b> ref, b> "body.mint-notify" jput
+<b 21 32 u, 7 64 u, 0 other Addr, 50000000 Gram, <b 0x178d4519 32 u, b> ref, b> "body.mint-bad-message" jput
+<b 21 32 u, 7 64 u, 0 other Addr, 50000000 Gram, b> "body.mint-no-message" jput
+<b 21 32 u, b> "body.mint-no-query" jput
+<b 0x7bdd97de 32 u, 7 64 u, 10000000000 Gram, 0 dest Addr, 0 dest Addr, b> "body.burn-notification" jput
+<b 0x7bdd97de 32 u, 7 64 u, 10000000000 Gram, 0 dest Addr, b{00} s, b> "body.burn-notification-no-response" jput
+<b 0x7bdd97de 32 u, 7 64 u, jsupply 2 * Gram, 0 dest Addr, 0 dest Addr, b> "body.burn-notification-too-much" jput
+<b 0x2c76b973 32 u, 7 64 u, 0 other Addr, 1 1 u, b> "body.provide" jput
+<b 0x2c76b973 32 u, 7 64 u, 0 other Addr, 0 1 u, b> "body.provide-no-include" jput
+<b 0x2c76b973 32 u, 7 64 u, -1 other Addr, 1 1 u, b> "body.provide-masterchain" jput
+<b 0x2c76b973 32 u, 7 64 u, b{00} s, 1 1 u, b> "body.provide-none" jput
+<b 3 32 u, 7 64 u, 0 other Addr, b> "body.change-admin" jput
+<b 3 32 u, 7 64 u, b{00} s, b> "body.change-admin-none" jput
+<b 4 32 u, 7 64 u, jcontent2 ref, b> "body.change-content" jput
