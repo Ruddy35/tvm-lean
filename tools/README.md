@@ -76,7 +76,13 @@ symbolic execution does not cover (`tools/spec-coverage`, below).
 `tools/contract-check/examples/` has the invariants of wallet v3, wallet v2 and the simple wallet
 (the code and the key never change), and a false one of wallet v3 (the seqno is always 0: `NOT
 PROVED`, the path of an accepted external message). The modules TvmLean/Proofs/Check/Contracts/*.lean
-were generated from them (`--out` there). The script's docstring has the details.
+were generated from them (`--out` there). It also has the invariants of the corpus of mainnet
+contracts (`Tests/Tx/Corpus.lean`): wallet v4r2 and v5r1 (`wallet4.lean`, `wallet5.lean`: the code,
+the key and the subwallet or wallet id never change, the seqno never decreases), the jetton wallet
+of TEP-74 (`jetton-wallet.lean`: the owner, the master and the wallet code never change, the balance
+stays a `Coins` amount) and the NFT item of TEP-62 (`nft-item.lean`: the index and the collection
+never change), all `NOT PROVED` for now (docs/audit/README.md, section 4). The script's docstring
+has the details.
 
 `examples/storage.lean` is TON Storage (`list:tools/txoracle/contracts.txt#storage.code`, the code
 of `storage-contract-code.boc`): the data is `Contracts.Storage.Data.encode d` within its widths (the

@@ -1,6 +1,6 @@
 # Покрытие инструкций символьным исполнением
 
-Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `e6c77e9`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
+Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `2223285`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
 
 ```sh
 export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут
@@ -110,6 +110,15 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `restricted2` | 143 | 62 | 132 | 0 | 0 | 11 | 0 | `CALLREF`, `DICTIGETPREVEQ`, `LDDICT`, `STDICT`, `CONFIGOPTPARAM` |
 | `dnsauto` | 875 | 120 | 828 | 0 | 0 | 47 | 0 | `CALLREF`, `LDDICT`, `DICTUMIN`, `GETGLOB`, `SDSKIPLAST`, `IFJMPREF`, `PUSHREFCONT`, `SDCUTLAST`, `SHA256U`, `STDICT`, `DICTUGETOPTREF`, `DICTUMAX` и ещё 2 |
 | `storage` | 388 | 85 | 378 | 0 | 0 | 10 | 0 | `PUSHCTR`, `CALLREF`, `IFREFELSE`, `IFJMPREF`, `RAND`, `XCTOS` |
+| `wallet4` | 376 | 92 | 359 | 0 | 0 | 16 | 1 | `LDDICT`, `STDICT`, `IFREFELSE`, `IFREF`, `DICTREMMIN` (нет), `REWRITESTDADDR`, `SDCUTFIRST` |
+| `wallet5` | 320 | 97 | 293 | 0 | 0 | 27 | 0 | `POPCTR`, `REWRITESTDADDR`, `PLDDICT`, `SDBEGINSQ`, `CALLREF`, `RETALT`, `SAMEALTSAVE`, `SAVECTR`, `XCTOS`, `IFREFELSEREF`, `LDDICT`, `SDBEGINS` и ещё 3 |
+| `jetton.minter` | 390 | 71 | 375 | 0 | 0 | 15 | 0 | `STDICT`, `IFJMPREF`, `IFREFELSE`, `MULRSHIFT#`, `REWRITESTDADDR`, `THROWANY` |
+| `jetton.wallet` | 443 | 75 | 434 | 0 | 0 | 9 | 0 | `STDICT`, `IFREFELSEREF`, `LDDICT`, `MULRSHIFT#`, `REWRITESTDADDR`, `THROWANY` |
+| `jetton1.minter` | 388 | 70 | 374 | 0 | 0 | 14 | 0 | `STDICT`, `IFJMPREF`, `IFREFELSE`, `REWRITESTDADDR`, `THROWANY` |
+| `jetton1.wallet` | 439 | 75 | 430 | 0 | 0 | 9 | 0 | `STDICT`, `IFREFELSE`, `LDDICT`, `MULRSHIFT#`, `REWRITESTDADDR`, `THROWANY` |
+| `nft.collection` | 291 | 73 | 283 | 0 | 0 | 8 | 0 | `IFJMPREF`, `STDICT`, `DICTUREMMIN`, `THROWANY`, `THROWANYIFNOT` |
+| `nft.item` | 254 | 71 | 251 | 0 | 0 | 3 | 0 | `IFJMPREF`, `REWRITESTDADDR`, `THROWANY` |
+| `nft2.item` | 257 | 73 | 250 | 0 | 0 | 7 | 0 | `IFJMPREF`, `IFREFELSE`, `MULRSHIFT#`, `REWRITESTDADDR`, `THROWANY` |
 
 ## Что не покрыто
 
