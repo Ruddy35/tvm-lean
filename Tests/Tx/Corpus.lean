@@ -12,7 +12,9 @@ another account is 0:4444..44.
 - wallet v4r2 (`wallet4Cases`);
 - wallet v5r1 (`wallet5Cases`);
 - the jetton wallet and minter (TEP-74) of `ton-blockchain/token-contract` and the ones most used on
-  the mainnet (`jettonCases`).
+  the mainnet (`jettonCases`);
+- the NFT collection and item (TEP-62) of `ton-blockchain/token-contract`, the item as most used on
+  the mainnet and as of the repository's head (`nftCases`).
 -/
 
 namespace Tests.Tx.Corpus
@@ -231,6 +233,73 @@ def jettonCases (get : String → Except String Cell) (mk : String → Cell → 
     out := out.push (← toM "minter/mint/poor" "mint" (bal := 10000000))
   return out
 
+/-- NFT (TEP-62) of `ton-blockchain/token-contract`: the item as most used on the mainnet (`nft`) and as
+of the repository's head (`nft2`), and the collection (`mk`, `get` as for `wallet4Cases`). The item 3
+of 0:2222..22 (0.06 Gram) gets, with 0.05 Gram from its owner: transfers to 0:4444..44 (with a
+response and a notification, plain, without the forward payload bit (708 for `nft2` only), the payload
+in a reference, a custom payload, to the masterchain and with the response in the masterchain (333),
+a forward amount above the balance (402)), get_static_data, an unknown operation, 16 bits, an empty
+body; a transfer with a forward fee of 0.001 Gram; from 0:4444..44 a transfer (401) and get_static_data;
+a transfer of an item with no balance and 0.01 Gram (402); a bounced transfer. The item not yet
+initialized gets the collection's initialization, the same from 0:4444..44 (405), and a transfer; item
+5 is deployed (absent, uninitialized) by the collection's message. The collection (1 Gram) gets from
+its owner: royalty parameters, deploy the next item, a deployed one, one beyond the next (402); batches
+of 3 items, with a gap (405), of 250 items (with 20 Gram); an owner change, an unknown operation, 16
+bits, a deploy without query id, an empty body; from 0:4444..44 royalty parameters, a deploy and an
+owner change (401); a bounced deploy. -/
+def nftCases (get : String → Except String Cell) (mk : String → Cell → Cell → TxCase) :
+    Except String (Array TxCase) := do
+  let body (n : String) := get s!"nft.body.{n}"
+  let caddr := (← get "nft.addr.collection").bits
+  let mut out : Array TxCase := #[]
+  for fam in ["nft", "nft2"] do
+    let c (n : String) := get s!"{fam}.{n}"
+    let code ← c "item.code"
+    let iaddr := (← c "addr.item").bits
+    let iacc (d : Cell) (bal : Nat := 60000000) := mkAccount 0 iaddr (.active code d) bal 1700000000 0 1000
+    let toI (name : String) (acc : Cell) (n : String) (value : Nat := 50000000) (src : Int × BitString := owner)
+        (bounced := false) (fwdFee : Nat := 0) : Except String TxCase := do
+      return mk s!"{fam}/{name}" acc
+        (intMsgCell 0 iaddr value (← body n) (src := src) (bounce := !bounced) (bounced := bounced) (fwdFee := fwdFee))
+    let d ← c "data.item"
+    for n in ["transfer", "transfer-plain", "transfer-no-payload", "transfer-payload-ref", "transfer-custom",
+        "transfer-masterchain", "transfer-response-masterchain", "transfer-big-forward", "get-static-data", "unknown",
+        "short"] do
+      out := out.push (← toI s!"item/{n}" (iacc d) n)
+    out := out.push (mk s!"{fam}/item/empty" (iacc d) (intMsgCell 0 iaddr 50000000 Cell.empty))
+    out := out.push (← toI "item/transfer/fwd-fee" (iacc d) "transfer" (fwdFee := 1000000))
+    for n in ["transfer", "get-static-data"] do
+      out := out.push (← toI s!"item/{n}/stranger" (iacc d) n (src := stranger))
+    out := out.push (← toI "item/transfer/poor" (iacc d 0) "transfer" 10000000)
+    out := out.push (← toI "item/transfer/bounced" (iacc d) "transfer" (bounced := true))
+    let d0 ← c "data.item-new"
+    out := out.push (← toI "item-new/init" (iacc d0) "init" (src := (0, caddr)))
+    out := out.push (← toI "item-new/init/stranger" (iacc d0) "init" (src := stranger))
+    out := out.push (← toI "item-new/transfer" (iacc d0) "transfer")
+    -- item 5, deployed by the collection
+    let a5 := (← c "addr.item5").bits
+    let init5 ← c "init.item5"
+    for (aname, acc) in [("none", mkAccount 0 a5 .none 0 0 0 0), ("uninit", mkAccount 0 a5 .uninit 1000000 1700000000 0 1000)] do
+      out := out.push (mk s!"{fam}/item5/deploy/{aname}" acc
+        (intMsgCell 0 a5 50000000 (← body "init5") (src := (0, caddr)) (init := some init5)))
+  -- the collection
+  let ccode ← get "nft.collection.code"
+  let cacc (bal : Nat := 1000000000) : Except String Cell := do
+    return mkAccount 0 caddr (.active ccode (← get "nft.data.collection")) bal 1700000000 0 1000
+  let toC (name : String) (n : String) (value : Nat := 100000000) (src : Int × BitString := owner) (bounced := false)
+      (bal : Nat := 1000000000) : Except String TxCase := do
+    return mk s!"nft/{name}" (← cacc bal)
+      (intMsgCell 0 caddr value (← body n) (src := src) (bounce := !bounced) (bounced := bounced))
+  for n in ["royalty", "deploy", "deploy-existing", "deploy-gap", "batch", "batch-gap", "change-owner", "unknown", "short",
+      "deploy-no-query"] do
+    out := out.push (← toC s!"collection/{n}" n)
+  out := out.push (← toC "collection/batch-250" "batch-250" (bal := 20000000000))
+  out := out.push (mk "nft/collection/empty" (← cacc) (intMsgCell 0 caddr 100000000 Cell.empty))
+  for n in ["royalty", "deploy", "change-owner"] do
+    out := out.push (← toC s!"collection/{n}/stranger" n (src := stranger))
+  out := out.push (← toC "collection/deploy/bounced" "deploy" (bounced := true))
+  return out
+
 /-- The cases of the corpus at each version of `versions`, as `Tests.Tx.realCases` makes its own
 (`get`: the cells of `tools/txoracle/contracts.txt`; `cfg0` the configuration). -/
 def cases (get : String → Except String Cell) (cfg0 : Cell) (versions : List Nat) : Except String (Array TxCase) := do
@@ -242,6 +311,7 @@ def cases (get : String → Except String Cell) (cfg0 : Cell) (versions : List N
     out := out ++ (← wallet4Cases get mk)
     out := out ++ (← wallet5Cases get mk)
     out := out ++ (← jettonCases get mk)
+    out := out ++ (← nftCases get mk)
   return out
 
 end Tests.Tx.Corpus
