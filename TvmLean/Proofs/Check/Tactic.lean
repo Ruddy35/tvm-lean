@@ -24,6 +24,8 @@ import TvmLean.Proofs.Exec.Spec.StackVar
 import TvmLean.Proofs.Exec.Spec.LoopBrk
 import TvmLean.Proofs.Exec.Closure
 import TvmLean.Proofs.Tx.Acts
+import TvmLean.Proofs.Exec.Spec.SendMsg
+import TvmLean.Proofs.Check.Reruns
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`
@@ -526,7 +528,7 @@ macro_rules
       cdata_callFrame_identity, callArgsUnfold, VmState.consumeStackGas, VmState.c1Envelope,
       Continuation.defineC0, Continuation.defineC1, Continuation.defineC2, Continuation.forceCdata,
       ↓ excnoToIntStop, nearestWalk_none, minMaxWalk_none,
-      deleteWalk_none, Spec.dictLookupWithCells_none, ↓ reduceIte, ↓ reduceDIte, $args,*])
+      deleteWalk_none, Spec.dictLookupWithCells_none, ↓ reduceIte, ↓ reduceDIte, Nat.reduceAnd, $args,*])
 
 /-- `vm_step_simp` with the lemmas of `check_step` (a run whose step is written out, after a split). -/
 syntax "check_step_simp" " [" Lean.Parser.Tactic.simpArg,* "]" : tactic
@@ -546,7 +548,7 @@ macro_rules
       cdata_callFrame_identity, callArgsUnfold, VmState.consumeStackGas, VmState.c1Envelope,
       Continuation.defineC0, Continuation.defineC1, Continuation.defineC2, Continuation.forceCdata,
       ↓ excnoToIntStop, nearestWalk_none, minMaxWalk_none,
-      deleteWalk_none, Spec.dictLookupWithCells_none, ↓ reduceIte, ↓ reduceDIte, $args,*])
+      deleteWalk_none, Spec.dictLookupWithCells_none, ↓ reduceIte, ↓ reduceDIte, Nat.reduceAnd, $args,*])
 
 /-- The goal `g` (target `t`) with the `if` `e` of its target (`ite c a b` or `dite c a b`) replaced
 by its branch, given `h : c` (`pos`) or `h : ¬c`: the occurrences of `e` abstracted (`kabstract`),
