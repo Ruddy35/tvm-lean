@@ -40,6 +40,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Spec.ArithRound, `TvmLean.Proofs.Exec.Spec.ArithShift,
     `TvmLean.Proofs.Exec.Spec.ArithShiftMod, `TvmLean.Proofs.Exec.Spec.ArithMulShift,
     `TvmLean.Proofs.Exec.Spec.ArithShlDiv, `TvmLean.Proofs.Exec.Pilot.ArithShift,
+    `TvmLean.Proofs.Exec.Spec.TupleVar, `TvmLean.Proofs.Exec.Pilot.TupleVar,
     `TvmLean.Proofs.WF.Defs, `TvmLean.Proofs.WF.Library, `TvmLean.Proofs.WF.Monad, `TvmLean.Proofs.WF.Decode,
     `TvmLean.Proofs.WF.Step, `TvmLean.Proofs.WF.Exec.Stack, `TvmLean.Proofs.WF.Exec.Arith,
     `TvmLean.Proofs.WF.Cells, `TvmLean.Proofs.WF.Exec.Cell, `TvmLean.Proofs.WF.Exec.CellOp,
