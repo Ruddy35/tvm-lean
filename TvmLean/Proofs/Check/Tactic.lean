@@ -25,6 +25,7 @@ import TvmLean.Proofs.Exec.Spec.LoopBrk
 import TvmLean.Proofs.Exec.Closure
 import TvmLean.Proofs.Tx.Acts
 import TvmLean.Proofs.Exec.Spec.SendMsg
+import TvmLean.Proofs.Exec.Spec.Runvm
 import TvmLean.Proofs.Check.Reruns
 
 /-!
