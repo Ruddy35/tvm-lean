@@ -29,6 +29,7 @@ import TvmLean.Proofs.Tx.Acts
 import TvmLean.Proofs.Exec.Spec.SendMsg
 import TvmLean.Proofs.Exec.Spec.Runvm
 import TvmLean.Proofs.Check.Reruns
+import TvmLean.Proofs.Exec.Spec.VarArgs
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`

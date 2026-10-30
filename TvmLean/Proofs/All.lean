@@ -167,6 +167,7 @@ import TvmLean.Proofs.Exec.Spec.SendMsg
 import TvmLean.Proofs.Exec.Spec.Runvm
 import TvmLean.Proofs.Check.Reruns
 import TvmLean.Proofs.Exec.FoldRun
+import TvmLean.Proofs.Exec.Spec.VarArgs
 
 /-!
 # All proof modules together
