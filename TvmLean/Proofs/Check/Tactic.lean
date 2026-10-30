@@ -30,6 +30,7 @@ import TvmLean.Proofs.Exec.Spec.SendMsg
 import TvmLean.Proofs.Exec.Spec.Runvm
 import TvmLean.Proofs.Check.Reruns
 import TvmLean.Proofs.Exec.Spec.VarArgs
+import TvmLean.Proofs.Exec.Spec.ContMany
 import TvmLean.Proofs.Exec.Spec.SetContVarArgs
 
 /-!
