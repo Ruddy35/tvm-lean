@@ -32,10 +32,12 @@ VERSIONS=${VERSIONS:-$(seq -s ' ' 0 16)}; PAR=${PAR:-12}
 FAILED="$OUT/failed"; rm -rf "$FAILED"; mkdir -p "$FAILED"
 # start a job in the background once fewer than PAR are running
 bg() { while [ "$(jobs -rp | wc -l)" -ge "$PAR" ]; do wait -n; done; "$@" & }
-# job NAME LOG CMD...: runs CMD into LOG, adds the last line of LOG and the exit status to the
-# summary, and marks NAME failed for a nonzero status
+# job NAME LOG CMD...: runs CMD into LOG, adds its result lines (the `tx:` / `tx (…)` totals of the
+# transaction runs, else the last line of LOG) and the exit status to the summary, and marks NAME
+# failed for a nonzero status
 job() { n=$1; log=$2; shift 2; "$@" > "$log" 2>&1; rc=$?
-  echo "$n: $(tail -n 1 "$log") exit=$rc" >> "$SUM"; [ "$rc" -eq 0 ] || : > "$FAILED/$n"; }
+  r=$(grep -E '^tx( \(|:)' "$log" | paste -sd ';' -); [ -n "$r" ] || r=$(tail -n 1 "$log")
+  echo "$n: $r exit=$rc" >> "$SUM"; [ "$rc" -eq 0 ] || : > "$FAILED/$n"; }
 unit() { job unit "$OUT/unit.log" $T --unit-only --no-progress; }
 opcheck() { job opcode-check "$OUT/opcode-check.log" $T --opcode-check; }
 oracle() { job "oracle v$1" "$OUT/oracle-v$1.log" env TVMLEAN_GLOBAL_VERSION="$1" $T --oracle-only --no-progress; }
