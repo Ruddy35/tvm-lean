@@ -218,6 +218,8 @@ def generate(args: argparse.Namespace) -> tuple[str, str, dict]:
     if not args.single:
         # the runs of a message from an ordinary message cell (TvmLean/Proofs/Check/InMsg.lean)
         header_imports.append("import TvmLean.Proofs.Check.InMsg")
+        # a stack a step leaves as a fold (REVERSE)
+        header_imports.append("import TvmLean.Proofs.Check.StackNorm")
     # the code may change (`code K` or `code self`): the action lists `Acts`
     code_k = d.get("code")
     if code_k is not None:
