@@ -69,6 +69,9 @@ the axioms of the theorem, or `NOT PROVED` with every path where the invariant i
 kind of transaction, the code position (cell, bit, instruction), the exit code, the path condition
 and the goal left. `--only runs_ext,...` checks some kinds of transaction only, `--cut N` sets
 how often a path is cut into auxiliary theorems.
+The runs of a message are stated for an ordinary message cell (`msg.special = false`, which the
+`CTOS` of the message needs): `Ran` records it of every compute phase of a transaction of the
+model, as in C++ (TvmLean/Proofs/Tx/InMsg.lean); `reachable` is the same theorem.
 
 A contract whose code may change (`SETCODE`) adds the line `-- contract-check: code K`: `K` is the
 condition on a code a committed run installs, a predicate on the body of the message (`none` for

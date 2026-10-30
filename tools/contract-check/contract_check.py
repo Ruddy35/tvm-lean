@@ -58,6 +58,12 @@ of transaction it does not prove, every path where the invariant is not shown: t
 of its last step (cell, bit, instruction), its exit code, its path condition (the hypotheses of the
 path but those about the gas, which are counted) and the goal left.
 
+The runs of a message are stated for an ordinary message cell (`msg.special = false →`, which the
+run's `CTOS` of the message needs): `Ran` records it of every compute phase of a transaction of the
+model (TvmLean/Proofs/Tx/InMsg.lean: C++ refuses a special message cell before any phase), and
+`preserves` comes from `ran_preserves_ord_of` (`ran_self_ord_of`, `ran_installs_ord_of` with `code`;
+TvmLean/Proofs/Check/InMsg.lean); `reachable` is the same theorem (not with `--single`).
+
 `--only runs_ext,runs_int,...`: only the runs of these kinds of transaction (no theorem over all
 transactions: a quicker look at one kind). `--split`: the same theorems checked in parts, the six
 runs at once in processes of their own, `reachable` over them (`check_split`): in one module Lean
@@ -209,6 +215,9 @@ def generate(args: argparse.Namespace) -> tuple[str, str, dict]:
     header_imports = ["import TvmLean.Boc", "import TvmLean.Proofs.Contracts.CellLiteral",
                       "import TvmLean.Proofs.Check.Tactic", "import TvmLean.Proofs.Check.Framed",
                       "import TvmLean.Proofs.Check.Loops"]
+    if not args.single:
+        # the runs of a message from an ordinary message cell (TvmLean/Proofs/Check/InMsg.lean)
+        header_imports.append("import TvmLean.Proofs.Check.InMsg")
     # the code may change (`code K` or `code self`): the action lists `Acts`
     code_k = d.get("code")
     if code_k is not None:
@@ -304,6 +313,8 @@ theorem preserves{pbind} : ∀ data c4 c5, {Pfull} data → Ran code data c4 c5 
         for thm, stack, g, binders, desc in KINDS:
             if only is not None and thm not in only:
                 continue
+            if "msg" in binders:
+                binders += " msg.special = false →"
             if code_k is None:
                 stmt = f"RunsKeep code {Pfull} ({stack}) {g}"
                 doc = f"The runs of {desc}: a run that commits keeps the invariant."
@@ -332,14 +343,14 @@ theorem {thm}{pbind} : {binders}
             out.append(f"""/-- **Every committed run keeps the invariant** (the obligation of `Reachable.code_fixed`). -/
 theorem preserves{pbind} : ∀ data c4 c5, {Pfull} data → Ran code data c4 c5 →
     {Pfull} (some c4) ∧ ∀ c, ¬ActionIn c5 (.setCode c) :=
-  ran_preserves_of (by rfl) {runs}
+  ran_preserves_ord_of (by rfl) {runs}
 """)
         elif code_k == "self":
             out.append(f"""/-- **Every committed run keeps the invariant and installs no other code** (the obligation of
 `Reachable.code_self`). -/
 theorem preserves{pbind} : ∀ data c4 c5, {Pfull} data → Ran code data c4 c5 →
     {Pfull} (some c4) ∧ ∀ c, ActionIn c5 (.setCode c) → c = code :=
-  ran_self_of (by rfl) {runs}
+  ran_self_ord_of (by rfl) {runs}
 """)
         else:
             out.append(f"""/-- **Every committed run keeps the invariant**, and every `SETCODE` it commits installs a code
@@ -347,7 +358,7 @@ that the condition admits for the body of some message (`ran_installs_of`, the o
 `ReachableWhile.good_codes`). -/
 theorem preserves{pbind} : ∀ data c4 c5, {Pfull} data → Ran code data c4 c5 →
     {Pfull} (some c4) ∧ ∀ c, ActionIn c5 (.setCode c) → Installable ({code_k}) c :=
-  ran_installs_of (by rfl) {runs}
+  ran_installs_ord_of (by rfl) {runs}
 """)
     args_app = (" " + papp) if papp else ""
     if code_k is not None and code_k != "self":
