@@ -21,6 +21,9 @@ are `Runvm.Args` (`none` for a flag not set; `Args.push` puts them on a stack).
 * `Spec.runvm_*`: `RUNVM mode` for each set of the flags 4, 8, 16, 64, 256 (the letters `d`, `l`,
   `c`, `m`, `r`), the arguments on the stack written out (`vm_spec`); `Spec.runvm` is the case of
   none.
+* `Spec.runvmx_*`: `RUNVMX` likewise (`Runvm.runxArgs`, `Runvm.execInstr_runvmx_args`: the mode
+  popped, range_chk out of `0..4095`), the arguments written `Runvm.Args.push a ...`, which is
+  reducible; `Spec.runvmx` (TvmLean/Proofs/Exec/Spec/RunvmX.lean) is the case of none.
 -/
 
 namespace TvmLean
@@ -37,25 +40,27 @@ structure Args where
   retVals : Option Int := none
 
 /-- `t` with the integer `o` pushed, if any. -/
-def pushInt? (o : Option Int) (t : Stack) : Stack :=
+@[reducible] def pushInt? (o : Option Int) (t : Stack) : Stack :=
   match o with
   | some g => t.push (.int (.num g))
   | none => t
 
 /-- `t` with the tuple `o` pushed, if any. -/
-def pushTuple? (o : Option (Array Value)) (t : Stack) : Stack :=
+@[reducible] def pushTuple? (o : Option (Array Value)) (t : Stack) : Stack :=
   match o with
   | some c => t.push (.tuple c)
   | none => t
 
 /-- `t` with the cell `o` pushed, if any. -/
-def pushCell? (o : Option Cell) (t : Stack) : Stack :=
+@[reducible] def pushCell? (o : Option Cell) (t : Stack) : Stack :=
   match o with
   | some c => t.push (.cell c)
   | none => t
 
-/-- The stack `t` with the arguments `a` on it, as `RUNVM` pops them (the maximum gas on top). -/
-def Args.push (a : Args) (t : Stack) : Stack :=
+/-- The stack `t` with the arguments `a` on it, as `RUNVM` pops them (the maximum gas on top).
+Reducible, with the functions it calls: a specification whose stack is `Args.push a t` with `a`
+written out unifies with the stack written out (`Spec.runvmx_*`). -/
+@[reducible] def Args.push (a : Args) (t : Stack) : Stack :=
   pushInt? a.gasMax (pushInt? a.gasLimit (pushTuple? a.c7 (pushCell? a.data (pushInt? a.retVals t))))
 
 /-- A gas argument out of `0 .. GasLimits.infty` (`popGasRange`: range_chk; the bound written out,
@@ -443,8 +448,7 @@ theorem runChildVm_args (exec : Instr → VM Unit) (st : VmState) (s : Stack) (n
       (Args.push { gasLimit := gl, c7 := c7, data := dt, retVals := rv }
         ((s.push (.int (.num n))).push (.slice code))) := by
     show st.stack = _
-    rw [hs]
-    rfl
+    exact hs.trans rfl
   -- the maximum gas
   rw [show (if gm.isSome = true then popGasRange >>= jp3 else pure GasLimits.infty >>= jp3) =
       ((if gm.isSome = true then popGasRange else pure GasLimits.infty) >>= jp3) from by split <;> rfl]
@@ -565,6 +569,45 @@ theorem flag_of {m bits : Nat} (h : m &&& 0x15c = bits) (b : Nat)
   have e2 : bits &&& b = m &&& b := by rw [← h, Nat.and_assoc, Nat.and_comm 0x15c b, hb.1]
   rw [e1, e2]
 
+/-- `flag_of` for `RUNVMX`: its mode `m` below 512, `m &&& 4095` is `m`. -/
+theorem flag_of_x {m bits : Nat} (h : m &&& 0x15c = bits) (b : Nat) (hb : b &&& 0x15c = b) :
+    decide (m &&& b = b) = decide (bits &&& b = b) := by
+  have e : bits &&& b = m &&& b := by rw [← h, Nat.and_assoc, Nat.and_comm 0x15c b, hb]
+  rw [e]
+
+/-- **The result of `RUNVMX`** with the mode `m` and the arguments `a` of its flags, on the stack
+`s n code` with `a` and `m` above: range_chk for a mode out of `0..4095` (the mode popped), else
+`runArgs`, its result set as the parent's state. -/
+@[vm_run] def runxArgs (exec : Instr → VM Unit) (st : VmState) (s : Stack) (n : Int) (code : Slice)
+    (m : Int) (a : Args) : Except Excno Unit × VmState :=
+  if m < 0 then (.error .rangeChk, { st with stack := a.push ((s.push (.int (.num n))).push (.slice code)) })
+  else if 4095 < m.toNat then
+    (.error .rangeChk, { st with stack := a.push ((s.push (.int (.num n))).push (.slice code)) })
+  else VM.bindRes (runArgs exec { st with stack := a.push ((s.push (.int (.num n))).push (.slice code)) }
+    s n code m.toNat a) (fun st' => set st')
+
+/-- `RUNVMX` with the arguments `a` of the flags of its mode on the stack is `runxArgs`
+(`execInstr_runvmx`, `runChildVm_args`). -/
+theorem execInstr_runvmx_args (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int) (a : Args)
+    (hlt : m.toNat < 512)
+    (h4 : decide (m.toNat &&& 4 = 4) = a.data.isSome)
+    (h8 : decide (m.toNat &&& 8 = 8) = a.gasLimit.isSome)
+    (h16 : decide (m.toNat &&& 16 = 16) = a.c7.isSome)
+    (h64 : decide (m.toNat &&& 64 = 64) = a.gasMax.isSome)
+    (h256 : decide (m.toNat &&& 256 = 256) = a.retVals.isSome)
+    (hs : st.stack = (a.push ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1)) st s n code m a := by
+  unfold runxArgs
+  rw [execInstr_runvmx, popNatUpToSigned, Runvm.run_popNatUpTo_of st _ m 4095 hs]
+  by_cases h1 : m < 0
+  · rw [if_pos h1, if_pos h1]; rfl
+  · rw [if_neg h1, if_neg h1]
+    by_cases h2 : 4095 < m.toNat
+    · rw [if_pos (show m.toNat > 4095 from h2), if_pos h2]; rfl
+    · rw [if_neg (show ¬ m.toNat > 4095 from h2), if_neg h2, VM.bindRes_ok, VM.run_bind, VM.run_get,
+        VM.bindRes_ok, VM.run_bind, runChildVm_args _ _ s n code _ a hlt h4 h8 h16 h64 h256 rfl]
+
 end Runvm
 
 namespace Spec
@@ -580,7 +623,7 @@ namespace Spec
     { retVals := some rv } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_d (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat) (d : Cell)
@@ -593,7 +636,7 @@ namespace Spec
     { data := some d } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop `c7` (16) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_c (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat)
@@ -607,7 +650,7 @@ namespace Spec
     { c7 := some c7 } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the gas limit (8) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_l (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat) (gl : Int)
@@ -620,7 +663,7 @@ namespace Spec
     { gasLimit := some gl } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the maximum gas (64) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_m (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat) (gm : Int)
@@ -633,7 +676,7 @@ namespace Spec
     { gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the count of values to return (256)
 (`Runvm.runArgs`). -/
@@ -649,7 +692,7 @@ namespace Spec
     { retVals := some rv, data := some d } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop `c7` (16), the count of values to return (256) (`Runvm.runArgs`).
 -/
@@ -665,7 +708,7 @@ namespace Spec
     { retVals := some rv, c7 := some c7 } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the gas limit (8), the count of values to return (256)
 (`Runvm.runArgs`). -/
@@ -683,7 +726,7 @@ namespace Spec
     { retVals := some rv, gasLimit := some gl } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the maximum gas (64), the count of values to return (256)
 (`Runvm.runArgs`). -/
@@ -701,7 +744,7 @@ namespace Spec
     { retVals := some rv, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), `c7` (16) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_cd (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat) (d : Cell)
@@ -716,7 +759,7 @@ namespace Spec
     { data := some d, c7 := some c7 } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the gas limit (8) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_dl (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat) (d : Cell)
@@ -731,7 +774,7 @@ namespace Spec
     { data := some d, gasLimit := some gl } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the maximum gas (64) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_dm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat) (d : Cell)
@@ -746,7 +789,7 @@ namespace Spec
     { data := some d, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the gas limit (8), `c7` (16) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_cl (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat)
@@ -761,7 +804,7 @@ namespace Spec
     { c7 := some c7, gasLimit := some gl } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop `c7` (16), the maximum gas (64) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_cm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat)
@@ -776,7 +819,7 @@ namespace Spec
     { c7 := some c7, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the gas limit (8), the maximum gas (64) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_lm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat) (gl : Int)
@@ -793,7 +836,7 @@ namespace Spec
     { gasLimit := some gl, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), `c7` (16), the count of values to return (256)
 (`Runvm.runArgs`). -/
@@ -811,7 +854,7 @@ namespace Spec
     { retVals := some rv, data := some d, c7 := some c7 } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the gas limit (8), the count of values to return
 (256) (`Runvm.runArgs`). -/
@@ -829,7 +872,7 @@ namespace Spec
     { retVals := some rv, data := some d, gasLimit := some gl } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the maximum gas (64), the count of values to return
 (256) (`Runvm.runArgs`). -/
@@ -847,7 +890,7 @@ namespace Spec
     { retVals := some rv, data := some d, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the gas limit (8), `c7` (16), the count of values to return (256)
 (`Runvm.runArgs`). -/
@@ -865,7 +908,7 @@ namespace Spec
     { retVals := some rv, c7 := some c7, gasLimit := some gl } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop `c7` (16), the maximum gas (64), the count of values to return
 (256) (`Runvm.runArgs`). -/
@@ -883,7 +926,7 @@ namespace Spec
     { retVals := some rv, c7 := some c7, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the gas limit (8), the maximum gas (64), the count of values to
 return (256) (`Runvm.runArgs`). -/
@@ -901,7 +944,7 @@ return (256) (`Runvm.runArgs`). -/
     { retVals := some rv, gasLimit := some gl, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the gas limit (8), `c7` (16) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_cdl (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat)
@@ -918,7 +961,7 @@ return (256) (`Runvm.runArgs`). -/
     { data := some d, c7 := some c7, gasLimit := some gl } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), `c7` (16), the maximum gas (64) (`Runvm.runArgs`). -/
 @[vm_spec] theorem runvm_cdm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Nat)
@@ -935,7 +978,7 @@ return (256) (`Runvm.runArgs`). -/
     { data := some d, c7 := some c7, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the gas limit (8), the maximum gas (64)
 (`Runvm.runArgs`). -/
@@ -953,7 +996,7 @@ return (256) (`Runvm.runArgs`). -/
     { data := some d, gasLimit := some gl, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the gas limit (8), `c7` (16), the maximum gas (64)
 (`Runvm.runArgs`). -/
@@ -971,7 +1014,7 @@ return (256) (`Runvm.runArgs`). -/
     { c7 := some c7, gasLimit := some gl, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the gas limit (8), `c7` (16), the count of values to
 return (256) (`Runvm.runArgs`). -/
@@ -989,7 +1032,7 @@ return (256) (`Runvm.runArgs`). -/
     { retVals := some rv, data := some d, c7 := some c7, gasLimit := some gl } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), `c7` (16), the maximum gas (64), the count of values
 to return (256) (`Runvm.runArgs`). -/
@@ -1007,7 +1050,7 @@ to return (256) (`Runvm.runArgs`). -/
     { retVals := some rv, data := some d, c7 := some c7, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the gas limit (8), the maximum gas (64), the count of
 values to return (256) (`Runvm.runArgs`). -/
@@ -1025,7 +1068,7 @@ values to return (256) (`Runvm.runArgs`). -/
     { retVals := some rv, data := some d, gasLimit := some gl, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the gas limit (8), `c7` (16), the maximum gas (64), the count of
 values to return (256) (`Runvm.runArgs`). -/
@@ -1043,7 +1086,7 @@ values to return (256) (`Runvm.runArgs`). -/
     { retVals := some rv, c7 := some c7, gasLimit := some gl, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the gas limit (8), `c7` (16), the maximum gas (64)
 (`Runvm.runArgs`). -/
@@ -1061,7 +1104,7 @@ values to return (256) (`Runvm.runArgs`). -/
     { data := some d, c7 := some c7, gasLimit := some gl, gasMax := some gm } hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
 
 /-- `RUNVM mode` whose flags pop the data (4), the gas limit (8), `c7` (16), the maximum gas (64),
 the count of values to return (256) (`Runvm.runArgs`). -/
@@ -1081,7 +1124,461 @@ the count of values to return (256) (`Runvm.runArgs`). -/
     hm.1
     (Runvm.flag_of hm.2 4 (by decide)) (Runvm.flag_of hm.2 8 (by decide))
     (Runvm.flag_of hm.2 16 (by decide)) (Runvm.flag_of hm.2 64 (by decide))
-    (Runvm.flag_of hm.2 256 (by decide)) (by rw [hs]; rfl)]
+    (Runvm.flag_of hm.2 256 (by decide)) (hs.trans rfl)]
+
+/-- `RUNVMX` with a mode whose flags pop the count of values to return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_r (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int) (rv : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 256)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_d (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int) (d : Cell)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 4)
+    (hs : st.stack = (Runvm.Args.push
+      { data := some d }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { data := some d } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop `c7` (16) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_c (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (c7 : Array Value)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 16)
+    (hs : st.stack = (Runvm.Args.push
+      { c7 := some c7 }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { c7 := some c7 } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the gas limit (8) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_l (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int) (gl : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 8)
+    (hs : st.stack = (Runvm.Args.push
+      { gasLimit := some gl }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { gasLimit := some gl } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the maximum gas (64) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_m (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 64)
+    (hs : st.stack = (Runvm.Args.push
+      { gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the count of values to return (256)
+(`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_dr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (d : Cell)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 260)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, data := some d }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, data := some d } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop `c7` (16), the count of values to return (256)
+(`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (c7 : Array Value)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 272)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, c7 := some c7 }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, c7 := some c7 } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the gas limit (8), the count of values to return (256)
+(`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_lr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (gl : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 264)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, gasLimit := some gl }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, gasLimit := some gl } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the maximum gas (64), the count of values to return (256)
+(`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_mr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 320)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), `c7` (16) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cd (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (d : Cell) (c7 : Array Value)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 20)
+    (hs : st.stack = (Runvm.Args.push
+      { data := some d, c7 := some c7 }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { data := some d, c7 := some c7 } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the gas limit (8) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_dl (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (d : Cell) (gl : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 12)
+    (hs : st.stack = (Runvm.Args.push
+      { data := some d, gasLimit := some gl }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { data := some d, gasLimit := some gl } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the maximum gas (64) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_dm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (d : Cell) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 68)
+    (hs : st.stack = (Runvm.Args.push
+      { data := some d, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { data := some d, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the gas limit (8), `c7` (16) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cl (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (c7 : Array Value) (gl : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 24)
+    (hs : st.stack = (Runvm.Args.push
+      { c7 := some c7, gasLimit := some gl }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { c7 := some c7, gasLimit := some gl } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop `c7` (16), the maximum gas (64) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (c7 : Array Value) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 80)
+    (hs : st.stack = (Runvm.Args.push
+      { c7 := some c7, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { c7 := some c7, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the gas limit (8), the maximum gas (64) (`Runvm.runxArgs`).
+-/
+@[vm_spec] theorem runvmx_lm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (gl : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 72)
+    (hs : st.stack = (Runvm.Args.push
+      { gasLimit := some gl, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { gasLimit := some gl, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), `c7` (16), the count of values to return
+(256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cdr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (d : Cell) (c7 : Array Value)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 276)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, data := some d, c7 := some c7 }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, data := some d, c7 := some c7 } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the gas limit (8), the count of values to
+return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_dlr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (d : Cell) (gl : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 268)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, data := some d, gasLimit := some gl }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, data := some d, gasLimit := some gl } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the maximum gas (64), the count of values to
+return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_dmr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (d : Cell) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 324)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, data := some d, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, data := some d, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the gas limit (8), `c7` (16), the count of values to return
+(256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_clr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (c7 : Array Value) (gl : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 280)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, c7 := some c7, gasLimit := some gl }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, c7 := some c7, gasLimit := some gl } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop `c7` (16), the maximum gas (64), the count of values to
+return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cmr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (c7 : Array Value) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 336)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, c7 := some c7, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, c7 := some c7, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the gas limit (8), the maximum gas (64), the count of
+values to return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_lmr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (gl : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 328)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, gasLimit := some gl, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, gasLimit := some gl, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the gas limit (8), `c7` (16)
+(`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cdl (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (d : Cell) (c7 : Array Value) (gl : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 28)
+    (hs : st.stack = (Runvm.Args.push
+      { data := some d, c7 := some c7, gasLimit := some gl }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { data := some d, c7 := some c7, gasLimit := some gl } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), `c7` (16), the maximum gas (64)
+(`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cdm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (d : Cell) (c7 : Array Value) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 84)
+    (hs : st.stack = (Runvm.Args.push
+      { data := some d, c7 := some c7, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { data := some d, c7 := some c7, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the gas limit (8), the maximum gas (64)
+(`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_dlm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (d : Cell) (gl : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 76)
+    (hs : st.stack = (Runvm.Args.push
+      { data := some d, gasLimit := some gl, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { data := some d, gasLimit := some gl, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the gas limit (8), `c7` (16), the maximum gas (64)
+(`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_clm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (c7 : Array Value) (gl : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 88)
+    (hs : st.stack = (Runvm.Args.push
+      { c7 := some c7, gasLimit := some gl, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { c7 := some c7, gasLimit := some gl, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the gas limit (8), `c7` (16), the count of
+values to return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cdlr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (d : Cell) (c7 : Array Value) (gl : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 284)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, data := some d, c7 := some c7, gasLimit := some gl }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, data := some d, c7 := some c7, gasLimit := some gl } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), `c7` (16), the maximum gas (64), the count of
+values to return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cdmr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (d : Cell) (c7 : Array Value) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 340)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, data := some d, c7 := some c7, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { retVals := some rv, data := some d, c7 := some c7, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the gas limit (8), the maximum gas (64), the
+count of values to return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_dlmr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (d : Cell) (gl : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 332)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, data := some d, gasLimit := some gl, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m
+        { retVals := some rv, data := some d, gasLimit := some gl, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the gas limit (8), `c7` (16), the maximum gas (64), the
+count of values to return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_clmr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (c7 : Array Value) (gl : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 344)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, c7 := some c7, gasLimit := some gl, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m
+        { retVals := some rv, c7 := some c7, gasLimit := some gl, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the gas limit (8), `c7` (16), the maximum gas
+(64) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cdlm (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (d : Cell) (c7 : Array Value) (gl : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 92)
+    (hs : st.stack = (Runvm.Args.push
+      { data := some d, c7 := some c7, gasLimit := some gl, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m { data := some d, c7 := some c7, gasLimit := some gl, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
+
+/-- `RUNVMX` with a mode whose flags pop the data (4), the gas limit (8), `c7` (16), the maximum gas
+(64), the count of values to return (256) (`Runvm.runxArgs`). -/
+@[vm_spec] theorem runvmx_cdlmr (st : VmState) (s : Stack) (n : Int) (code : Slice) (m : Int)
+    (rv : Int) (d : Cell) (c7 : Array Value) (gl : Int) (gm : Int)
+    (hm : m.toNat < 512 ∧ m.toNat &&& 0x15c = 348)
+    (hs : st.stack = (Runvm.Args.push
+      { retVals := some rv, data := some d, c7 := some c7, gasLimit := some gl, gasMax := some gm }
+      ((s.push (.int (.num n))).push (.slice code))).push (.int (.num m))) :
+    ExceptT.run (execInstr (.contExt .runvmx)) st =
+      Runvm.runxArgs (execInstrNested (st.gas.remaining.toNat / runvmGasPrice.toNat + 1))
+        st s n code m
+        { retVals := some rv, data := some d, c7 := some c7, gasLimit := some gl, gasMax := some gm } :=
+  Runvm.execInstr_runvmx_args st s n code m _ hm.1 (Runvm.flag_of_x hm.2 4 (by decide))
+    (Runvm.flag_of_x hm.2 8 (by decide)) (Runvm.flag_of_x hm.2 16 (by decide))
+    (Runvm.flag_of_x hm.2 64 (by decide)) (Runvm.flag_of_x hm.2 256 (by decide)) hs
 
 end Spec
 end TvmLean
