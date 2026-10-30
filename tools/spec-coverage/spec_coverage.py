@@ -681,7 +681,9 @@ PATTERNS: list[dict] = [
      "forms": ["CALLCC", "CALLCCARGS", "CALLCCVARARGS"], "probes": ["callcc", "callccargs", "callccvarargs"],
      "how": "the handler unfolded (VM.extractCc)"},
     {"id": "retalt", "title": "RETALT / c1 (the alternative return)", "forms": ["RETALT", "IFRETALT", "IFNOTRETALT"],
-     "probes": ["retalt"], "how": "the handler unfolded"},
+     "probes": ["retalt", "samealtsave-retalt"],
+     "how": "Spec.retAlt, Spec.retAlt_envelope, Spec.retAlt_quit (Exec/Spec/ContSave.lean); IFRETALT, "
+            "IFNOTRETALT by the handler"},
     {"id": "loops-const", "title": "REPEAT / UNTIL with a known count", "forms": [],
      "probes": ["repeat-const", "until-const"],
      "how": "Spec.repeat_, Spec.until_ (Exec/Spec/Loop.lean); the loop rule (vm_loop_c5)"},
@@ -706,9 +708,11 @@ PATTERNS: list[dict] = [
      "probes": ["try-throw", "try-nothrow", "tryargs"], "how": "the handler unfolded; VM.run_throwToHandler"},
     {"id": "throw", "title": "THROW* to the default handler (the run halts with the exit code)",
      "forms": ["THROW", "THROW_SHORT", "THROWIF", "THROWIF_SHORT", "THROWIFNOT", "THROWIFNOT_SHORT", "THROWARG",
-               "THROWANY", "THROWARGANY"],
-     "probes": ["throw", "throwarg", "throwif-unknown", "throwifnot-unknown"],
-     "how": "Spec.throw, Spec.throwIf, Spec.throwIfNot, Spec.throwArg, Spec.throwAny; VM.run_throwToHandler, "
+               "THROWANY", "THROWARGANY", "THROWANYIF", "THROWANYIFNOT", "THROWARGANYIF", "THROWARGANYIFNOT"],
+     "probes": ["throw", "throwarg", "throwif-unknown", "throwifnot-unknown", "throwany", "throwanyif",
+                "throwanyifnot", "throwargany", "throwarganyif"],
+     "how": "Spec.throw, Spec.throwIf, Spec.throwIfNot, Spec.throwArg, Spec.throwAny, Spec.throwArgAny, "
+            "Spec.throwAnyCond, Spec.throwArgAnyCond; VM.run_throwToHandler, "
             "the excQuit continuation unfolded"},
     {"id": "implicit", "title": "implicit RET at the end of a cell, implicit JMPREF to the next reference",
      "forms": [], "probes": ["implicit-jmpref", "nop"],
@@ -727,19 +731,21 @@ PATTERNS: list[dict] = [
      "forms": ["CALLDICT", "CALLDICT_LONG", "JMPDICT", "PREPAREDICT"],
      "probes": ["calldict", "jmpdict", "preparedict"], "how": "Spec.callDict, Spec.jmpDict, Spec.prepareDict"},
     {"id": "runvm", "title": "RUNVM / RUNVMX (a child VM)", "forms": ["RUNVM", "RUNVMX"],
-     "probes": ["runvm", "runvmx", "runvm-data", "runvm-c7", "runvm-gas", "runvm-gasmax", "runvm-retvals"],
+     "probes": ["runvm", "runvmx", "runvm-data", "runvm-c7", "runvm-gas", "runvm-gasmax", "runvm-retvals",
+                "runvmx-data", "runvmx-c7", "runvmx-gas", "runvmx-retvals"],
      "how": "Spec.runvm (Exec/Spec/Runvm.lean) for the modes without arguments beyond the code and the values: "
             "the child's run a term (childRun of Runvm.child), the parent's stack and gas written out (Runvm.run); "
             "Spec.runvm_* (Exec/Spec/RunvmArgs.lean) for the modes that pop the data, gas limits, c7 or a count "
-            "of return values (Runvm.runArgs); Spec.runvmx (Exec/Spec/RunvmX.lean) in the plain modes"},
+            "of return values (Runvm.runArgs); Spec.runvmx (Exec/Spec/RunvmX.lean) in the plain modes, "
+            "Spec.runvmx_* (Exec/Spec/RunvmArgs.lean, Runvm.runxArgs) in the others"},
     {"id": "cont-regs", "title": "a continuation with saved registers (SETCONTCTR, SETCONTCTRMANY), then "
      "EXECUTE/JMPX",
      "forms": ["SETCONTCTR", "SETCONTCTRX", "SETCONTCTRMANY", "SETCONTCTRMANYX", "SAVECTR", "SAVEALTCTR",
                "SAVEBOTHCTR", "SAMEALTSAVE"],
-     "probes": ["setcontctrmany", "setcontctrmanyx"],
+     "probes": ["setcontctrmany", "setcontctrmanyx", "savectr", "savectr4", "samealtsave-retalt"],
      "how": "Spec.setContCtrMany, Spec.setContCtrManyX (Exec/Spec/ContMany.lean): the loop over the registers "
             "computed (setContCtrManyLoop); VM.run_call_ordinary_cdata (a call to a continuation that saves c0 "
-            "is a jump)"},
+            "is a jump); Spec.saveCtr0..saveCtr7, Spec.sameAltSave (Exec/Spec/ContSave.lean)"},
     {"id": "setcp", "title": "SETCP with a codepage other than 0, SETCPX", "forms": ["SETCP", "SETCPX", "SETCP_SHORT"],
      "probes": ["setcp1", "setcpx"], "how": "the handler unfolded; stepCode needs cp = 0, else the step unfolded"},
     {"id": "safe-actions", "title": "SENDRAWMSG / RAWRESERVE actions (c5)", "forms": ["SENDRAWMSG", "RAWRESERVE"],
@@ -753,20 +759,28 @@ PATTERNS: list[dict] = [
             "contract-check's line `code K` (Tx/Upgrade.lean)"},
     {"id": "regs", "title": "c4 / c5 / c7 updates (POP c4, POP c5, POP c7, SETGLOB)",
      "forms": ["POPCTR", "POPCTRX", "SETGLOB", "SETGLOBVAR", "POPSAVE", "SETRAND", "ADDRAND"],
-     "probes": ["c4-update", "c5-update", "c7-update", "setglob"],
-     "how": "Spec.popRoot (c4); the handler for c5, c7 and the globals"},
+     "probes": ["c4-update", "c5-update", "c7-update", "setglob", "getglob", "setrand", "addrand"],
+     "how": "Spec.popRoot (c4); Spec.setGlob, Spec.getGlob (Exec/Spec/Globals.lean), Spec.setRand "
+            "(Exec/Spec/Rand.lean); the handler for c5, c7"},
+    {"id": "rand", "title": "RANDU256 / RAND (a random number from the seed in c7)", "forms": ["RANDU256", "RAND"],
+     "probes": ["randu256", "rand"],
+     "how": "Spec.randu256, Spec.rand (Exec/Spec/Rand.lean): the SHA-512 of the seed a term (HashExt.digest 1)"},
     {"id": "commit", "title": "COMMIT", "forms": ["COMMIT"], "probes": ["commit"],
      "how": "Spec.commit; keeps_haltResult checks the committed state"},
     {"id": "gas", "title": "ACCEPT / SETGASLIMIT", "forms": ["ACCEPT", "SETGASLIMIT"],
-     "probes": ["accept", "setgaslimit"], "how": "Spec.accept, GasLimits.changeLimit_infty_min; SETGASLIMIT by the handler"},
+     "probes": ["accept", "setgaslimit"], "how": "Spec.accept, GasLimits.changeLimit_infty_min; Spec.setGasLimit (Exec/Spec/Globals.lean)"},
     {"id": "dict-unknown", "title": "DICTGET / DICTSET on a dictionary the run does not know",
      "forms": [], "regex": r"^DICT[IU]?(GET|SET|ADD|REPLACE|DEL)(?!NEXT|PREV)(?!.*(JMP|EXEC))",
-     "probes": ["dictget-unknown", "dictset-unknown"],
+     "probes": ["dictget-unknown", "dictset-unknown", "dictusetb-unknown", "dictiadd-unknown",
+                "dictusetref-unknown", "dictureplaceb-unknown", "dictireplaceb-unknown"],
      "how": "Spec.dictGetInt_* need dictLookupLoads facts: closed, or a hypothesis; Exec/FramedDict.lean for "
-            "framed cells"},
+            "framed cells; the sets on a dictionary without Dict.WF framed (Exec/FramedDictSet.lean)"},
     {"id": "dict-iter", "title": "dictionary iteration on an unknown dictionary (GETNEXT/PREV/MIN/MAX)",
      "forms": [], "regex": r"^DICT[IU]?(GETNEXT|GETPREV|MIN|MAX|REMMIN|REMMAX)",
-     "probes": ["dictgetnext-unknown", "dictmin-unknown"], "how": "the handler unfolded"},
+     "probes": ["dictgetnext-unknown", "dictmin-unknown", "dicturemmin-unknown", "dictimaxref-unknown",
+                "dictremmax-unknown", "dictigetpreveq-unknown", "dictgetnext-slice-unknown"],
+     "how": "framed: MIN/MAX and their REM/REF forms (Exec/FramedDictMinMax.lean), GETNEXT/PREV "
+            "(Exec/FramedDictNear.lean)"},
     {"id": "config", "title": "configuration reads (CONFIGPARAM, CONFIGOPTPARAM)",
      "forms": ["CONFIGPARAM", "CONFIGOPTPARAM", "CONFIGDICT", "CONFIGROOT"], "probes": ["configparam", "configoptparam"],
      "how": "the handler unfolded"},
@@ -801,7 +815,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'обработчик (`VM.extractCc`)'),
     'retalt': (
         '`RETALT` / `c1` (альтернативный возврат)',
-        'обработчик'),
+        '`Spec.retAlt`, `Spec.retAlt_envelope`, `Spec.retAlt_quit` (`Exec/Spec/ContSave.lean`); `IFRETALT`, '
+        '`IFNOTRETALT` — обработчиком'),
     'loops-const': (
         '`REPEAT` / `UNTIL` с известным числом итераций',
         '`Spec.repeat_`, `Spec.until_` (`Exec/Spec/Loop.lean`); правило цикла (`vm_loop_c5`)'),
@@ -826,7 +841,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'обработчик; `VM.run_throwToHandler`'),
     'throw': (
         '`THROW*` в обработчик по умолчанию (прогон останавливается с кодом выхода)',
-        '`Spec.throw`, `Spec.throwIf`, `Spec.throwIfNot`, `Spec.throwArg`, `Spec.throwAny`; '
+        '`Spec.throw`, `Spec.throwIf`, `Spec.throwIfNot`, `Spec.throwArg`, `Spec.throwAny`, `Spec.throwArgAny`, '
+        '`Spec.throwAnyCond`, `Spec.throwArgAnyCond`; '
         '`VM.run_throwToHandler`, продолжение `excQuit` разворачивается'),
     'implicit': (
         'неявный `RET` в конце ячейки, неявный `JMPREF` на следующую ссылку',
@@ -847,12 +863,12 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'дочерней VM — терм (`childRun` от `Runvm.child`), стек и газ родителя выписаны (`Runvm.run`); '
         '`Spec.runvm_*` (`Exec/Spec/RunvmArgs.lean`) для режимов, снимающих данные, пределы газа, `c7` или '
         'число возвращаемых значений (`Runvm.runArgs`); `Spec.runvmx` (`Exec/Spec/RunvmX.lean`) в простых '
-        'режимах'),
+        'режимах, `Spec.runvmx_*` (`Exec/Spec/RunvmArgs.lean`, `Runvm.runxArgs`) в остальных'),
     'cont-regs': (
         'продолжение с сохранёнными регистрами (`SETCONTCTR`, `SETCONTCTRMANY`), затем `EXECUTE`/`JMPX`',
         '`Spec.setContCtrMany`, `Spec.setContCtrManyX` (`Exec/Spec/ContMany.lean`): цикл по регистрам '
         'считается (`setContCtrManyLoop`); `VM.run_call_ordinary_cdata` (вызов продолжения, сохранившего '
-        '`c0`, — переход)'),
+        '`c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`)'),
     'setcp': (
         '`SETCP` с кодовой страницей не 0, `SETCPX`',
         'обработчик; `stepCode` требует `cp = 0`'),
@@ -866,20 +882,26 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '(`Tx/Acts.lean`) закрывает `acts_close`; строка `code K` у contract-check (`Tx/Upgrade.lean`)'),
     'regs': (
         'изменение `c4` / `c5` / `c7` (`POP c4`, `POP c5`, `POP c7`, `SETGLOB`)',
-        '`Spec.popRoot` (`c4`); остальное — обработчиком'),
+        '`Spec.popRoot` (`c4`); `Spec.setGlob`, `Spec.getGlob` (`Exec/Spec/Globals.lean`), `Spec.setRand` '
+        '(`Exec/Spec/Rand.lean`); `c5`, `c7` — обработчиком'),
+    'rand': (
+        '`RANDU256` / `RAND` (случайное число из зерна в `c7`)',
+        '`Spec.randu256`, `Spec.rand` (`Exec/Spec/Rand.lean`): SHA-512 зерна — терм (`HashExt.digest 1`)'),
     'commit': (
         '`COMMIT`',
         '`Spec.commit`; `keeps_haltResult` проверяет зафиксированное состояние'),
     'gas': (
         '`ACCEPT` / `SETGASLIMIT`',
-        '`Spec.accept`, `GasLimits.changeLimit_infty_min`; `SETGASLIMIT` — обработчиком'),
+        '`Spec.accept`, `GasLimits.changeLimit_infty_min`; `Spec.setGasLimit` (`Exec/Spec/Globals.lean`)'),
     'dict-unknown': (
         '`DICTGET` / `DICTSET` по словарю, которого прогон не знает',
         '`Spec.dictGetInt_*` требуют фактов `dictLookupLoads`: замкнутых или гипотезы; '
-        '`Exec/FramedDict.lean` — для обрамлённых ячеек'),
+        '`Exec/FramedDict.lean` — для обрамлённых ячеек; записи в словарь без `Dict.WF` — обрамлённые '
+        '(`Exec/FramedDictSet.lean`)'),
     'dict-iter': (
         'перебор неизвестного словаря (`GETNEXT`/`PREV`/`MIN`/`MAX`)',
-        'обработчик'),
+        'обрамлённые шаги: `MIN`/`MAX` и их формы `REM`/`REF` (`Exec/FramedDictMinMax.lean`), `GETNEXT`/`PREV` '
+        '(`Exec/FramedDictNear.lean`)'),
     'config': (
         'чтение конфигурации (`CONFIGPARAM`, `CONFIGOPTPARAM`)',
         'обработчик'),
@@ -895,12 +917,9 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
 # What a pattern lacks, from the probes' failures (English for precheck, Russian for the document).
 PATTERN_GAPS: dict[str, tuple[str, str]] = {
     'xargs': (
-        'VM.call/VM.jump with a number of arguments or results (passArgs, retArgs) have no vm_run lemma; '
-        'RETURNARGS/RETURNVARARGS at the top level (c0 the quit continuation, given the closure data): the '
-        'implicit RET into it is left with its closure stack as a term',
+        'VM.call/VM.jump with a number of arguments or results (passArgs, retArgs) have no vm_run lemma',
         'у `VM.call`/`VM.jump` с числом аргументов или результатов (`passArgs`, `retArgs`) нет леммы '
-        '`vm_run`; `RETURNARGS`/`RETURNVARARGS` на верхнем уровне (`c0` — продолжение `quit`, получающее '
-        'замыкание): неявный `RET` в него оставляет стек замыкания термом'),
+        '`vm_run`'),
     'retalt': (
         'after RETALT (a jump to c1) the next step is left as `VmState.stepFinish` of the state',
         'после `RETALT` (переход в `c1`) следующий шаг остаётся `VmState.stepFinish` состояния'),
@@ -928,11 +947,6 @@ PATTERN_GAPS: dict[str, tuple[str, str]] = {
         'run does not end (heartbeat limit)',
         '`TRY` без исключения исполняется; с исключением, пойманным обработчиком, и `TRYARGS` прогон не '
         'кончается (предел heartbeats)'),
-    'runvm': (
-        'RUNVMX in the modes that pop more arguments (data, gas limits, c7, a count of return values) has '
-        'no specification',
-        'у `RUNVMX` в режимах, снимающих ещё аргументы (данные, пределы газа, `c7`, число возвращаемых '
-        'значений), леммы нет'),
     'safe-actions': (
         'SENDRAWMSG is handled; the action of RAWRESERVE 0 0 is not closed by safe_acts_close',
         '`SENDRAWMSG` исполняется; действие `RAWRESERVE 0 0` не закрывает `safe_acts_close`'),

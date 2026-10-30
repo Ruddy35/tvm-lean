@@ -102,6 +102,10 @@ PROGRAM{
 <{ 0 INT x{71} PUSHSLICE 1000 INT 8 RUNVM }>c "runvm-gas" put
 <{ 0 INT x{71} PUSHSLICE 1000 INT 2000 INT 72 RUNVM }>c "runvm-gasmax" put
 <{ 0 INT x{71} PUSHSLICE 1 INT 256 RUNVM }>c "runvm-retvals" put
+<{ 0 INT x{71} PUSHSLICE NEWC ENDC 4 INT RUNVMX }>c "runvmx-data" put
+<{ 0 INT x{71} PUSHSLICE NIL 16 INT RUNVMX }>c "runvmx-c7" put
+<{ 0 INT x{71} PUSHSLICE 1000 INT 8 INT RUNVMX }>c "runvmx-gas" put
+<{ 0 INT x{71} PUSHSLICE 1 INT 256 INT RUNVMX }>c "runvmx-retvals" put
 <{ 1 SETCP NOP }>c "setcp1" put
 <{ 0 INT SETCPX }>c "setcpx" put
 
@@ -125,6 +129,16 @@ PROGRAM{
 <{ DROP LDDICT DROP x{} PUSHSLICE 5 INT ROT 32 INT DICTUSET DROP }>c "dictset-unknown" put
 <{ DROP LDDICT DROP 0 INT SWAP 32 INT DICTUGETNEXT }>c "dictgetnext-unknown" put
 <{ DROP LDDICT DROP 32 INT DICTUMIN }>c "dictmin-unknown" put
+<{ DROP LDDICT DROP 32 INT DICTUREMMIN }>c "dicturemmin-unknown" put
+<{ DROP LDDICT DROP 32 INT DICTIMAXREF }>c "dictimaxref-unknown" put
+<{ DROP LDDICT DROP 32 INT DICTREMMAX }>c "dictremmax-unknown" put
+<{ DROP LDDICT DROP -5 INT SWAP 32 INT DICTIGETPREVEQ }>c "dictigetpreveq-unknown" put
+<{ DROP LDDICT DROP x{00000000} PUSHSLICE SWAP 32 INT DICTGETNEXT }>c "dictgetnext-slice-unknown" put
+<{ DROP LDDICT DROP NEWC 5 INT ROT 32 INT DICTUSETB }>c "dictusetb-unknown" put
+<{ DROP LDDICT DROP x{} PUSHSLICE 5 INT ROT 32 INT DICTIADD }>c "dictiadd-unknown" put
+<{ DROP LDDICT DROP NEWC ENDC 5 INT ROT 32 INT DICTUSETREF }>c "dictusetref-unknown" put
+<{ DROP LDDICT DROP NEWC 5 INT ROT 32 INT DICTUREPLACEB }>c "dictureplaceb-unknown" put
+<{ DROP LDDICT DROP NEWC 5 INT ROT 32 INT DICTIREPLACEB }>c "dictireplaceb-unknown" put
 <{ 9 INT CONFIGPARAM }>c "configparam" put
 <{ 9 INT CONFIGOPTPARAM DROP }>c "configoptparam" put
 <{ NOW DROP }>c "now" put
@@ -149,3 +163,27 @@ PROGRAM{
 <{ DROP PARSEMSGADDR DROP }>c "parsemsgaddr" put
 <{ DROP LDMSGADDR 2DROP }>c "ldmsgaddr" put
 <{ DROP LDMSGADDRQ DROP DROP }>c "ldmsgaddrq" put
+// wave 7: the specifications of instructions of the corpus codes
+<{ 5 INT 7 INT 3 MULRSHIFT# DROP }>c "mulrshift-const" put
+<{ DROP 32 LDU DROP 1000 INT 8 MULRSHIFTR# DROP }>c "mulrshiftr-const" put
+<{ DROP 32 LDU DROP 1000 INT 8 MULRSHIFT#MOD 2DROP }>c "mulrshiftmod-const" put
+<{ 100 INT THROWANY }>c "throwany" put
+<{ DROP 32 LDU DROP 100 INT SWAP THROWANYIF }>c "throwanyif" put
+<{ DROP 32 LDU DROP 100 INT SWAP THROWANYIFNOT }>c "throwanyifnot" put
+<{ 1 INT 100 INT THROWARGANY }>c "throwargany" put
+<{ DROP 32 LDU DROP 1 INT 100 INT ROT THROWARGANYIF }>c "throwarganyif" put
+<{ 8 INT SDCUTFIRST DROP }>c "sdcutfirst" put
+<{ 8 INT SDCUTLAST DROP }>c "sdcutlast" put
+<{ 8 INT SDSKIPLAST DROP }>c "sdskiplast" put
+<{ x{71} SDBEGINS DROP }>c "sdbegins" put
+<{ x{71} SDBEGINSQ 2DROP }>c "sdbeginsq" put
+<{ SDEPTH DROP }>c "sdepth" put
+<{ DROP CDEPTH DROP }>c "cdepth" put
+<{ DROP XCTOS 2DROP }>c "xctos" put
+<{ x{} PUSHSLICE BLESS EXECUTE }>c "bless" put
+<{ SAMEALTSAVE RETALT }>c "samealtsave-retalt" put
+<{ c2 SAVECTR }>c "savectr" put
+<{ c4 SAVECTR }>c "savectr4" put
+<{ SHA256U DROP }>c "sha256u" put
+<{ 3 GETGLOB DROP }>c "getglob" put
+<{ DROP REWRITESTDADDRQ }>c "rewritestdaddrq" put
