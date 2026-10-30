@@ -123,6 +123,7 @@ import TvmLean.Proofs.Tx.InMsg
 import TvmLean.Proofs.Check.InMsg
 import TvmLean.Proofs.Exec.FramedStdAddr
 import TvmLean.Proofs.Exec.FramedDictMinMax
+import TvmLean.Proofs.Exec.FramedDictNear
 import TvmLean.Proofs.Check.StackNorm
 import TvmLean.Proofs.Exec.IteInst
 import TvmLean.Proofs.Exec.Havoc
