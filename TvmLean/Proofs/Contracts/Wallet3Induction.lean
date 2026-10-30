@@ -59,7 +59,7 @@ theorem encode_seqno_mod (d : Data) (s : Nat) :
 theorem run_preserves (key sub : Nat) (data : Option Cell) (c4 c5 : Cell) (hd : Stored key sub data)
     (hr : Ran wallet3Code data c4 c5) : Stored key sub (some c4) ∧ ∀ c, ¬ActionIn c5 (.setCode c) := by
   obtain ⟨d, rfl, hwf, hk, hs⟩ := hd
-  obtain ⟨st, ⟨gv, libs, stack, c7, gl, gm, gc, mdd, mll, hstack, rfl⟩, hcomm, -, rfl, rfl⟩ := hr
+  obtain ⟨st, ⟨gv, libs, stack, c7, gl, gm, gc, mdd, mll, hstack, rfl⟩, hcomm, -, rfl, rfl, -⟩ := hr
   rw [convertCodeCell_ordinary wallet3Code gv libs rfl] at hcomm ⊢
   have hst : ({ computePhaseInit wallet3Code ((some d.encode).getD Cell.empty) stack #[c7] gl gm gc gv with
       libraries := libs, maxDataDepth := mdd, maxLibraryLoads := mll } : VmState) =

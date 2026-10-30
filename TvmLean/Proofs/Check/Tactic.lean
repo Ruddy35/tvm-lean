@@ -152,7 +152,7 @@ theorem ran_preserves_of {C : Cell} {P : Option Cell → Prop} (hC : C.special =
     (httOld : ∀ bal addr tock, RunsKeep C P (tickTockStack bal addr tock) (· < 4)) :
     ∀ data c4 c5, P data → Ran C data c4 c5 → P (some c4) ∧ ∀ c, ¬ActionIn c5 (.setCode c) := by
   intro data c4 c5 hP hr
-  obtain ⟨st, ⟨gv, libs, stack, c7, gl, gm, gc, mdd, mll, hstack, rfl⟩, hcomm, -, rfl, rfl⟩ := hr
+  obtain ⟨st, ⟨gv, libs, stack, c7, gl, gm, gc, mdd, mll, hstack, rfl⟩, hcomm, -, rfl, rfl, -⟩ := hr
   rw [convertCodeCell_ordinary C gv libs hC] at hcomm ⊢
   have hst : ({ computePhaseInit C (data.getD Cell.empty) stack #[c7] gl gm gc gv with
       libraries := libs, maxDataDepth := mdd, maxLibraryLoads := mll } : VmState) =

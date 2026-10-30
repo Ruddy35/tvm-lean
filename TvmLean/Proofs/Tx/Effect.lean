@@ -1,6 +1,7 @@
 import TvmLean.Proofs.Tx.Decompose
 import TvmLean.Proofs.Tx.Compute
 import TvmLean.Proofs.Tx.ActionPhase
+import TvmLean.Proofs.Tx.InMsg
 
 /-!
 # What a transaction does to the code and data of an account
@@ -29,10 +30,13 @@ def Source (t₀ tf : Tx) (code data : Option Cell) : Prop :=
     (∃ si, msgStateInit? tf = some si ∧ tf.useMsgState = true ∧ code = si.code ∧ data = si.data)
 
 /-- A committed run of the compute phase: from a state of `VmStart` of the code `code` and the data
-`data`, the run committed (with no gas credit left) the data `c4` and the action list `c5`. -/
+`data`, the run committed (with no gas credit left) the data `c4` and the action list `c5`; the
+message cell of the state, if any, is ordinary (`MsgOrd`, TvmLean/Proofs/Tx/InMsg.lean: C++ refuses a
+special one before any phase, and so does the model). -/
 def Ran (code : Cell) (data : Option Cell) (c4 c5 : Cell) : Prop :=
   ∃ st, VmStart code (data.getD Cell.empty) st ∧ (vmFinal st).cstate.committed = true ∧
-    (vmFinal st).gas.gasCredit = 0 ∧ c4 = (vmFinal st).cstate.c4 ∧ c5 = (vmFinal st).cstate.c5
+    (vmFinal st).gas.gasCredit = 0 ∧ c4 = (vmFinal st).cstate.c4 ∧ c5 = (vmFinal st).cstate.c5 ∧
+    MsgOrd st
 
 /-- What a transaction from `t₀` to `tf` does to the code and data of an account active at its end:
 see the module docstring. -/
@@ -78,12 +82,16 @@ theorem effect_of_phases {t₀ t2 t3 t4 tf : Tx} {gas : GasPrices} {sl : SizeLim
       (¬t3.computePhase.success = true ∧ t4 = t3))
     (hb : t4.accStatus = .active → tf.accStatus = .active ∧ tf.newCode = t4.newCode ∧
       tf.newData = t4.newData ∧ tf.inMsgState = t4.inMsgState ∧ tf.useMsgState = t4.useMsgState)
-    (hb' : tf.accStatus = .active → t4.accStatus = .active) :
+    (hb' : tf.accStatus = .active → t4.accStatus = .active)
+    (hm : t2.kind = .ord → t2.inMsg.special = false) :
     Effect t₀ tf := by
   intro hact
   have hact4 := hb' hact
   obtain ⟨_, hcode, hdata, _, huse⟩ := hb hact4
-  have ⟨⟨_, _, _, _, _⟩, hin3, hactive3, hrun3⟩ := OKo_of (OKe_of (computePhaseRun_spec t2 gas sl seed hu hw hs) hc) rfl
+  have ⟨⟨_, hk3, _, _, _⟩, hin3, hactive3, _⟩ := OKo_of (OKe_of (computePhaseRun_spec t2 gas sl seed hu hw hs) hc) rfl
+  -- the state of the run and its facts (`VmStart.Facts`: the stack holds the message cell of `t3`)
+  have hrunF := OKo_of (OKe_of (computePhaseRun_facts t2 gas sl seed hs) hc) rfl
+  have hmsg3 : t3.inMsg = t2.inMsg := OKo_of (OKe_of (computePhaseRun_inMsg t2 gas sl seed) hc) rfl
   -- the state after the compute phase
   have hact3 : t3.accStatus = .active := by
     rcases ha with ⟨hsucc, hap⟩ | ⟨_, rfl⟩
@@ -113,10 +121,12 @@ theorem effect_of_phases {t₀ t2 t3 t4 tf : Tx} {gas : GasPrices} {sl : SizeLim
   · have ⟨_, _, _, _, _, _, hcd⟩ := OKo_of (OKe_of (actionPhaseRun_spec t3 sl) hap) rfl
     rcases hcd with ⟨e1, e2⟩ | ⟨c5, h5, hd, hnc⟩
     · exact Or.inl ⟨hcode.trans e1, hdata.trans e2⟩
-    · obtain ⟨code, st, hcode3, hstart, hcomm, hcred, hnd, hact5⟩ := hrun3 hsucc
+    · obtain ⟨code, st, hcode3, hstart, hcomm, hcred, hnd, hact5, hf⟩ := hrunF hsucc
+      have hord : MsgOrd st := hf.msgOrd fun hk => by
+        rw [hmsg3]; exact hm (hk3 ▸ hk)
       rw [hact5] at h5
       cases h5
-      refine Or.inr ⟨code, _, _, hcode3, ⟨st, hstart, hcomm, hcred, rfl, rfl⟩, ?_, ?_⟩
+      refine Or.inr ⟨code, _, _, hcode3, ⟨st, hstart, hcomm, hcred, rfl, rfl, hord⟩, ?_, ?_⟩
       · rw [hdata, hd, hnd]
       · rw [hcode]; exact hnc
   · exact Or.inl ⟨hcode, hdata⟩
@@ -130,12 +140,16 @@ theorem EmulateFinal.effect {configRoot shardAccount inMsg : Cell} {now lt : Nat
   obtain ⟨cfg, wc, addr, addrBits, t0, pricing, gas, fwd, t1, t2, t3, t4, _, _, hnew, hin,
     ⟨nc, hsc⟩, hc, ha, hb⟩ := h
   have hstart := OKe_of (newTx_spec cfg shardAccount inMsg .ord wc addr addrBits lt now libs) hnew
+  -- the message unpacked is ordinary, and no phase changes it
+  have hord0 : t0.inMsg.special = false := unpackInputMsg_ordinary hin
+  have hm1 : t1.inMsg = t0.inMsg := OKe_of (OKo_of (unpackInputMsg_inMsg t0 sl fwd) hin) rfl
+  have hm2 : t2.inMsg = t1.inMsg := hsc.inMsg
   refine ⟨cfg, wc, addr, t0, hstart, ?_⟩
   obtain ⟨a, _, _, _, _, _, hu0, hw0, _, hs0, _, _, _⟩ := hstart
   have ⟨_, ⟨c1, d1, _, s1, u1, w1, _⟩, cp1, _⟩ := OKe_of (OKo_of (unpackInputMsg_spec t0 sl fwd) hin) rfl
   have ⟨⟨_, _, cp2, _⟩, c2, d2, u2, w2, st2⟩ := StorageCredit.spec hsc
   refine effect_of_phases (t2 := t2) (t3 := t3) (t4 := t4) (gas := gas) (sl := sl) (seed := randSeed)
-    ?_ ?_ ?_ ?_ ?_ hc ha ?_ ?_
+    ?_ ?_ ?_ ?_ ?_ hc ha ?_ ?_ ?_
   · intro h0 h2
     exact ⟨c2.trans c1, d2.trans d1, h0⟩
   · intro h2
@@ -156,6 +170,8 @@ theorem EmulateFinal.effect {configRoot shardAccount inMsg : Cell} {now lt : Nat
     · exact h4
     · have ⟨_, _, _, _, s, _⟩ := OKo_of (OKe_of (bouncePhaseRun_spec t4) hb) rfl
       rw [← s]; exact h4
+  · intro _
+    rw [hm2, hm1]; exact hord0
 
 /-- **What an ordinary transaction does** (`emulate`): the new account is `Tx.computeState` of a state
 `tf` with `Effect t₀ tf`, `t₀` the state read from the shard account (`StartsFrom`). -/
@@ -183,11 +199,15 @@ theorem TickTockFinal.effect {configRoot shardAccount : Cell} {isTock : Bool} {n
     ∃ cfg wc addr kind t₀, StartsFrom shardAccount cfg wc addr kind t₀ ∧ Effect t₀ tf := by
   obtain ⟨cfg, kind, wc, addr, addrBits, t0, pricing, gas, fwd, t2, t3, _, _, hnew, _, hs, hc, ha⟩ := h
   have hstart := OKe_of (newTx_spec cfg shardAccount Cell.empty kind wc addr addrBits lt now libs) hnew
+  -- no message: the message cell is the empty cell
+  have hm0 : t0.inMsg = Cell.empty :=
+    OKe_of (newTx_inMsg cfg shardAccount Cell.empty kind wc addr addrBits lt now libs) hnew
+  have hm2 : t2.inMsg = t0.inMsg := OKo_of (storagePhaseRun_inMsg t0 pricing gas false) hs
   refine ⟨cfg, wc, addr, kind, t0, hstart, ?_⟩
   obtain ⟨a, _, _, _, _, _, hu0, hw0, _, hs0, _, _, _⟩ := hstart
   have ⟨⟨_, _, cp2, _⟩, c2, d2, _, u2, w2, st2⟩ := OKo_of (storagePhaseRun_spec t0 pricing gas false) hs
   refine effect_of_phases (t2 := t2) (t3 := t3) (t4 := tf) (gas := gas) (sl := sl) (seed := randSeed)
-    ?_ ?_ ?_ ?_ ?_ hc ha ?_ ?_
+    ?_ ?_ ?_ ?_ ?_ hc ha ?_ ?_ ?_
   · intro h0 _
     exact ⟨c2, d2, h0⟩
   · intro h2
@@ -200,6 +220,8 @@ theorem TickTockFinal.effect {configRoot shardAccount : Cell} {isTock : Bool} {n
   · rw [cp2, hs0]
   · intro h4; exact ⟨h4, rfl, rfl, rfl, rfl⟩
   · intro h4; exact h4
+  · intro _
+    rw [hm2, hm0]; rfl
 
 /-- **What a tick-tock transaction does** (`emulateTickTock`). -/
 theorem emulateTickTock_effect (configRoot shardAccount : Cell) (isTock : Bool) (now lt : Nat)

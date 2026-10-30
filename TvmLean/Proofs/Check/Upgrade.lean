@@ -42,7 +42,7 @@ theorem ran_keeps_of {C : Cell} {P : Option Cell → Prop}
       ((∃ bal val msg body, Aext bal val msg body c5) ∨ (∃ bal val msg body, Aint bal val msg body c5) ∨
         ∃ bal addr tock, Att bal addr tock c5) := by
   intro data c4 c5 hP hr
-  obtain ⟨st, ⟨gv, libs, stack, c7, gl, gm, gc, mdd, mll, hstack, rfl⟩, hcomm, -, rfl, rfl⟩ := hr
+  obtain ⟨st, ⟨gv, libs, stack, c7, gl, gm, gc, mdd, mll, hstack, rfl⟩, hcomm, -, rfl, rfl, -⟩ := hr
   rw [convertCodeCell_ordinary C gv libs hC] at hcomm ⊢
   have hst : ({ computePhaseInit C (data.getD Cell.empty) stack #[c7] gl gm gc gv with
       libraries := libs, maxDataDepth := mdd, maxLibraryLoads := mll } : VmState) =

@@ -61,7 +61,7 @@ from any state of `VmStart`) leaves data `Stored d0` and an action list without 
 theorem run_preserves (d0 : Data) (data : Option Cell) (c4 c5 : Cell) (hd : Stored d0 data)
     (hr : Ran storageCode data c4 c5) : Stored d0 (some c4) ∧ ∀ c, ¬ActionIn c5 (.setCode c) := by
   obtain ⟨d, rfl, hwf, hfx, hact⟩ := hd
-  obtain ⟨st, ⟨gv, libs, stack, c7, gl, gm, gc, mdd, mll, hstack, rfl⟩, hcomm, -, rfl, rfl⟩ := hr
+  obtain ⟨st, ⟨gv, libs, stack, c7, gl, gm, gc, mdd, mll, hstack, rfl⟩, hcomm, -, rfl, rfl, -⟩ := hr
   rw [convertCodeCell_ordinary storageCode gv libs rfl] at hcomm ⊢
   have hst : ({ computePhaseInit storageCode ((some d.encode).getD Cell.empty) stack #[c7] gl gm gc gv with
       libraries := libs, maxDataDepth := mdd, maxLibraryLoads := mll } : VmState) =
