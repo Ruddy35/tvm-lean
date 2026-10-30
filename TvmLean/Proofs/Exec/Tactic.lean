@@ -610,7 +610,9 @@ simproc int64WrapEval (int64Wrap _) := fun e => do
   return .done { expr := x, proof? := some (mkApp2 (mkConst ``int64Wrap_of_range) x (← instantiateMVars m)) }
 
 /-- The bounds `bitsToNat (s.readBits n) < 2 ^ n` (`VM.bitsToNat_readBits_lt`, `n` a literal) of the
-numbers read from bits in `e`: proofs and their statements (with `2 ^ n` computed). -/
+numbers read from bits in `e`, and `< 2 ^ ((2 ^ k - 1) * c)` of those read from a length read from
+`k` bits times `c` (`VM.bitsToNat_readBits_mul_lt`, `k` and `c` literals: `LDGRAMS`): proofs and their
+statements (with the powers computed). -/
 def readBitsBounds (e : Expr) : MetaM (Array (Expr × Expr)) := do
   let r ← IO.mkRef (#[] : Array Expr)
   e.forEach fun x => do
@@ -620,9 +622,20 @@ def readBitsBounds (e : Expr) : MetaM (Array (Expr × Expr)) := do
   for t in ← r.get do
     let s := t.appArg!.getArg! 0
     let nE := t.appArg!.getArg! 1
-    let some n := nE.rawNatLit? <|> nE.nat? | continue
-    let ty ← mkAppM ``LT.lt #[t, mkNatLit (2 ^ n)]
-    out := out.push (← mkExpectedTypeHint (← mkAppM ``VM.bitsToNat_readBits_lt #[s, nE]) ty, ty)
+    if let some n := nE.rawNatLit? <|> nE.nat? then
+      let ty ← mkAppM ``LT.lt #[t, mkNatLit (2 ^ n)]
+      out := out.push (← mkExpectedTypeHint (← mkAppM ``VM.bitsToNat_readBits_lt #[s, nE]) ty, ty)
+    else if nE.isAppOfArity ``HMul.hMul 6 then
+      let len := nE.getArg! 4
+      unless len.isAppOfArity ``bitsToNat 1 && len.appArg!.isAppOfArity ``Slice.readBits 2 do continue
+      let kE := len.appArg!.getArg! 1
+      let some k := kE.rawNatLit? <|> kE.nat? | continue
+      let some c := (nE.getArg! 5).rawNatLit? <|> (nE.getArg! 5).nat? | continue
+      -- the bound a power of at most 2 ^ 1024 (`LDGRAMS`: 2 ^ 120, `LDVARUINT32`: 2 ^ 248)
+      unless (2 ^ k - 1) * c ≤ 1024 do continue
+      let ty ← mkAppM ``LT.lt #[t, mkNatLit (2 ^ ((2 ^ k - 1) * c))]
+      let pf ← mkAppM ``VM.bitsToNat_readBits_mul_lt #[s, len.appArg!.getArg! 0, kE, nE.getArg! 5]
+      out := out.push (← mkExpectedTypeHint pf ty, ty)
   return out
 
 /-- Whether `p` follows by linear arithmetic (`omega` at reducible transparency) from the context

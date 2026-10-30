@@ -438,6 +438,16 @@ theorem VM.bitsToNat_readBits_lt (s : Slice) (n : Nat) : bitsToNat (s.readBits n
   have hs : (s.readBits n).size ≤ n := by rw [VM.readBits_size]; omega
   exact Nat.lt_of_lt_of_le h (Nat.pow_le_pow_right (by decide) hs)
 
+/-- The number read from a length read from `k` bits times `c` bits (`LDGRAMS`, `LDVARUINT16`: the
+length in bytes, then the bytes) is below `2 ^ ((2 ^ k - 1) * c)` (a bound for `omega`, added with
+those of `VM.bitsToNat_readBits_lt`). -/
+theorem VM.bitsToNat_readBits_mul_lt (s t : Slice) (k c : Nat) :
+    bitsToNat (s.readBits (bitsToNat (t.readBits k) * c)) < 2 ^ ((2 ^ k - 1) * c) := by
+  have h1 := VM.bitsToNat_readBits_lt s (bitsToNat (t.readBits k) * c)
+  have h2 := VM.bitsToNat_readBits_lt t k
+  have h3 : bitsToNat (t.readBits k) * c ≤ (2 ^ k - 1) * c := Nat.mul_le_mul_right c (by omega)
+  exact Nat.lt_of_lt_of_le h1 (Nat.pow_le_pow_right (by decide) h3)
+
 /-! ## Integers -/
 
 @[vm_run] theorem VM.intVal_add_num (a b : Int) : (IntVal.num a).add (.num b) = .num (a + b) := rfl
