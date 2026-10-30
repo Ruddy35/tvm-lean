@@ -12,7 +12,7 @@ predicate on `Option Cell`), with the definitions it needs, and three comment li
 to check:
 
     -- contract-check: invariant Stored key sub      (the predicate, applied to the parameters)
-    -- contract-check: params (key sub : Nat)         (its parameters, as binders; optional)
+    -- contract-check: params (key sub : Nat)         (its parameters, as binders; optional; not `code`)
     -- contract-check: hints Data.encode, Data.WF    (simp lemmas and definitions to unfold; optional)
     -- contract-check: loop 5 Cleanup key            (a loop invariant; optional, any number of them)
     -- contract-check: code Signed key               (the code may change: see below; optional)
@@ -197,6 +197,9 @@ def generate(args: argparse.Namespace) -> tuple[str, str, dict]:
     lit, source = code_literal(args.code, ns)
     params = d.get("params", "")
     pnames = binder_names(params)
+    # the theorems run `code`, the contract's code: a parameter of that name would be run instead
+    if "code" in pnames:
+        raise SystemExit("contract-check: a parameter may not be named `code` (the code of the contract)")
     P = d["invariant"]
     hints = d.get("hints", "")
     loops = ""
