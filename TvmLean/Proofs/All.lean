@@ -183,6 +183,7 @@ import TvmLean.Proofs.Exec.Spec.RunvmArgs
 import TvmLean.Proofs.Exec.Spec.CellCut
 import TvmLean.Proofs.Exec.Spec.ContSave
 import TvmLean.Proofs.Exec.Spec.Globals
+import TvmLean.Proofs.Exec.Spec.Rand
 
 /-!
 # All proof modules together
