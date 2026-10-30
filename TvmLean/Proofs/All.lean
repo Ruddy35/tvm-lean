@@ -129,6 +129,7 @@ import TvmLean.Proofs.Exec.FramedDictOptRef
 import TvmLean.Proofs.Exec.FramedDictPfx
 import TvmLean.Proofs.Exec.FramedDictSubdict
 import TvmLean.Proofs.Check.StackNorm
+import TvmLean.Proofs.Check.MsgAddr
 import TvmLean.Proofs.Exec.IteInst
 import TvmLean.Proofs.Exec.Havoc
 import TvmLean.Proofs.Exec.Dict.Near
