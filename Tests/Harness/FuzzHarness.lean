@@ -1,6 +1,7 @@
 import Lean
 import Tests.Harness.Registry
 import Tests.Harness.OracleHarness
+import Tests.Harness.Gen.AdvancedSlices
 
 namespace Tests
 
@@ -17,6 +18,8 @@ structure FuzzRunResult where
   seed : UInt64
   /-- The cases run (`count`, unless the generator gives too few the oracle can compare). -/
   total : Nat
+  /-- The variants run on advanced slices (`Tests.Gen.AdvancedSlices.advance`). -/
+  advanced : Nat := 0
   failures : Array FuzzFailure
   artifacts : Array System.FilePath
   deriving Repr
@@ -450,6 +453,10 @@ def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO Fu
   let maxAttempts : Nat := spec.count.succ * 64
   let mut failures : Array FuzzFailure := #[]
   let mut artifacts : Array System.FilePath := #[]
+  -- the variants on advanced slices draw from a generator of their own: the cases generated stay
+  -- those of the seed
+  let mut advGen := mkStdGen (spec.seed.toNat + 1)
+  let mut advanced : Nat := 0
   while i < spec.count && attempts < maxAttempts do
     attempts := attempts + 1
     let (oracleCase, gen') := nextFuzzOracleCase spec oraclePool i gen
@@ -464,6 +471,18 @@ def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO Fu
       match artifact? with
       | some p => artifacts := artifacts.push p
       | none => pure ()
-  pure { seed := spec.seed, total := i, failures := failures, artifacts := artifacts }
+    let (adv?, advGen') := Tests.Gen.AdvancedSlices.advance oracleCase advGen
+    advGen := advGen'
+    if let some adv := adv? then
+      if oracleCaseFuzzComparable adv then
+        advanced := advanced + 1
+        let outAdv ← runOracleCase adv
+        if !outAdv.ok then
+          let artifact? ← dumpFailureArtifact spec.seed i adv outAdv
+          failures := failures.push { iteration := i, result := outAdv, artifact? := artifact? }
+          match artifact? with
+          | some p => artifacts := artifacts.push p
+          | none => pure ()
+  pure { seed := spec.seed, total := i, advanced := advanced, failures := failures, artifacts := artifacts }
 
 end Tests
