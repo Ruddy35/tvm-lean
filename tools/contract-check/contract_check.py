@@ -222,6 +222,8 @@ def generate(args: argparse.Namespace) -> tuple[str, str, dict]:
         header_imports.append("import TvmLean.Proofs.Check.StackNorm")
         # the slice after a message address, the cell it reads moved forward
         header_imports.append("import TvmLean.Proofs.Check.MsgAddr")
+        # builders as structure instances
+        header_imports.append("import TvmLean.Proofs.Check.BuilderNorm")
     # the code may change (`code K` or `code self`): the action lists `Acts`
     code_k = d.get("code")
     if code_k is not None:
