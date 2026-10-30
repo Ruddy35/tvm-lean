@@ -122,6 +122,9 @@ import TvmLean.Proofs.Tx.NoSetCode
 import TvmLean.Proofs.Tx.InMsg
 import TvmLean.Proofs.Check.InMsg
 import TvmLean.Proofs.Exec.FramedStdAddr
+import TvmLean.Proofs.Exec.FramedDictMinMax
+import TvmLean.Proofs.Exec.FramedDictNear
+import TvmLean.Proofs.Exec.FramedDictSet
 import TvmLean.Proofs.Check.StackNorm
 import TvmLean.Proofs.Exec.IteInst
 import TvmLean.Proofs.Exec.Havoc
@@ -180,6 +183,7 @@ import TvmLean.Proofs.Exec.Spec.RunvmArgs
 import TvmLean.Proofs.Exec.Spec.CellCut
 import TvmLean.Proofs.Exec.Spec.ContSave
 import TvmLean.Proofs.Exec.Spec.Globals
+import TvmLean.Proofs.Exec.Spec.Rand
 
 /-!
 # All proof modules together

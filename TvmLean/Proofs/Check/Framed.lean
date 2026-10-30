@@ -6,6 +6,9 @@ import TvmLean.Proofs.Exec.FramedDict
 import TvmLean.Proofs.Exec.FramedConfig
 import TvmLean.Proofs.Exec.FramedAddr
 import TvmLean.Proofs.Exec.FramedStdAddr
+import TvmLean.Proofs.Exec.FramedDictMinMax
+import TvmLean.Proofs.Exec.FramedDictNear
+import TvmLean.Proofs.Exec.FramedDictSet
 
 /-!
 # Checking an invariant over all transactions: cells the run does not know
@@ -27,6 +30,14 @@ framed instructions of TvmLean/Proofs/Exec/Framed.lean and FramedDict.lean:
   TvmLean/Proofs/Exec/FramedAddr.lean): any workchain and address, or none, or an exception;
 * `REWRITESTDADDR`/`REWRITESTDADDRQ` likewise (`vm_rewrite_std_addr_any`,
   TvmLean/Proofs/Exec/FramedStdAddr.lean): any workchain and address as integers, or none;
+* `DICT{,I,U}{,REM}{MIN,MAX}{,REF}` on a dictionary the run does not know (`vm_dict_minmax_any`,
+  TvmLean/Proofs/Exec/FramedDictMinMax.lean): a value and a key found, any (and for `REM` any new
+  root), or none, or an exception;
+* `DICT{,I,U}GET{NEXT,PREV}{,EQ}` on a dictionary the run does not know (`vm_dict_near_any`,
+  TvmLean/Proofs/Exec/FramedDictNear.lean): a value and a key found, any, or none, or an exception;
+* `DICT{,I,U}SET{,REF,B}` (any mode) and `DICT{,I,U}REPLACEB` on a dictionary the run does not know
+  and of which no `Dict.WF` is known (`vm_dict_set_any`, TvmLean/Proofs/Exec/FramedDictSet.lean): a
+  new root, null or any cell, and the flag (any integer) of `ADD`/`REPLACE`, or an exception;
 * `CTOS` of a cell that is ordinary by definition but not written as `Cell.mkOrdinary` (`encode d` of
   the data the invariant gives, the data a run wrote): its `special` flag, `false`, as a hypothesis,
   for the specification `Spec.ctos`.
@@ -204,6 +215,76 @@ def rewriteStdAddrAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext d
   evalTactic (← `(tactic| first | obtain ⟨wc, a, $rflI:ident⟩ := h | rcases h with ⟨wc, a, $rflI:ident⟩ | $rflI:ident))
   evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
 
+/-- `DICT*MIN`/`MAX` (`i`, any form) from the state `S` on a dictionary the run does not know: by
+`vm_dict_minmax_any`, the runs with the minimum or maximum found (any value and key, and for `REM`
+any new root, null or a cell) and with none. -/
+def dictMinMaxAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
+  let .dictGetMinMax args5 := i | throwError "check_framed: not DICT*MIN/MAX"
+  let some root ← stackEntry? S 1 | throwError "check_framed: the stack"
+  unless root.isAppOfArity ``Value.cell 1 do throwError "check_framed: no cell"
+  if Exec.isClosed root.appArg! then throwError "check_framed: a dictionary the run knows"
+  evalTactic (← `(tactic| vm_dict_minmax_any))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
+  evalTactic (← `(tactic| intro s' g lc ll fuel hfuel h))
+  evalTactic (← `(tactic| try simp only [Framed.MinMaxOk] at h))
+  let rflI := mkIdent `rfl
+  if args5 &&& 16 == 16 then
+    evalTactic (← `(tactic|
+      rcases h with ⟨v, k, $rflI:ident⟩ | ⟨r, v, k, $rflI:ident⟩ | $rflI:ident | ⟨r, $rflI:ident⟩))
+  else
+    evalTactic (← `(tactic| rcases h with ⟨v, k, $rflI:ident⟩ | $rflI:ident))
+  evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
+
+/-- `DICT*GETNEXT`/`PREV` (`i`, any form) from the state `S` on a dictionary the run does not know: by
+`vm_dict_near_any`, the runs with a key found (any value and key) and with none. -/
+def dictNearAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
+  unless i matches .dictGetNear _ do throwError "check_framed: not DICT*GETNEXT/PREV"
+  let some root ← stackEntry? S 1 | throwError "check_framed: the stack"
+  unless root.isAppOfArity ``Value.cell 1 do throwError "check_framed: no cell"
+  if Exec.isClosed root.appArg! then throwError "check_framed: a dictionary the run knows"
+  evalTactic (← `(tactic| vm_dict_near_any))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
+  evalTactic (← `(tactic| intro s' g lc ll fuel hfuel h))
+  evalTactic (← `(tactic| try simp only [Framed.NearOk] at h))
+  let rflI := mkIdent `rfl
+  evalTactic (← `(tactic| rcases h with ⟨v, k, $rflI:ident⟩ | $rflI:ident))
+  evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
+
+/-- A set (`i`: `DICT{,I,U}SET{,REF,B}` in any mode, `DICT{,I,U}REPLACEB`) from the state `S` on a
+dictionary the run does not know and of which no `Dict.WF` is known (a dictionary known well formed
+is left to the specifications of TvmLean/Proofs/Exec/Spec/DictSet.lean, which say what it maps), or
+`REPLACEB` on the empty dictionary (null; no specification has it): by `vm_dict_set_any`, the runs
+with any new root (null or a cell) and any flag. -/
+def dictSetAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
+  let some root ← stackEntry? S 1 | throwError "check_framed: the stack"
+  let nullReplaceB := root.isConstOf ``Value.null && i matches .dictReplaceB _ _
+  unless nullReplaceB do
+    unless root.isAppOfArity ``Value.cell 1 do throwError "check_framed: no cell"
+    let rc := root.appArg!
+    if Exec.isClosed rc then throwError "check_framed: a dictionary the run knows"
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let ty ← instantiateMVars d.type
+      if (ty.find? (·.isConstOf ``Dict.WF)).isSome && (ty.find? (· == rc)).isSome then
+        throwError "check_framed: a dictionary known well formed"
+  evalTactic (← `(tactic| vm_dict_set_any))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
+  evalTactic (← `(tactic| intro s' g lc ll fuel hfuel h))
+  evalTactic (← `(tactic| try simp only [Framed.SetOk] at h))
+  let rflI := mkIdent `rfl
+  let isSet : Bool := match i with
+    | .dictSet _ _ _ .set => true
+    | .dictSetB _ _ .set => true
+    | _ => false
+  if isSet then
+    evalTactic (← `(tactic| rcases h with $rflI:ident | ⟨c, $rflI:ident⟩))
+  else
+    evalTactic (← `(tactic| rcases h with ⟨f, $rflI:ident⟩ | ⟨c, f, $rflI:ident⟩))
+  evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
+
 /-- The instruction the run in the main goal is about to run (`nextInstr?`), with the state. -/
 def mainNextInstr (what : String) : TacticM (MVarId × Instr × Expr) := withMainContext do
   let g ← getMainGoal
@@ -226,7 +307,8 @@ elab "check_dict_get_any" : tactic => do
   dictGetAny i S
 
 /-- `check_framed`: the instruction the run is about to run decoded once, then `knownSpecial`,
-`ctosAny`, `dictGetAny`, `configParamAny`, `rewriteVarAddrAny` or `rewriteStdAddrAny`, whichever applies. Fails for any other instruction. -/
+`ctosAny`, `dictGetAny`, `configParamAny`, `rewriteVarAddrAny`, `rewriteStdAddrAny`, `dictMinMaxAny`,
+`dictNearAny` or `dictSetAny`, whichever applies. Fails for any other instruction. -/
 elab "check_framed" : tactic => do
   let (g, i, S) ← mainNextInstr "check_framed"
   match i with
@@ -241,6 +323,11 @@ elab "check_framed" : tactic => do
   | .tonEnvOp (.configParam _) => configParamAny i
   | .tonEnvOp (.rewriteVarAddr _) => rewriteVarAddrAny i S
   | .tonEnvOp (.rewriteStdAddr _) => rewriteStdAddrAny i S
+  | .dictGetMinMax _ => dictMinMaxAny i S
+  | .dictGetNear _ => dictNearAny i S
+  | .dictSet _ _ _ _ => dictSetAny i S
+  | .dictSetB _ _ _ => dictSetAny i S
+  | .dictReplaceB _ _ => dictSetAny i S
   | _ => throwError "check_framed: not an instruction on a cell the run does not know"
 
 /-! ## An exception that ends the run

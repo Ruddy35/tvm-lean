@@ -105,6 +105,8 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Tx.NoSetCode, `TvmLean.Proofs.Exec.IteInst, `TvmLean.Proofs.Exec.Havoc,
     `TvmLean.Proofs.Tx.InMsg, `TvmLean.Proofs.Check.InMsg,
     `TvmLean.Proofs.Exec.FramedStdAddr, `TvmLean.Proofs.Check.StackNorm,
+    `TvmLean.Proofs.Exec.FramedDictMinMax, `TvmLean.Proofs.Exec.FramedDictNear,
+    `TvmLean.Proofs.Exec.FramedDictSet,
     `TvmLean.Proofs.Exec.Dict.Near, `TvmLean.Proofs.Check.Unknown, `TvmLean.Proofs.Check.Tactic,
     `TvmLean.Proofs.Exec.Spec.Ctr, `TvmLean.Proofs.Exec.Spec.FlowRef, `TvmLean.Proofs.Exec.Spec.DictLoad,
     `TvmLean.Proofs.Check.Loops,
@@ -122,7 +124,8 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Spec.RunvmX, `TvmLean.Proofs.Exec.Spec.ContMany,
     `TvmLean.Proofs.Exec.Spec.SetContVarArgs, `TvmLean.Proofs.Exec.Spec.HashExt,
     `TvmLean.Proofs.Exec.Spec.RunvmArgs, `TvmLean.Proofs.Exec.Spec.CellCut,
-    `TvmLean.Proofs.Exec.Spec.ContSave, `TvmLean.Proofs.Exec.Spec.Globals]
+    `TvmLean.Proofs.Exec.Spec.ContSave, `TvmLean.Proofs.Exec.Spec.Globals,
+    `TvmLean.Proofs.Exec.Spec.Rand]
   -- the kernel checks the proofs that follow every path through a phase of a transaction
   -- (`TvmLean.Proofs.Tx.Tactic`) on deeply nested terms: a larger thread stack than the default
   moreLeanArgs := #["--tstack=65536"]
