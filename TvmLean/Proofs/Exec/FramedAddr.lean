@@ -164,13 +164,13 @@ theorem runWith_rewriteVarAddr {st : VmState} {code rest : Slice} {s : Stack} {s
     (hchain : st.chainJumps < freeNestedContJump) (hc2 : st.regs.c2 = .excQuit)
     (hcom : st.cstate.committed = false) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[])
     (hs : st.stack = s.push (.slice sl))
-    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r)
-    (hok : ∀ s' g lc ll fuel, RewriteOk quiet s s' →
-      P (VmState.runWith execInstr fuel (after st rest s' g lc ll)))
-    (fuel : Nat) : P (VmState.runWith execInstr fuel st) :=
+    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r) (fuel : Nat)
+    (hok : ∀ s' g lc ll n, n < fuel → RewriteOk quiet s s' →
+      P (VmState.runWith execInstr n (after st rest s' g lc ll))) :
+    P (VmState.runWith execInstr fuel st) :=
   runWith_framed (Ok := RewriteOk quiet s)
     ⟨hcc, hcp, hbits, hver, hdec, hchain, hc2, hcom,
-      fun st0 h1 _ => rewriteVarAddr_framed quiet st0 s sl (h1.trans hs)⟩ hr hm P hP hok fuel
+      fun st0 h1 _ => rewriteVarAddr_framed quiet st0 s sl (h1.trans hs)⟩ hr hm P hP fuel hok
 
 end TvmLean.Framed
 
@@ -212,7 +212,9 @@ elab "vm_rewrite_var_addr_any" : tactic => withMainContext do
   let hs ← refl (← mkAppM ``VmState.stack #[S])
   let f ← mkAppOptM ``Framed.runWith_rewriteVarAddr #[S, none, none, stk.getArg! 1, vsl.appArg!,
     op.appArg!, hcc, hcp, hbitsNe, hverLe, hdecEx, hchain, hc2, hcom, hr, hm, hs, motive]
-  let (pf, goals) ← Exec.applyRest f 2 #[fuel]
+  let (f1, goals1) ← Exec.applyRest f 1 #[fuel]
+  let (pf, goals2) ← Exec.applyRest f1 1 #[]
+  let goals := goals1 ++ goals2
   unless ← isDefEq (← inferType pf) t do throwError "vm_rewrite_var_addr_any: the goal is not a property of the run"
   g.assign pf
   replaceMainGoal goals.toList

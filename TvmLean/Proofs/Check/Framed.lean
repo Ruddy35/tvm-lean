@@ -137,7 +137,7 @@ def ctosAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
   evalTactic (← `(tactic| vm_ctos_any))
   evalTactic (← `(tactic| (· intro r h; first
     | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
-  evalTactic (← `(tactic| (intro sl g lc ll fuel; simp only [Framed.after]; vm_clear_unused)))
+  evalTactic (← `(tactic| (intro sl g lc ll fuel hfuel; simp only [Framed.after]; vm_clear_unused)))
 
 /-- `DICTIGET`/`DICTUGET` (`i`, not `REF`) from the state `S` on a dictionary the run does not know:
 by `vm_dict_get_any`, the runs with a value found (any slice) and with none. -/
@@ -158,7 +158,7 @@ def configParamAny (i : Instr) : TacticM Unit := withMainContext do
   evalTactic (← `(tactic| vm_config_param_any))
   evalTactic (← `(tactic| (· intro r h; first
     | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
-  evalTactic (← `(tactic| intro s' g lc ll fuel h))
+  evalTactic (← `(tactic| intro s' g lc ll fuel hfuel h))
   evalTactic (← `(tactic| simp only [Framed.ConfigOk] at h))
   -- `rfl` of a pattern by `mkIdent`: written in the quotation it is a hygienic name, which `rcases`
   -- takes for a new hypothesis, not for the substitution
@@ -177,7 +177,7 @@ def rewriteVarAddrAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext d
   evalTactic (← `(tactic| vm_rewrite_var_addr_any))
   evalTactic (← `(tactic| (· intro r h; first
     | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
-  evalTactic (← `(tactic| intro s' g lc ll fuel h))
+  evalTactic (← `(tactic| intro s' g lc ll fuel hfuel h))
   evalTactic (← `(tactic| simp only [Framed.RewriteOk] at h))
   let rflI := mkIdent `rfl
   evalTactic (← `(tactic| first | obtain ⟨wc, a, $rflI:ident⟩ := h | rcases h with ⟨wc, a, $rflI:ident⟩ | $rflI:ident))

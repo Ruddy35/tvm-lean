@@ -325,18 +325,19 @@ theorem runWith_dictGetInt {st : VmState} {code rest : Slice} {s : Stack} {idx :
     (hchain : st.chainJumps < freeNestedContJump) (hc2 : st.regs.c2 = .excQuit)
     (hcom : st.cstate.committed = false) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[])
     (hs : st.stack = ((s.push (.int (.num idx))).push (.cell root)).push (.int (.num n)))
-    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r)
-    (hfound : ∀ (v : Slice) g lc ll fuel,
-      P (VmState.runWith execInstr fuel (after st rest ((s.push (.slice v)).push (.int (.num (-1)))) g lc ll)))
-    (hnone : ∀ g lc ll fuel, P (VmState.runWith execInstr fuel (after st rest (s.push (.int (.num 0))) g lc ll)))
-    (fuel : Nat) : P (VmState.runWith execInstr fuel st) :=
+    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r) (fuel : Nat)
+    (hfound : ∀ (v : Slice) g lc ll k, k < fuel →
+      P (VmState.runWith execInstr k (after st rest ((s.push (.slice v)).push (.int (.num (-1)))) g lc ll)))
+    (hnone : ∀ g lc ll k, k < fuel →
+      P (VmState.runWith execInstr k (after st rest (s.push (.int (.num 0))) g lc ll))) :
+    P (VmState.runWith execInstr fuel st) :=
   runWith_framed (Ok := DictOk s)
     ⟨hcc, hcp, hbits, hver, hdec, hchain, hc2, hcom,
-      fun st0 h1 _ => dictGetInt_framed st0 s idx root n unsigned (h1.trans hs)⟩ hr hm P hP
-    (fun s' g lc ll fuel h => by
+      fun st0 h1 _ => dictGetInt_framed st0 s idx root n unsigned (h1.trans hs)⟩ hr hm P hP fuel
+    (fun s' g lc ll k hk h => by
       rcases h with ⟨v, rfl⟩ | rfl
-      · exact hfound v g lc ll fuel
-      · exact hnone g lc ll fuel) fuel
+      · exact hfound v g lc ll k hk
+      · exact hnone g lc ll k hk)
 
 end TvmLean.Framed
 
@@ -390,7 +391,9 @@ elab "vm_dict_get_any" : tactic => withMainContext do
   let hs ← refl (← mkAppM ``VmState.stack #[S])
   let f ← mkAppOptM ``Framed.runWith_dictGetInt #[S, none, none, s2.getArg! 1, idx, vroot.appArg!, n,
     iE.getArg! 1, hcc, hcp, hbitsNe, hverLe, hdecEx, hchain, hc2, hcom, hr, hm, hs, motive]
-  let (pf, goals) ← Exec.applyRest f 3 #[fuel]
+  let (f1, goals1) ← Exec.applyRest f 1 #[fuel]
+  let (pf, goals2) ← Exec.applyRest f1 2 #[]
+  let goals := goals1 ++ goals2
   unless ← isDefEq (← inferType pf) t do throwError "vm_dict_get_any: the goal is not a property of the run"
   g.assign pf
   replaceMainGoal goals.toList

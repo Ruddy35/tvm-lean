@@ -319,16 +319,16 @@ commits nothing and of every run from the state after the instruction (any stack
 gas, loaded cells and libraries), it holds of the run. -/
 theorem runWith_framed {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice}
     (h : At i Ok st code rest) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[])
-    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r)
-    (hok : ∀ s' g lc ll fuel, Ok s' → P (VmState.runWith execInstr fuel (after st rest s' g lc ll)))
-    (fuel : Nat) : P (VmState.runWith execInstr fuel st) := by
+    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r) (fuel : Nat)
+    (hok : ∀ s' g lc ll n, n < fuel → Ok s' → P (VmState.runWith execInstr n (after st rest s' g lc ll))) :
+    P (VmState.runWith execInstr fuel st) := by
   cases fuel with
   | zero => exact hP _ h.com
   | succ n =>
     rw [VmState.runWith_succ']
     rcases stepWith_good h hr hm with ⟨s', g, lc, ll, hs, he⟩ | hd
     · rw [he, VmState.runCont_continue]
-      exact hok s' g lc ll n hs
+      exact hok s' g lc ll n (Nat.lt_succ_self n) hs
     · exact hP _ (hd n)
 
 end TvmLean.Framed
@@ -503,12 +503,13 @@ theorem runWith_ctos {st : VmState} {code rest : Slice} {s : Stack} {c : Cell}
     (hdec : ∃ n, decodeCp0WithBits code = .ok (.ctos, n, rest)) (hchain : st.chainJumps < freeNestedContJump)
     (hc2 : st.regs.c2 = .excQuit) (hcom : st.cstate.committed = false)
     (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[]) (hs : st.stack = s.push (.cell c))
-    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r)
-    (hok : ∀ (sl : Slice) g lc ll fuel, P (VmState.runWith execInstr fuel (after st rest (s.push (.slice sl)) g lc ll)))
-    (fuel : Nat) : P (VmState.runWith execInstr fuel st) :=
+    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r) (fuel : Nat)
+    (hok : ∀ (sl : Slice) g lc ll n, n < fuel →
+      P (VmState.runWith execInstr n (after st rest (s.push (.slice sl)) g lc ll))) :
+    P (VmState.runWith execInstr fuel st) :=
   runWith_framed (Ok := fun s' => ∃ sl, s' = s.push (.slice sl))
     ⟨hcc, hcp, hbits, hver, hdec, hchain, hc2, hcom, fun st0 h1 _ => ctos_framed st0 s c (h1.trans hs)⟩ hr hm P hP
-    (fun s' g lc ll fuel ⟨sl, h⟩ => h ▸ hok sl g lc ll fuel) fuel
+    fuel (fun s' g lc ll n hn ⟨sl, h⟩ => h ▸ hok sl g lc ll n hn)
 
 end TvmLean.Framed
 
@@ -595,7 +596,9 @@ elab "vm_ctos_any" : tactic => withMainContext do
   let hs ← refl (← mkAppM ``VmState.stack #[S])
   let f ← mkAppOptM ``Framed.runWith_ctos #[S, none, none, stk.getArg! 1, top.getArg! 0, hcc, hcp, hbitsNe, hverLe,
     hdecEx, hchain, hc2, hcom, hr, hm, hs, motive]
-  let (pf, goals) ← Exec.applyRest f 2 #[fuel]
+  let (f1, goals1) ← Exec.applyRest f 1 #[fuel]
+  let (pf, goals2) ← Exec.applyRest f1 1 #[]
+  let goals := goals1 ++ goals2
   unless ← isDefEq (← inferType pf) t do throwError "vm_ctos_any: the goal is not a property of the run"
   g.assign pf
   replaceMainGoal goals.toList
@@ -611,12 +614,21 @@ variables nothing mentions; keeps the context of a run small for `omega`. -/
 elab "vm_clear_unused" : tactic => withMainContext do
   let g ← getMainGoal
   let t ← instantiateMVars (← g.getType)
-  let used := (collectFVars {} t).fvarSet
+  -- a hypothesis about runs (the induction hypothesis of a loop rule, `ih`) is kept, and the
+  -- variables it mentions count as used: the run needs it again at the loop's head, with the facts
+  -- that relate its fuel to the fuel of the run (`n < fuel` of a framed instruction)
+  let mut used := (collectFVars {} t).fvarSet
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let ty ← instantiateMVars d.type
+    if (← isProp ty) && (ty.find? (·.isAppOf ``VmState.runWith)).isSome then
+      used := (collectFVars {} ty).fvarSet.foldl (·.insert ·) used
   let mut toClear : Array FVarId := #[]
   for d in ← getLCtx do
     if d.isImplementationDetail then continue
     let ty ← instantiateMVars d.type
     unless ← isProp ty do continue
+    if (ty.find? (·.isAppOf ``VmState.runWith)).isSome then continue
     let fvs := (collectFVars {} ty).fvarIds
     if fvs.any (fun v => !used.contains v) then toClear := toClear.push d.fvarId
   let g ← g.tryClearMany toClear

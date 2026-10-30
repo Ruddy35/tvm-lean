@@ -36,7 +36,7 @@ theorem internal (d : Data) (hwf : d.WF) (msg : Cell) (body : Slice) (bal val : 
   · storage_run_to 10 [hgv]
     all_goals try storage_no_commit
     all_goals (vm_ctos_any; · intro r h; exact post_of_not_committed d val r h)
-    all_goals intro sl g lc ll fuel
+    all_goals intro sl g lc ll fuel _
     all_goals simp only [Framed.after]
     all_goals vm_clear_unused
     storage_run_to 114 [hgv]
@@ -47,7 +47,7 @@ theorem internal (d : Data) (hwf : d.WF) (msg : Cell) (body : Slice) (bal val : 
   · storage_run_to 10 [hgv]
     all_goals try storage_no_commit
     all_goals (vm_ctos_any; · intro r h; exact post_of_not_committed d val r h)
-    all_goals intro sl g lc ll fuel
+    all_goals intro sl g lc ll fuel _
     all_goals simp only [Framed.after]
     all_goals vm_clear_unused
     storage_run_to 114 [hgv]
