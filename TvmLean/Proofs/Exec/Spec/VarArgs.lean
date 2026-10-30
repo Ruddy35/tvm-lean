@@ -87,6 +87,10 @@ theorem VM.run_returnArgsCommon_quit (st : VmState) (p : Nat) (n : Int) (hc0 : s
   unfold VM.returnArgsCommon
   vm_simp [hc0, Continuation.forceCdata, hsz, Array.empty_append, VmState.consumeStackGas, VmState.consumeGas]
 
+-- entering a continuation that a jump has stripped of its closure data (the envelope `RETURNARGS`
+-- makes of `quit`, reached by the implicit `RET`; `VmState.stepOnceWith` of an envelope): no data
+attribute [vm_run] VmState.enteredCdata_empty OrdCdata.empty_needsMoreArgs
+
 namespace Spec
 
 set_option maxHeartbeats 4000000 in
