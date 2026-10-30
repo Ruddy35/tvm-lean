@@ -160,7 +160,10 @@ def configParamAny (i : Instr) : TacticM Unit := withMainContext do
     | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
   evalTactic (← `(tactic| intro s' g lc ll fuel h))
   evalTactic (← `(tactic| simp only [Framed.ConfigOk] at h))
-  evalTactic (← `(tactic| rcases h with rfl | ⟨c, rfl⟩))
+  -- `rfl` of a pattern by `mkIdent`: written in the quotation it is a hygienic name, which `rcases`
+  -- takes for a new hypothesis, not for the substitution
+  let rflI := mkIdent `rfl
+  evalTactic (← `(tactic| rcases h with $rflI:ident | ⟨c, $rflI:ident⟩))
   evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
 
 /-- `REWRITEVARADDR`/`REWRITEVARADDRQ` (`i`) from the state `S` on a slice the run does not know (a
@@ -176,7 +179,8 @@ def rewriteVarAddrAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext d
     | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
   evalTactic (← `(tactic| intro s' g lc ll fuel h))
   evalTactic (← `(tactic| simp only [Framed.RewriteOk] at h))
-  evalTactic (← `(tactic| first | obtain ⟨wc, a, rfl⟩ := h | rcases h with ⟨wc, a, rfl⟩ | rfl))
+  let rflI := mkIdent `rfl
+  evalTactic (← `(tactic| first | obtain ⟨wc, a, $rflI:ident⟩ := h | rcases h with ⟨wc, a, $rflI:ident⟩ | $rflI:ident))
   evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
 
 /-- The instruction the run in the main goal is about to run (`nextInstr?`), with the state. -/
