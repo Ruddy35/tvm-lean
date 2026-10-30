@@ -872,7 +872,13 @@ elab "vm_loop_close" : tactic => Lean.Elab.Tactic.withMainContext do
     else rest := rest.push g'
   Lean.Elab.Tactic.replaceMainGoal rest.toList
 
-/-- The simp lemmas of a step (`Proofs/Exec/Tactic.lean`), with those of `vm_simp`. -/
+/-- The simp lemmas of a step (`Proofs/Exec/Tactic.lean`), with those of `vm_simp`. An `if` whose
+condition simp decides is reduced before its branches are rewritten (`↓ reduceIte`, `↓ reduceDIte`;
+by name in a `simp only` list they would run after them): simp rewrites the branches of an `if` it has
+not reduced each on its own, so a lemma that leaves the rest of its work in both branches doubles it
+at every level (`VM.extract_push`, TvmLean/Proofs/Exec/Closure.lean, on the `take` of `BLKDROP`:
+`Array.take` is an `abbrev` of `extract 0`; the step of `BLKDROP 4` on 14 values did not end within
+100000 simp steps, and ends in 9 s with the `if`s reduced first). -/
 syntax (name := vmStepSimp) "vm_step_simp" (" [" Lean.Parser.Tactic.simpArg,* "]")? : tactic
 
 macro_rules
@@ -903,7 +909,7 @@ macro_rules
       decide_eq_true_eq, decide_eq_false_iff_not, decide_not, Bool.not_not, Bool.not_true,
       Bool.not_false, Decidable.not_not, Bool.not_eq_true', Bool.not_eq_false', beq_iff_eq,
       Int.ofNat_eq_coe, Int.toNat_natCast, Bool.and_eq_true, Bool.or_eq_true, Bool.eq_false_iff, ite_not,
-      Bool.true_and, Bool.and_true, Bool.false_and, Bool.and_false, ge_iff_le, gt_iff_lt, reduceIte, reduceDIte,
+      Bool.true_and, Bool.and_true, Bool.false_and, Bool.and_false, ge_iff_le, gt_iff_lt, ↓ reduceIte, ↓ reduceDIte,
       Nat.reduceAdd, Nat.reduceSub, Nat.reduceMul, Nat.reducePow, Nat.reduceLT, Nat.reduceGT,
       Nat.reduceLeDiff, Nat.reduceSubDiff, Nat.reduceEqDiff, Nat.reduceBEq, Nat.reduceBNe, Int.reduceAdd, Int.reduceSub, Int.reduceMul, Int.reduceNeg,
       Int.reducePow, Int.reduceLT, Int.reduceLE, Int.reduceGT, Int.reduceGE, Int.reduceEq, Int.reduceNe,
