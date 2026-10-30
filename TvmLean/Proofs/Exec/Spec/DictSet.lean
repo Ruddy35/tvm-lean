@@ -624,6 +624,23 @@ theorem Dict.WF.setRes {root root' : Option Cell} {key : BitString} {vb : Builde
     exact Dict.WF.set hwf hres
   · cases h
 
+/-- A set that leaves no root changed nothing (`ADD` and `SET` on any dictionary leave a root). -/
+theorem Dict.setRes_none {root : Option Cell} {key : BitString} {vb : Builder} {mode : DictSetMode}
+    {ok : Bool} {created : Nat} {rest : List Cell}
+    (h : Dict.setRes root key vb mode = .ok (none, ok, created, rest)) : ok = false := by
+  cases ok with
+  | false => rfl
+  | true =>
+    exfalso
+    unfold Dict.setRes Dict.setResRaw at h
+    split at h
+    · rename_i r ok' cr loaded hres
+      simp only [Except.ok.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl, -, -⟩ := h
+      obtain ⟨c, hc⟩ := DictMap.set_changed_root hres
+      cases hc
+    · cases h
+
 theorem Slice.readBits_size_of_haveBits {k : Slice} {n : Nat} (h : k.haveBits n = true) : (k.readBits n).size = n := by
   simp only [Slice.haveBits, decide_eq_true_eq] at h
   simp only [Slice.readBits, Array.size_extract]
