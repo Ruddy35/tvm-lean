@@ -171,6 +171,7 @@ import TvmLean.Proofs.Exec.Spec.VarArgs
 import TvmLean.Proofs.Exec.Spec.RunvmX
 import TvmLean.Proofs.Exec.Spec.ContMany
 import TvmLean.Proofs.Exec.Spec.SetContVarArgs
+import TvmLean.Proofs.Exec.Spec.RunvmArgs
 
 /-!
 # All proof modules together
