@@ -28,6 +28,19 @@
 <{ DROP DROP DROP 1 INT AND <{ NOP }> PUSHCONT <{ NOP }> PUSHCONT IFELSE }>c "ifelse-unknown" put
 <{ <{ NOP }> PUSHCONT c1 POP RETALT }>c "retalt" put
 
+// a variable count of arguments and values, closures, saved registers
+<{ 5 INT <{ ADD DROP }> PUSHCONT 1 INT -1 INT SETCONTVARARGS 3 INT SWAP EXECUTE }>c "setcontvarargs" put
+<{ x{} PUSHSLICE 0 INT -1 INT BLESSVARARGS EXECUTE }>c "blessvarargs" put
+<{ 1 INT 2 INT <{ ADD }> PUSHCONT 2 INT 1 INT CALLXVARARGS DROP }>c "callxvarargs" put
+<{ <{ 1 INT 2 INT 1 INT RETVARARGS }> PUSHCONT 0 1 CALLXARGS DROP }>c "retvarargs" put
+<{ <{ 1 INT 2 INT 1 RETURNARGS }> PUSHCONT EXECUTE DROP }>c "returnargs" put
+<{ <{ 1 INT 2 INT 1 INT RETURNVARARGS }> PUSHCONT EXECUTE DROP }>c "returnvarargs" put
+<{ 1 INT 2 INT 1 RETURNARGS DROP }>c "returnargs-top" put
+<{ 1 INT 2 INT 1 INT RETURNVARARGS DROP }>c "returnvarargs-top" put
+<{ <{ DROP }> PUSHCONT 0 INT -1 INT CALLCCVARARGS }>c "callccvarargs" put
+<{ <{ NOP }> PUSHCONT 1 SETCONTCTRMANY EXECUTE }>c "setcontctrmany" put
+<{ <{ NOP }> PUSHCONT 1 INT SETCONTCTRMANYX EXECUTE }>c "setcontctrmanyx" put
+
 // loops: constant and unknown counts, with and without a value carried on the stack
 <{ 3 INT <{ NOP }> PUSHCONT REPEAT }>c "repeat-const" put
 <{ DROP DROP DROP 255 INT AND <{ NOP }> PUSHCONT REPEAT }>c "repeat-unknown" put
@@ -83,6 +96,12 @@ PROGRAM{
 
 // the child VM, the codepage
 <{ 0 INT x{71} PUSHSLICE 0 RUNVM 2DROP }>c "runvm" put
+<{ 0 INT x{71} PUSHSLICE 0 INT RUNVMX 2DROP }>c "runvmx" put
+<{ 0 INT x{71} PUSHSLICE NEWC ENDC 4 RUNVM }>c "runvm-data" put
+<{ 0 INT x{71} PUSHSLICE NIL 16 RUNVM }>c "runvm-c7" put
+<{ 0 INT x{71} PUSHSLICE 1000 INT 8 RUNVM }>c "runvm-gas" put
+<{ 0 INT x{71} PUSHSLICE 1000 INT 2000 INT 72 RUNVM }>c "runvm-gasmax" put
+<{ 0 INT x{71} PUSHSLICE 1 INT 256 RUNVM }>c "runvm-retvals" put
 <{ 1 SETCP NOP }>c "setcp1" put
 <{ 0 INT SETCPX }>c "setcpx" put
 

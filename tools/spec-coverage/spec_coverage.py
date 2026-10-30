@@ -667,14 +667,18 @@ PATTERNS: list[dict] = [
     {"id": "closure", "title": "jump/call of a continuation with closure data or nargs (SETCONTARGS, BLESSARGS, "
      "then EXECUTE/JMPX)",
      "forms": ["SETCONTARGS", "SETCONTVARARGS", "SETNUMVARARGS", "BLESSARGS", "BLESSVARARGS", "BLESS"],
-     "probes": ["closure-call", "closure-jump"],
-     "how": "Spec.setContArgs_ord, VM.run_jump_ordinary_cdata, VM.run_call_ordinary_cdata (Exec/Closure.lean)"},
+     "probes": ["closure-call", "closure-jump", "setcontvarargs", "blessvarargs"],
+     "how": "Spec.setContArgs_ord, VM.run_jump_ordinary_cdata, VM.run_call_ordinary_cdata (Exec/Closure.lean); "
+            "Spec.setContVarArgs_ord (Exec/Spec/SetContVarArgs.lean), Spec.blessVarArgs (Exec/Spec/VarArgs.lean)"},
     {"id": "xargs", "title": "CALLXARGS / JMPXARGS / RETARGS (arguments and return values counted)",
      "forms": ["CALLXARGS", "CALLXARGS_1", "JMPXARGS", "RETARGS", "CALLXVARARGS", "JMPXVARARGS", "RETVARARGS",
                "RETURNARGS", "RETURNVARARGS"],
-     "probes": ["callxargs", "jmpxargs", "retargs"], "how": "the handler unfolded; VM.call/VM.jump with passArgs"},
+     "probes": ["callxargs", "jmpxargs", "retargs", "callxvarargs", "retvarargs", "returnargs", "returnvarargs",
+                "returnargs-top", "returnvarargs-top"],
+     "how": "the handler unfolded; VM.call/VM.jump with passArgs; Spec.callxVarArgs, Spec.retVarArgs, "
+            "Spec.returnArgs_ord/_quit, Spec.returnVarArgs_ord/_quit (Exec/Spec/VarArgs.lean)"},
     {"id": "callcc", "title": "CALLCC and variants (the current continuation as a value)",
-     "forms": ["CALLCC", "CALLCCARGS", "CALLCCVARARGS"], "probes": ["callcc", "callccargs"],
+     "forms": ["CALLCC", "CALLCCARGS", "CALLCCVARARGS"], "probes": ["callcc", "callccargs", "callccvarargs"],
      "how": "the handler unfolded (VM.extractCc)"},
     {"id": "retalt", "title": "RETALT / c1 (the alternative return)", "forms": ["RETALT", "IFRETALT", "IFNOTRETALT"],
      "probes": ["retalt"], "how": "the handler unfolded"},
@@ -722,9 +726,20 @@ PATTERNS: list[dict] = [
     {"id": "dictcall", "title": "CALLDICT / JMPDICT / PREPAREDICT (procedures through c3)",
      "forms": ["CALLDICT", "CALLDICT_LONG", "JMPDICT", "PREPAREDICT"],
      "probes": ["calldict", "jmpdict", "preparedict"], "how": "Spec.callDict, Spec.jmpDict, Spec.prepareDict"},
-    {"id": "runvm", "title": "RUNVM / RUNVMX (a child VM)", "forms": ["RUNVM", "RUNVMX"], "probes": ["runvm"],
+    {"id": "runvm", "title": "RUNVM / RUNVMX (a child VM)", "forms": ["RUNVM", "RUNVMX"],
+     "probes": ["runvm", "runvmx", "runvm-data", "runvm-c7", "runvm-gas", "runvm-gasmax", "runvm-retvals"],
      "how": "Spec.runvm (Exec/Spec/Runvm.lean) for the modes without arguments beyond the code and the values: "
-            "the child's run a term (childRun of Runvm.child), the parent's stack and gas written out (Runvm.run)"},
+            "the child's run a term (childRun of Runvm.child), the parent's stack and gas written out (Runvm.run); "
+            "Spec.runvm_* (Exec/Spec/RunvmArgs.lean) for the modes that pop the data, gas limits, c7 or a count "
+            "of return values (Runvm.runArgs); Spec.runvmx (Exec/Spec/RunvmX.lean) in the plain modes"},
+    {"id": "cont-regs", "title": "a continuation with saved registers (SETCONTCTR, SETCONTCTRMANY), then "
+     "EXECUTE/JMPX",
+     "forms": ["SETCONTCTR", "SETCONTCTRX", "SETCONTCTRMANY", "SETCONTCTRMANYX", "SAVECTR", "SAVEALTCTR",
+               "SAVEBOTHCTR", "SAMEALTSAVE"],
+     "probes": ["setcontctrmany", "setcontctrmanyx"],
+     "how": "Spec.setContCtrMany, Spec.setContCtrManyX (Exec/Spec/ContMany.lean): the loop over the registers "
+            "computed (setContCtrManyLoop); VM.run_call_ordinary_cdata (a call to a continuation that saves c0 "
+            "is a jump)"},
     {"id": "setcp", "title": "SETCP with a codepage other than 0, SETCPX", "forms": ["SETCP", "SETCPX", "SETCP_SHORT"],
      "probes": ["setcp1", "setcpx"], "how": "the handler unfolded; stepCode needs cp = 0, else the step unfolded"},
     {"id": "safe-actions", "title": "SENDRAWMSG / RAWRESERVE actions (c5)", "forms": ["SENDRAWMSG", "RAWRESERVE"],
@@ -775,10 +790,12 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'переход/вызов продолжения с замыканием или `nargs` (`SETCONTARGS`, `BLESSARGS`, затем '
         '`EXECUTE`/`JMPX`)',
         '`Spec.setContArgs_ord`, `VM.run_jump_ordinary_cdata`, `VM.run_call_ordinary_cdata` '
-        '(`Exec/Closure.lean`)'),
+        '(`Exec/Closure.lean`); `Spec.setContVarArgs_ord` (`Exec/Spec/SetContVarArgs.lean`), '
+        '`Spec.blessVarArgs` (`Exec/Spec/VarArgs.lean`)'),
     'xargs': (
         '`CALLXARGS` / `JMPXARGS` / `RETARGS` (число аргументов и результатов)',
-        'обработчик; `VM.call`/`VM.jump` с `passArgs`'),
+        'обработчик; `VM.call`/`VM.jump` с `passArgs`; `Spec.callxVarArgs`, `Spec.retVarArgs`, '
+        '`Spec.returnArgs_ord`/`_quit`, `Spec.returnVarArgs_ord`/`_quit` (`Exec/Spec/VarArgs.lean`)'),
     'callcc': (
         '`CALLCC` и варианты (текущее продолжение как значение)',
         'обработчик (`VM.extractCc`)'),
@@ -827,7 +844,15 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
     'runvm': (
         '`RUNVM` / `RUNVMX` (дочерняя VM)',
         '`Spec.runvm` (`Exec/Spec/Runvm.lean`) для режимов без аргументов сверх кода и значений: прогон '
-        'дочерней VM — терм (`childRun` от `Runvm.child`), стек и газ родителя выписаны (`Runvm.run`)'),
+        'дочерней VM — терм (`childRun` от `Runvm.child`), стек и газ родителя выписаны (`Runvm.run`); '
+        '`Spec.runvm_*` (`Exec/Spec/RunvmArgs.lean`) для режимов, снимающих данные, пределы газа, `c7` или '
+        'число возвращаемых значений (`Runvm.runArgs`); `Spec.runvmx` (`Exec/Spec/RunvmX.lean`) в простых '
+        'режимах'),
+    'cont-regs': (
+        'продолжение с сохранёнными регистрами (`SETCONTCTR`, `SETCONTCTRMANY`), затем `EXECUTE`/`JMPX`',
+        '`Spec.setContCtrMany`, `Spec.setContCtrManyX` (`Exec/Spec/ContMany.lean`): цикл по регистрам '
+        'считается (`setContCtrManyLoop`); `VM.run_call_ordinary_cdata` (вызов продолжения, сохранившего '
+        '`c0`, — переход)'),
     'setcp': (
         '`SETCP` с кодовой страницей не 0, `SETCPX`',
         'обработчик; `stepCode` требует `cp = 0`'),
@@ -870,9 +895,12 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
 # What a pattern lacks, from the probes' failures (English for precheck, Russian for the document).
 PATTERN_GAPS: dict[str, tuple[str, str]] = {
     'xargs': (
-        'VM.call/VM.jump with a number of arguments or results (passArgs, retArgs) have no vm_run lemma',
+        'VM.call/VM.jump with a number of arguments or results (passArgs, retArgs) have no vm_run lemma; '
+        'RETURNARGS/RETURNVARARGS at the top level (c0 the quit continuation, given the closure data): the '
+        'implicit RET into it is left with its closure stack as a term',
         'у `VM.call`/`VM.jump` с числом аргументов или результатов (`passArgs`, `retArgs`) нет леммы '
-        '`vm_run`'),
+        '`vm_run`; `RETURNARGS`/`RETURNVARARGS` на верхнем уровне (`c0` — продолжение `quit`, получающее '
+        'замыкание): неявный `RET` в него оставляет стек замыкания термом'),
     'retalt': (
         'after RETALT (a jump to c1) the next step is left as `VmState.stepFinish` of the state',
         'после `RETALT` (переход в `c1`) следующий шаг остаётся `VmState.stepFinish` состояния'),
@@ -901,9 +929,9 @@ PATTERN_GAPS: dict[str, tuple[str, str]] = {
         '`TRY` без исключения исполняется; с исключением, пойманным обработчиком, и `TRYARGS` прогон не '
         'кончается (предел heartbeats)'),
     'runvm': (
-        'RUNVMX and the modes that pop more arguments (data, gas limits, c7, a count of return values) have '
+        'RUNVMX in the modes that pop more arguments (data, gas limits, c7, a count of return values) has '
         'no specification',
-        'у `RUNVMX` и режимов, снимающих ещё аргументы (данные, пределы газа, `c7`, число возвращаемых '
+        'у `RUNVMX` в режимах, снимающих ещё аргументы (данные, пределы газа, `c7`, число возвращаемых '
         'значений), леммы нет'),
     'safe-actions': (
         'SENDRAWMSG is handled; the action of RAWRESERVE 0 0 is not closed by safe_acts_close',
