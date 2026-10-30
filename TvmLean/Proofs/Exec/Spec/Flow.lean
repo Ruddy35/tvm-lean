@@ -135,10 +135,11 @@ else `k₀` (`VmState.callTo`). -/
       if n ≠ 0 then (.ok (), { st with stack := s }.callTo k1) else (.ok (), { st with stack := s }.callTo k0) := by
   by_cases h : n = 0 <;> vm_simp [hs, h]
 
-/-- `THROWANY` (C++ `exec_throw_any`, no parameter, unconditional) on the stack `s n`: the
-exception `n` (in `0..65535`, range_chk else) is raised. -/
+/-- `THROWANY` (C++ `exec_throw_any`, `F2F0`: no parameter, unconditional; the decoder gives
+`.throwAny false false false`) on the stack `s n`: the exception `n` (in `0..65535`, range_chk else)
+is raised. -/
 @[vm_spec] theorem throwAny (st : VmState) (s : Stack) (n : Int) (hs : st.stack = s.push (.int (.num n))) :
-    ExceptT.run (execInstr (.throwAny false false true)) st =
+    ExceptT.run (execInstr (.throwAny false false false)) st =
       if 0 ≤ n ∧ n ≤ 0xffff then ExceptT.run (VM.throwToHandler fun st => st.throwException n) { st with stack := s }
       else (.error .rangeChk, { st with stack := s }) := by
   by_cases hn : 0 ≤ n ∧ n ≤ 0xffff
@@ -152,5 +153,72 @@ exception `n` (in `0..65535`, range_chk else) is raised. -/
     · vm_simp [hs, h1]
     · have h2 : n.toNat > 0xffff := by omega
       vm_simp [hs, h1, h2]
+
+/-- `THROWARGANY` (`F2F1`, `.throwAny true false false`) on the stack `s x n`: the exception `n`
+(range_chk out of `0..65535`) raised with the parameter `x`. -/
+@[vm_spec] theorem throwArgAny (st : VmState) (s : Stack) (x : Value) (n : Int)
+    (hs : st.stack = (s.push x).push (.int (.num n))) :
+    ExceptT.run (execInstr (.throwAny true false false)) st =
+      if 0 ≤ n ∧ n ≤ 0xffff then
+        ExceptT.run (VM.throwToHandler fun st => st.throwExceptionArg n x) { st with stack := s }
+      else (.error .rangeChk, { st with stack := s.push x }) := by
+  by_cases hn : 0 ≤ n ∧ n ≤ 0xffff
+  · rw [if_pos hn]
+    have h1 : ¬ n < 0 := by omega
+    have h2 : ¬ n.toNat > 0xffff := by omega
+    have h3 : ((n.toNat : Nat) : Int) = n := Int.toNat_of_nonneg hn.1
+    vm_simp [hs, h1, h2, h3]
+  · rw [if_neg hn]
+    by_cases h1 : n < 0
+    · vm_simp [hs, h1]
+    · have h2 : n.toNat > 0xffff := by omega
+      vm_simp [hs, h1, h2]
+
+/-- `THROWANYIF` (`F2F2`, `.throwAny false true true`) and `THROWANYIFNOT` (`F2F4`,
+`.throwAny false true false`) on the stack `s n f`: the exception `n` (range_chk out of
+`0..65535`, checked whatever the flag) raised if the flag is true (`THROWANYIF`) or false
+(`THROWANYIFNOT`). -/
+@[vm_spec] theorem throwAnyCond (st : VmState) (s : Stack) (n f : Int) (t : Bool)
+    (hs : st.stack = (s.push (.int (.num n))).push (.int (.num f))) :
+    ExceptT.run (execInstr (.throwAny false true t)) st =
+      if 0 ≤ n ∧ n ≤ 0xffff then
+        if decide (f ≠ 0) = t then
+          ExceptT.run (VM.throwToHandler fun st => st.throwException n) { st with stack := s }
+        else (.ok (), { st with stack := s })
+      else (.error .rangeChk, { st with stack := s }) := by
+  by_cases hn : 0 ≤ n ∧ n ≤ 0xffff
+  · rw [if_pos hn]
+    have h1 : ¬ n < 0 := by omega
+    have h2 : ¬ n.toNat > 0xffff := by omega
+    have h3 : ((n.toNat : Nat) : Int) = n := Int.toNat_of_nonneg hn.1
+    cases t <;> by_cases hf : f = 0 <;> vm_simp [hs, h1, h2, h3, hf, IntVal.toBool?]
+  · rw [if_neg hn]
+    by_cases h1 : n < 0
+    · cases t <;> vm_simp [hs, h1, IntVal.toBool?]
+    · have h2 : n.toNat > 0xffff := by omega
+      cases t <;> vm_simp [hs, h1, h2, IntVal.toBool?]
+
+/-- `THROWARGANYIF` (`F2F3`, `.throwAny true true true`) and `THROWARGANYIFNOT` (`F2F5`,
+`.throwAny true true false`) on the stack `s x n f`: as `throwAnyCond`, the exception raised with the
+parameter `x`, which is dropped when it is not raised. -/
+@[vm_spec] theorem throwArgAnyCond (st : VmState) (s : Stack) (x : Value) (n f : Int) (t : Bool)
+    (hs : st.stack = ((s.push x).push (.int (.num n))).push (.int (.num f))) :
+    ExceptT.run (execInstr (.throwAny true true t)) st =
+      if 0 ≤ n ∧ n ≤ 0xffff then
+        if decide (f ≠ 0) = t then
+          ExceptT.run (VM.throwToHandler fun st => st.throwExceptionArg n x) { st with stack := s }
+        else (.ok (), { st with stack := s })
+      else (.error .rangeChk, { st with stack := s.push x }) := by
+  by_cases hn : 0 ≤ n ∧ n ≤ 0xffff
+  · rw [if_pos hn]
+    have h1 : ¬ n < 0 := by omega
+    have h2 : ¬ n.toNat > 0xffff := by omega
+    have h3 : ((n.toNat : Nat) : Int) = n := Int.toNat_of_nonneg hn.1
+    cases t <;> by_cases hf : f = 0 <;> vm_simp [hs, h1, h2, h3, hf, IntVal.toBool?]
+  · rw [if_neg hn]
+    by_cases h1 : n < 0
+    · cases t <;> vm_simp [hs, h1, IntVal.toBool?]
+    · have h2 : n.toNat > 0xffff := by omega
+      cases t <;> vm_simp [hs, h1, h2, IntVal.toBool?]
 
 end TvmLean.Spec
