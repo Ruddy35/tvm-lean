@@ -1,12 +1,14 @@
 import Tests.Tx.Real
 import Tests.Tx.Coverage
+import Tests.Tx.Aborts
 
 /-!
 `tvm-lean-tx-test`: whole ordinary transactions of the model against the C++ transaction emulator
 (`tools/txoracle/txoracle.py`, `libemulator.so` of `TVMLEAN_TON_BUILD` or `TVMLEAN_EMULATOR_LIB`).
 For each case the transaction and the new account must have the same hashes, or both sides fail the
 same way. The cases are those of `Tests.Tx.cases`, the real contracts of `Tests.Tx.realCases`
-(`tools/txoracle/contracts.txt`) and the branches of `Tests.Tx.coverageCases`. Options: `--versions a,b,...` (default 0..16), `--filter
+(`tools/txoracle/contracts.txt`) and the branches of `Tests.Tx.coverageCases`; the cases the emulator
+aborts on (`Tests.Tx.abortCases`) are checked on the model alone. Options: `--versions a,b,...` (default 0..16), `--filter
 <substring>`; `--fuzz <n>` `--seed <s>`: `n` random cases (versions, accounts, contracts with
 actions, messages) instead.
 -/
@@ -81,4 +83,13 @@ def main (args : List String) : IO UInt32 := do
   for u in unsupported do IO.println s!"[unsupported] {u}"
   IO.println s!"C++ outcomes: {kinds.toList}"
   IO.println s!"tx: cases={all.size} same={same} unsupported={unsupported.size} failures={failures}"
-  return if failures = 0 then 0 else 1
+  -- the cases the emulator aborts on (`Tests.Tx.abortCases`): the model alone, no oracle
+  let aborts := if fuzzCount > 0 then #[] else
+    (abortCases cfg versions).filter (fun c => filter.isEmpty || (c.name.splitOn filter).length > 1)
+  let mut abortFailures := 0
+  for c in aborts do
+    if let some v := abortCheck c then
+      abortFailures := abortFailures + 1
+      IO.println s!"[FAIL] {c.name}: {v}"
+  IO.println s!"tx (C++ aborts, the model alone): cases={aborts.size} failures={abortFailures}"
+  return if failures = 0 && abortFailures = 0 then 0 else 1

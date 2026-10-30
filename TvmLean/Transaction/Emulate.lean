@@ -69,10 +69,17 @@ configuration `configRoot`, the time `now`, the logical time `lt`, the block's r
 account. -/
 def emulate (configRoot shardAccount inMsg : Cell) (now lt : Nat) (randSeed : BitString) (libs : Option Cell := none) :
     Outcome := Id.run do
-  -- the inputs as bags of cells (emulator-extern.cpp:69, 383-387, 112-115, 120-123; boc.cpp:975-977)
-  if !inputsAtLevel0 configRoot libs (some inMsg) shardAccount then
+  -- the inputs as bags of cells (emulator-extern.cpp:69, 383-387, 112-115; boc.cpp:975-977): the
+  -- configuration, the libraries, the message
+  if !inputsAtLevel0 configRoot libs (some inMsg) Cell.empty then
     return .failed "bag of cells has a root with non-zero level"
   let some cfg := Config.decode configRoot | return .failed "config"
+  -- `vm::load_cell_slice` of the message (emulator-extern.cpp:117, outside any `try`) throws on a
+  -- special cell (cells/CellSlice.cpp:1099-1139): the emulator aborts
+  if inMsg.special then return .unsupported "a special message cell: vm::load_cell_slice throws (C++ aborts)"
+  -- the shard account (emulator-extern.cpp:120-123)
+  if shardAccount.levelMask != 0 then
+    return .failed "bag of cells has a root with non-zero level"
   -- the address: of the account, or of the message's destination
   let some (acc, _, _) := Reader.runExact (do return (← Reader.ref, ← Reader.bits 256, ← Reader.uint 64)) shardAccount
     | return .failed "shard account"

@@ -340,8 +340,11 @@ def Reader.stateInitCell : Reader Cell := do
     (start.cell.refs.extract start.refPos after.refPos)
 
 /-- `Transaction::unpack_input_msg` (not delivered by IHR): `none` where C++ fails (an external
-message is then rejected), `some (Except.error _)` for a path not modelled. -/
+message is then rejected), `some (Except.error _)` for a path not modelled or where C++ aborts. -/
 def Tx.unpackInputMsg (t : Tx) (sl : SizeLimits) (fwdPrices : MsgPrices) : Option (Except String Tx) := do
+  -- `vm::load_cell_slice(in_msg)` (transaction.cpp:887) throws on a special cell
+  -- (cells/CellSlice.cpp:1099-1139): the emulator aborts (`emulate` stops before, as C++ does)
+  if t.inMsg.special then return .error "a special message cell: vm::load_cell_slice throws (C++ aborts)"
   let s := Slice.ofCell t.inMsg
   if !s.haveBits 1 then none
   let (t, s) ← if !(s.readBits 1)[0]! then do

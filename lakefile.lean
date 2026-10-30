@@ -159,7 +159,8 @@ lean_lib TvmLeanTests where
     `Tests.Tx.StorageContract,
     `Tests.Tx.Corpus,
     `Tests.Tx.Real,
-    `Tests.Tx.Coverage
+    `Tests.Tx.Coverage,
+    `Tests.Tx.Aborts
   ]
 
 lean_exe "tvm-lean" where
