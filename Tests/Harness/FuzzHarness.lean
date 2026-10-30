@@ -15,6 +15,7 @@ structure FuzzFailure where
 
 structure FuzzRunResult where
   seed : UInt64
+  /-- The cases run (`count`, unless the generator gives too few the oracle can compare). -/
   total : Nat
   failures : Array FuzzFailure
   artifacts : Array System.FilePath
@@ -463,7 +464,6 @@ def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO Fu
       match artifact? with
       | some p => artifacts := artifacts.push p
       | none => pure ()
-    i := i + 1
-  pure { seed := spec.seed, total := spec.count, failures := failures, artifacts := artifacts }
+  pure { seed := spec.seed, total := i, failures := failures, artifacts := artifacts }
 
 end Tests
