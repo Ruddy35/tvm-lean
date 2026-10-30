@@ -53,7 +53,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 
 ## Шаблоны управления
 
-Каждый шаблон проверяется пробами (`tools/spec-coverage/probes.fif`): маленький код запускается `ran_case` от начала внешнего сообщения (глобальная версия от 4) с инвариантом `True`; шаблон **исполняется**, если все пути прогона доходят до конца. Результаты — `tools/spec-coverage/probe-results.json`.
+Каждый шаблон проверяется пробами (`tools/spec-coverage/probes.fif`): маленький код запускается `ran_case` от начала внешнего сообщения (глобальная версия от 4) с инвариантом `True` и списком действий `Acts` (действия инструкций модели, любой код у `SETCODE`); шаблон **исполняется**, если все пути прогона доходят до конца. Результаты — `tools/spec-coverage/probe-results.json`.
 
 | Шаблон | Статус | Чем | Пробы | Где остановились пробы, которые не прошли | Чего не хватает |
 |---|---|---|---|---|---|
@@ -74,10 +74,10 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `CALLREF` / `JMPREF` / `IF*REF` (продолжения в ссылках) | исполняется | обработчики (ссылка загружается как ячейка) | `callref`, `jmpref`, `ifjmpref` | — | — |
 | диспетчер методов: `SETCP0`, `DICTPUSHCONST`, `DICTIGETJMPZ` по словарю кода | исполняется | `Spec.setcp0`, `Spec.dictPushConst`, `Spec.dictGetExec_*` (`Exec/Spec/Dispatch.lean`): поиск — замкнутый факт кода (`dictLookupLoads`, решает ядро) | `calldict` | — | — |
 | `CALLDICT` / `JMPDICT` / `PREPAREDICT` (процедуры через `c3`) | исполняется | `Spec.callDict`, `Spec.jmpDict`, `Spec.prepareDict` | `calldict`, `jmpdict`, `preparedict` | — | — |
-| `RUNVM` / `RUNVMX` (дочерняя VM) | нет | обработчик; прогон дочерней VM (`VmState.runWith`) рекурсивен | `runvm` | runvm: failed at cell code, bit 32: RUNVM 0 (the run is there) | прогон дочерней VM (`VmState.runWith`) — рекурсивная функция: обработчик не считается |
+| `RUNVM` / `RUNVMX` (дочерняя VM) | исполняется | `Spec.runvm` (`Exec/Spec/Runvm.lean`) для режимов без аргументов сверх кода и значений: прогон дочерней VM — терм (`childRun` от `Runvm.child`), стек и газ родителя выписаны (`Runvm.run`) | `runvm` | — | — |
 | `SETCP` с кодовой страницей не 0, `SETCPX` | исполняется | обработчик; `stepCode` требует `cp = 0` | `setcp1`, `setcpx` | — | — |
-| действия `SENDRAWMSG` / `RAWRESERVE` (`c5`) | исполняется | `Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` закрывает `c5` (`Check/Tactic.lean`) | `sendrawmsg`, `rawreserve` | — | — |
-| действия `SETCODE` / `SETLIBCODE` / `CHANGELIB` / `SENDMSG` / `RAWRESERVEX` | нет | `Spec.setCode` исполняется; `ran_case` доказывает только инварианты неизменного кода, `SafeActs` допускает лишь `SENDRAWMSG` и `RAWRESERVE` | `setcode`, `setlibcode`, `changelib`, `sendmsg` | setcode: failed at cell code, bit 24: the implicit RET at the end of the cell; setlibcode: failed at cell code, bit 32: the implicit RET at the end of the cell; changelib: failed at cell code, bit 32: the implicit RET at the end of the cell; sendmsg: failed at cell code, bit 16: SENDMSG (the run is there) | по замыслу: `ran_case` доказывает инварианты неизменного кода, `SafeActs` допускает лишь `SENDRAWMSG` и `RAWRESERVE`; `SENDMSG` к тому же версии 4 |
+| действия `SENDRAWMSG` / `RAWRESERVE` (`c5`) | исполняется | `Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` (или `Acts`) закрывает `c5` (`Check/Tactic.lean`) | `sendrawmsg`, `rawreserve` | — | — |
+| действия `SETCODE` / `SETLIBCODE` / `CHANGELIB` / `SENDMSG` / `RAWRESERVEX` | исполняется | `Spec.setCode`, `Spec.setLibCode`, `Spec.changeLib`, `Spec.rawReserveX_null`/`_cell` (`Exec/Spec/Actions.lean`), `Spec.sendMsg` (`Exec/Spec/SendMsg.lean`); списки действий `Acts K` (`Tx/Acts.lean`) закрывает `acts_close`; строка `code K` у contract-check (`Tx/Upgrade.lean`) | `setcode`, `setlibcode`, `changelib`, `sendmsg` | — | — |
 | изменение `c4` / `c5` / `c7` (`POP c4`, `POP c5`, `POP c7`, `SETGLOB`) | исполняется | `Spec.popRoot` (`c4`); остальное — обработчиком | `c4-update`, `c5-update`, `c7-update`, `setglob` | — | — |
 | `COMMIT` | исполняется | `Spec.commit`; `keeps_haltResult` проверяет зафиксированное состояние | `commit` | — | — |
 | `ACCEPT` / `SETGASLIMIT` | исполняется | `Spec.accept`, `GasLimits.changeLimit_infty_min`; `SETGASLIMIT` — обработчиком | `accept`, `setgaslimit` | — | — |
