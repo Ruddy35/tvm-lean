@@ -2,7 +2,7 @@ import TvmLean.Proofs.Exec.Eval
 import TvmLean.Proofs.Tx.Shape
 
 /-!
-# Specifications: `HASHEXT` with an immediate hash
+# Specifications: `HASHEXT` with an immediate hash, `SHA256U`
 
 `HASHEXT{A}{R} h` (C++ `exec_hash_ext`, tonops.cpp) hashes the bits of the `cnt` slices and builders
 under the count with the hash `h` (0 SHA-256, 1 SHA-512, 2 BLAKE2b-512, 3 Keccak-256, 4 Keccak-512) and
@@ -13,6 +13,8 @@ digest. Here, for an immediate hash, the handler is `HashExt.prog h` (by `rfl`):
 without the branch of the hash from the stack, the digest a term (`HashExt.digest`, irreducible, so
 that no run computes a hash of its input), the loop over its bytes of `HASHEXTA` the bits of the
 digest (`HashExt.outBitsLoop`, `HashExt.bits`). SHA-256 gives 32 bytes (`HashExt.digest_size_sha256`).
+
+`SHA256U` (`Spec.sha256U`) pushes the SHA-256 of a slice's bits, the digest `HashExt.digest 0` too.
 -/
 
 namespace TvmLean
@@ -159,6 +161,18 @@ namespace Spec
     ExceptT.run (execInstr (.cryptoOp (.hashExt 4 a r))) st = ExceptT.run (HashExt.prog 4 a r) st := by
   rw [execInstr_hashExt]
   with_unfolding_all rfl
+
+/-- `SHA256U` (C++ `exec_compute_sha256`, cryptoops.cpp) on the stack `s sl`: the SHA-256 of the
+bits of the slice (a whole number of bytes, cell_und else) as an unsigned integer, the digest
+`HashExt.digest 0` (a term no run computes). -/
+@[vm_spec] theorem sha256U (st : VmState) (s : Stack) (sl : Slice) (hs : st.stack = s.push (.slice sl)) :
+    ExceptT.run (execInstr (.cryptoOp .sha256U)) st =
+      if sl.bitsRemaining % 8 = 0 then
+        (.ok (), { st with stack := s.push (.int (.num
+          (byteArrayToNatBE (HashExt.digest 0 (bitStringToBytesBE (sl.readBits sl.bitsRemaining))) : Nat))) })
+      else (.error .cellUnd, { st with stack := s }) := by
+  rw [HashExt.digest_sha256]
+  by_cases h : sl.bitsRemaining % 8 = 0 <;> vm_simp [hs, h]
 
 end Spec
 
