@@ -105,6 +105,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Tx.NoSetCode, `TvmLean.Proofs.Exec.IteInst, `TvmLean.Proofs.Exec.Havoc,
     `TvmLean.Proofs.Tx.InMsg, `TvmLean.Proofs.Check.InMsg,
     `TvmLean.Proofs.Exec.FramedStdAddr, `TvmLean.Proofs.Check.StackNorm,
+    `TvmLean.Proofs.Exec.FramedDictMinMax,
     `TvmLean.Proofs.Exec.Dict.Near, `TvmLean.Proofs.Check.Unknown, `TvmLean.Proofs.Check.Tactic,
     `TvmLean.Proofs.Exec.Spec.Ctr, `TvmLean.Proofs.Exec.Spec.FlowRef, `TvmLean.Proofs.Exec.Spec.DictLoad,
     `TvmLean.Proofs.Check.Loops,
