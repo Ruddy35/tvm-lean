@@ -759,6 +759,24 @@ arguments of the projections, `d =?= ⟨?a, ?b⟩`, and so every field with `d`'
 def reduceProjCtors (e : Expr) : MetaM Expr :=
   Meta.transform e (post := fun s => return .done (← projTerm s))
 
+/-- `e` with `Option.isSome` and `Option.toArray` of `none` and `some a` reduced (`false`, `true`,
+`#[]`, `#[a]`, as their definitions read): an `Option` field of a witness that `checkExists` made a
+constructor, against the flag and the references a run wrote. -/
+def reduceOptionCtors (e : Expr) : MetaM Expr :=
+  Meta.transform e (post := fun x => do
+    let some (fn, β, o) := (if x.isAppOfArity ``Option.isSome 2 then some (``Option.isSome, x.getArg! 0, x.getArg! 1)
+        else if x.isAppOfArity ``Option.toArray 2 then some (``Option.toArray, x.getArg! 0, x.getArg! 1)
+        else none) | return .continue
+    let o ← whnfR (← instantiateMVars o)
+    let u ← getDecLevel β
+    let isSome := o.isAppOfArity ``Option.some 2
+    unless isSome || o.isAppOfArity ``Option.none 1 do return .continue
+    if fn == ``Option.isSome then
+      return .done (mkConst (if isSome then ``Bool.true else ``Bool.false))
+    let nil := mkApp (mkConst ``List.nil [u]) β
+    let l := if isSome then mkApp3 (mkConst ``List.cons [u]) β (o.getArg! 1) nil else nil
+    return .done (mkApp2 (mkConst ``List.toArray [u]) β l))
+
 /-- Finds the witnesses of `∃ x, ...` by unification: a witness of a structure type is its
 constructor on new unknowns, the equations among the parts (`∧`) solved by unification
 (reducible) first; of a disjunction the first case whose equations of data (not numbers) all unify.
@@ -783,10 +801,40 @@ def checkExists (g : MVarId) : (depth : Nat := 256) → MetaM (List MVarId)
         return r
       s.restore
       let w ← mkWitness α
+      let s1 ← saveState
       let g' ← mkFreshExprSyntheticOpaqueMVar (← reduceProjCtors (mkApp p w).headBeta) (← g.getTag)
       -- the type of `g'` is that of `p w` with its projections reduced (definitionally equal)
       g.assign (mkAppN (mkConst ``Exists.intro [← getLevel α]) #[α, p, w, g'])
-      return ← checkExists g'.mvarId! depth
+      let r ← checkExists g'.mvarId! depth
+      if ← allDataEqsSolved r then return r
+      -- an `Option` field the data encodes by its flag and its references (`Option.isSome`,
+      -- `Option.toArray`: the root of a dictionary) does not unify as an unknown: each such field
+      -- `none` or `some` of an unknown, those of its functions reduced (`reduceOptionCtors`)
+      let s2 ← saveState
+      s1.restore
+      let mut opts : Array (MVarId × Expr) := #[]
+      for a in w.getAppArgs do
+        let a ← instantiateMVars a
+        unless a.isMVar do continue
+        let aTy ← whnfR (← inferType a)
+        if aTy.isAppOfArity ``Option 1 then opts := opts.push (a.mvarId!, aTy.appArg!)
+      if !opts.isEmpty && opts.size ≤ 3 then
+        let s3 ← saveState
+        -- the fields `none` (bit `i` of `k` clear) or `some` of an unknown, in turn
+        for k in [0:2 ^ opts.size] do
+          s3.restore
+          for i in [0:opts.size] do
+            let (m, β) := opts[i]!
+            if (k >>> i) % 2 == 0 then m.assign (← mkAppOptM ``Option.none #[β])
+            else m.assign (← mkAppOptM ``Option.some #[β, ← mkFreshExprMVar β])
+          let body ← reduceOptionCtors (← reduceProjCtors (← instantiateMVars (mkApp p w).headBeta))
+          let g'' ← mkFreshExprSyntheticOpaqueMVar body (← g.getTag)
+          let r' ← checkExists g''.mvarId! depth
+          if ← allDataEqsSolved r' then
+            g.assign (mkAppN (mkConst ``Exists.intro [← getLevel α]) #[α, p, ← instantiateMVars w, g''])
+            return r'
+      s2.restore
+      return r
     if ty.isAppOfArity ``And 2 then
       let ga ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 0) (← g.getTag)
       let gb ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 1) (← g.getTag)
@@ -967,17 +1015,56 @@ def closeChecked (g : MVarId) (tac : TSyntax `tactic) (hb : Nat) : TacticM Bool 
     s.restore
     return false
 
-/-- The goal `X → P (some c4) ∧ SafeActs c5` of a path that commits (`X` its exit or `COMMIT`): `c5`
-by `safe_acts_close`; `P` unfolded, normalized by `simp only` with the hints and the lemmas of
-builders and bits, its witnesses found by unification (`checkExists`), the rest by `rfl`,
-`assumption`, `omega` (first with the hypotheses that share a term with the goal only,
-`check_omega_rel`), `decide`, `simp only` with the hints, an implication by `intros` and `rfl`,
-`assumption` or `omega`, each within a budget of heartbeats and its proof checked by the kernel at
-once (`closeChecked`). The report if a part is left. -/
-def commitPath (g : MVarId) (args : Array Syntax) (what : String)
-    (ec : Option Expr) : TacticM (Option MessageData) := do
+/-- A property `gP` of data the run built (`P (some c4)`, its head definition unfolded): normalized
+by `simp only` with the hints and the lemmas of builders and bits, its witnesses found by
+unification (`checkExists`), the rest by `rfl`, `assumption`, `omega` (first with the hypotheses that
+share a term with the goal only, `check_omega_rel`), `decide`, `simp only` with the hints, an
+implication by `intros` and `rfl`, `assumption` or `omega`, each within a budget of heartbeats and
+its proof checked by the kernel at once (`closeChecked`). The parts left (none: shown). -/
+def closeData (gP : MVarId) (args : Array Syntax) : TacticM (List MVarId) := do
   let sargs : Syntax.TSepArray [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
     `Lean.Parser.Tactic.simpLemma] "," := ⟨args⟩
+  let simpTac ← `(tactic| simp only [Builder.finalize, Builder.storeBits, Builder.empty,
+    Array.empty_append, Array.append_empty, Array.append_assoc, Array.push_empty, Option.some.injEq,
+    Int.toNat_natCast_add_one, Int.toNat_natCast, bitsToNat_natToBits, natToBits_size,
+    Array.size_append, Array.extract_append, extract_natToBits_empty, extract_natToBits_past,
+    extract_natToBits_all, readBits_mkOrdinary, readBits_ofCell_mkOrdinary, Nat.reducePow,
+    Nat.reduceAdd, Nat.reduceSub, Nat.reduceMod, Nat.mod_eq_of_lt, check_close, $sargs,*])
+  let gs ← match ← tryTac gP simpTac 200000 with
+    | some gs => pure gs
+    | none => pure [gP]
+  let mut left : List MVarId := []
+  for g' in gs do
+    for g'' in ← checkExists g' do
+      -- a number read from `n` bits is below `2 ^ n` (a field of the data taken from the message)
+      -- `assumption` at the default transparency last: against an inequality of the path (`n ≤ …`
+      -- of a field read from the message) it unfolds the reads (`bitsToNat`) until the heartbeats
+      -- of the attempt run out, seconds each time, where `omega` closes the goal at once
+      let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl),
+        ← `(tactic| with_reducible assumption),
+        ← `(tactic| exact VM.bitsToNat_readBits_lt _ _),
+        ← `(tactic| check_omega_rel), ← `(tactic| (dsimp only; check_omega_rel)),
+        ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
+        ← `(tactic| (simp only [check_close, $sargs,*]; done)),
+        ← `(tactic| (dsimp only; simp only [check_close, $sargs,*]; omega)),
+        -- an implication (`d0.active = true → d.active = true` of a field set or kept)
+        ← `(tactic| (intros; first | with_reducible rfl | with_reducible assumption | omega)),
+        ← `(tactic| assumption), ← `(tactic| (intros; assumption))]
+      let mut closed := false
+      for c in closers do
+        if closed then break
+        if ← closeChecked g'' c 50000 then closed := true
+      unless closed do
+        -- reported with the projections of the witnesses reduced
+        match ← tryTac g'' (← `(tactic| dsimp only)) 50000 with
+        | some gs' => left := left ++ gs'
+        | none => left := left ++ [g'']
+  return left
+
+/-- The goal `X → P (some c4) ∧ SafeActs c5` of a path that commits (`X` its exit or `COMMIT`): `c5`
+by `safe_acts_close`; `P` unfolded and shown by `closeData`. The report if a part is left. -/
+def commitPath (g : MVarId) (args : Array Syntax) (what : String)
+    (ec : Option Expr) : TacticM (Option MessageData) := do
   let (_, g) ← g.intro1
   -- the registers after a jump counted (`VmState.countJump`, the end of the run) are those before
   let g ← match ← tryTac g (← `(tactic| simp only [countJump_regs, countJump_cstate])) 20000 with
@@ -1034,37 +1121,7 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
         gls[i]!.assign (← mkAppM ``And.left #[rest])
         rest ← mkAppM ``And.right #[rest]
     gP := gC.mvarId!
-  let simpTac ← `(tactic| simp only [Builder.finalize, Builder.storeBits, Builder.empty,
-    Array.empty_append, Array.append_empty, Array.append_assoc, Array.push_empty, Option.some.injEq,
-    Int.toNat_natCast_add_one, Int.toNat_natCast, bitsToNat_natToBits, natToBits_size,
-    Array.size_append, Array.extract_append, extract_natToBits_empty, extract_natToBits_past,
-    extract_natToBits_all, readBits_mkOrdinary, readBits_ofCell_mkOrdinary, Nat.reducePow,
-    Nat.reduceAdd, Nat.reduceSub, Nat.reduceMod, Nat.mod_eq_of_lt, check_close, $sargs,*])
-  let gs ← match ← tryTac gP simpTac 200000 with
-    | some gs => pure gs
-    | none => pure [gP]
-  let mut left : List MVarId := []
-  for g' in gs do
-    for g'' in ← checkExists g' do
-      -- a number read from `n` bits is below `2 ^ n` (a field of the data taken from the message)
-      let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl),
-        ← `(tactic| with_reducible assumption), ← `(tactic| assumption),
-        ← `(tactic| exact VM.bitsToNat_readBits_lt _ _),
-        ← `(tactic| check_omega_rel), ← `(tactic| (dsimp only; check_omega_rel)),
-        ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
-        ← `(tactic| (simp only [check_close, $sargs,*]; done)),
-        ← `(tactic| (dsimp only; simp only [check_close, $sargs,*]; omega)),
-        -- an implication (`d0.active = true → d.active = true` of a field set or kept)
-        ← `(tactic| (intros; first | with_reducible rfl | assumption | omega))]
-      let mut closed := false
-      for c in closers do
-        if closed then break
-        if ← closeChecked g'' c 50000 then closed := true
-      unless closed do
-        -- reported with the projections of the witnesses reduced
-        match ← tryTac g'' (← `(tactic| dsimp only)) 50000 with
-        | some gs' => left := left ++ gs'
-        | none => left := left ++ [g'']
+  let left ← closeData gP args
   if left.isEmpty then return none
   return some (← report g (what ++ ": the data left does not satisfy the invariant") ec left)
 

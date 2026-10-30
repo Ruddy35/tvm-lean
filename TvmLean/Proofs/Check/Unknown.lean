@@ -636,6 +636,51 @@ elab "check_dict_facts" : tactic => withMainContext do
       g := g'
       debugNote "check_dict_facts: a delete"
       continue
+    -- a set or a delete on a well-formed dictionary (`DICT*SET*`, `DICT*ADD*`, `DICT*DEL`): the
+    -- dictionary it leaves well-formed (`Dict.WF.setRes`, `Dict.WF.delRes`) with the key length
+    -- of the hypothesis; a set that leaves no root changed nothing (`Dict.setRes_none`)
+    if lhs.isAppOfArity ``Dict.setRes 4 || lhs.isAppOfArity ``Dict.delRes 2 then
+      let isSet := lhs.isAppOfArity ``Dict.setRes 4
+      let root := lhs.getArg! 0
+      let key := lhs.getArg! 1
+      let tup := rhs.appArg!
+      -- the new root: the first component of a set's result, the second of a delete's
+      let newRoot? : Option Expr :=
+        if isSet then (if tup.isAppOfArity ``Prod.mk 4 then some (tup.getArg! 2) else none)
+        else if tup.isAppOfArity ``Prod.mk 4 then
+          let t2 := tup.getArg! 3
+          if t2.isAppOfArity ``Prod.mk 4 then some (t2.getArg! 2) else none
+        else none
+      for d' in lctx do
+        if d'.isImplementationDetail then continue
+        let t' ← instantiateMVars d'.type
+        unless t'.isAppOfArity ``Dict.WF 2 do continue
+        unless ← withReducible (isDefEq (t'.getArg! 0) root) do continue
+        let m := t'.getArg! 1
+        let gEq ← mkFreshExprSyntheticOpaqueMVar (← mkEq (← mkAppM ``Array.size #[key]) m)
+        unless ← closesWith gEq.mvarId! (← `(tactic| first | rfl | assumption | omega |
+            (simp only [natToBits_size, Array.size_extract, Slice.readBits]; omega) | (simp; done))) 20000 do
+          continue
+        let pf ← mkAppM (if isSet then ``Dict.WF.setRes else ``Dict.WF.delRes)
+          #[mkFVar d'.fvarId, ← instantiateMVars gEq, mkFVar d.fvarId]
+        let fty ← instantiateMVars (← inferType pf)
+        if known.contains fty then break
+        known := known.push fty
+        let (_, g') ← (← g.assert `hwfd fty pf).intro1P
+        g := g'
+        debugNote s!"check_dict_facts: a {if isSet then "set" else "delete"} keeps the dictionary well-formed"
+        break
+      if isSet then
+        if let some r := newRoot? then
+          if r.isAppOfArity ``Option.none 1 then
+            let pf ← mkAppM ``Dict.setRes_none #[mkFVar d.fvarId]
+            let fty ← instantiateMVars (← inferType pf)
+            unless known.contains fty do
+              known := known.push fty
+              let (_, g') ← (← g.assert `hset fty pf).intro1P
+              g := g'
+              debugNote "check_dict_facts: a set that left no root changed nothing"
+      continue
     let isNear := lhs.isAppOfArity ``dictNearestWithCells 6
     let isMinMax := lhs.isAppOfArity ``dictMinMaxWithCells 5
     unless isNear || isMinMax do continue
