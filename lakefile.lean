@@ -104,7 +104,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Contracts.Wallet3Run.ExternalOld, `TvmLean.Proofs.Contracts.Wallet3Induction,
     `TvmLean.Proofs.Tx.NoSetCode, `TvmLean.Proofs.Exec.IteInst, `TvmLean.Proofs.Exec.Havoc,
     `TvmLean.Proofs.Tx.InMsg, `TvmLean.Proofs.Check.InMsg,
-    `TvmLean.Proofs.Exec.FramedStdAddr, `TvmLean.Proofs.Check.StackNorm,
+    `TvmLean.Proofs.Exec.FramedStdAddr, `TvmLean.Proofs.Check.StackNorm, `TvmLean.Proofs.Check.MsgAddr,
     `TvmLean.Proofs.Exec.FramedDictMinMax, `TvmLean.Proofs.Exec.FramedDictNear,
     `TvmLean.Proofs.Exec.FramedDictSet, `TvmLean.Proofs.Exec.FramedDictOptRef,
     `TvmLean.Proofs.Exec.FramedDictPfx, `TvmLean.Proofs.Exec.FramedDictSubdict,

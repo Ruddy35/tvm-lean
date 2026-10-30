@@ -220,6 +220,8 @@ def generate(args: argparse.Namespace) -> tuple[str, str, dict]:
         header_imports.append("import TvmLean.Proofs.Check.InMsg")
         # a stack a step leaves as a fold (REVERSE)
         header_imports.append("import TvmLean.Proofs.Check.StackNorm")
+        # the slice after a message address, the cell it reads moved forward
+        header_imports.append("import TvmLean.Proofs.Check.MsgAddr")
     # the code may change (`code K` or `code self`): the action lists `Acts`
     code_k = d.get("code")
     if code_k is not None:
