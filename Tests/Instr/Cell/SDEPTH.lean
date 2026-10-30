@@ -22,8 +22,10 @@ SDEPTH branch-mapping notes:
 Branch map covered by this suite:
 - dispatch guard: only `.cellOp .sdepth` is handled; others must hit `next`;
 - stack checks: `popSlice` enforces underflow (`stkUnd`) and strict top type (`typeChk`);
-- success path: pushes exactly one int `s.cell.depth` and preserves values below top;
-- cursor invariance: result depends on `s.cell.depth`, not `bitPos`/`refPos`;
+- success path: pushes exactly one int `Slice.depth s` and preserves values below top;
+- remaining references: the result is one more than the deepest reference left in the slice
+  (C++ `CellSlice::get_depth`, crypto/vm/cells/CellSlice.cpp:803-809), 0 if none is left: a slice
+  advanced past references (`LDREF`) no longer counts them, its bits do not matter;
 - opcode/decode boundary: canonical opcode is `0xd764`; nearby hole `0xd763` stays invalid;
   right neighbor `0xd765` decodes to `.cdepth` (distinct instruction family).
 -/
@@ -144,7 +146,21 @@ private def sliceWindowConsumed : Slice :=
     refPos := 3 }
 
 private def sdepthExpectedOut (below : Array Value) (s : Slice) : Array Value :=
-  below ++ #[intV (Int.ofNat s.cell.depth)]
+  below ++ #[intV (Int.ofNat s.depth)]
+
+/-- A slice whose references have different depths, the deepest first: 4, 1, 3, 0 (`SDEPTH` 5 on
+the whole slice; past 1, 2, 3, 4 references 4, 4, 1, 0, where the depth of the slice's cell stays 5). -/
+private def advRefs : Array Cell := #[cellDepth4Wide, cellDepth1, cellDepth3, cellDepth0]
+
+private def advSlice (bits : Nat) : Slice := mkFullSlice bits 3 advRefs
+
+/-- `k` references loaded off the slice on top (`LDREF`, `NIP`), after `bits` bits (`LDU`, `NIP`),
+then `SDEPTH`: the C++ side sees the same slice advanced in its cell. -/
+private def advProgram (bits k : Nat) : Array Instr :=
+  (if bits = 0 then #[] else #[.ldu bits, .pop 1]) ++
+    (Array.replicate k #[.ldref, .pop 1]).flatten ++ #[sdepthInstr]
+
+private def advExpected : Array Int := #[5, 4, 4, 1, 0]
 
 private def sdepthSetGasExact : Int :=
   computeExactGasBudget sdepthInstr
@@ -208,7 +224,7 @@ private def pickBadTopValue (rng0 : StdGen) : Value × String × StdGen :=
     (.cont (.quit 0), "cont", rng1)
 
 private def genSdepthFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
-  let (shape, rng1) := randNat rng0 0 15
+  let (shape, rng1) := randNat rng0 0 19
   let (case0, rng2) :=
     if shape = 0 then
       (mkSdepthCase "fuzz/ok/full-empty-cell" #[.slice sliceDepth0Empty], rng1)
@@ -259,9 +275,18 @@ private def genSdepthFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
       (mkSdepthCase "fuzz/gas/exact-minus-one"
         #[.slice (mkFullSlice bits 5 (takeRefCells refs))]
         #[.pushInt (.num sdepthSetGasExactMinusOne), .tonEnvOp .setGasLimit, sdepthInstr], rng3)
-    else
+    else if shape = 15 then
       (mkSdepthCase "fuzz/stress/max-bits-refs"
         #[.slice (mkFullSlice 1023 6 (takeRefCells 4))], rng1)
+    else
+      let (refs, rng2) := pickRefCountMixed rng1
+      let (k, rng3) := randNat rng2 0 refs
+      let (bits, rng4) := randNat rng3 0 64
+      let (skip, rng5) := randNat rng4 0 bits
+      let pool : Array Cell := #[cellDepth4Wide, cellDepth1, cellDepth3, cellDepth0, cellDepth2, cellDepth5]
+      let (start, rng6) := randNat rng5 0 2
+      (mkSdepthCase s!"fuzz/ok/advanced-bits-{skip}-refs-{k}-of-{refs}"
+        #[.slice (mkFullSlice bits 7 (pool.extract start (start + refs)))] (advProgram skip k), rng6)
   let (tag, rng3) := randNat rng2 0 999_999
   ({ case0 with name := s!"{case0.name}/{tag}" }, rng3)
 
@@ -316,6 +341,16 @@ private def oracleErrorCases : Array OracleCase :=
       #[.slice sliceDepth2Chain, .null]
   ]
 
+/-- Slices advanced in their cell before `SDEPTH` (by the code, so that C++ runs on the same slice):
+past 0..4 references of different depths, with and without bits read first. -/
+private def oracleAdvancedCases : Array OracleCase :=
+  (Array.range 5).map (fun k =>
+      mkSdepthCase s!"ok/advanced/refs-{k}" #[.slice (advSlice 0)] (advProgram 0 k)) ++
+  (Array.range 5).map (fun k =>
+      mkSdepthCase s!"ok/advanced/bits-8-refs-{k}" #[.slice (advSlice 32)] (advProgram 8 k)) ++
+  #[mkSdepthCase "ok/advanced/deep-preserved-refs-2" #[intV 7, .slice (advSlice 32)] (advProgram 16 2),
+    mkSdepthCase "ok/advanced/all-consumed-bits-left" #[.slice (advSlice 1023)] (advProgram 1 4)]
+
 private def oracleGasCases : Array OracleCase :=
   #[
     mkSdepthCase "gas/exact-cost-succeeds"
@@ -345,7 +380,7 @@ def suite : InstrSuite where
             sliceDepth5Chain
           ]
         for s in checks do
-          expectOkStack s!"ok/full/depth-{s.cell.depth}/bits-{s.bitsRemaining}/refs-{s.refsRemaining}"
+          expectOkStack s!"ok/full/depth-{s.depth}/bits-{s.bitsRemaining}/refs-{s.refsRemaining}"
             (runSdepthDirect #[.slice s])
             (sdepthExpectedOut #[] s)
 
@@ -354,14 +389,20 @@ def suite : InstrSuite where
           (runSdepthDirect (below ++ #[.slice sliceDepth5Wide]))
           (sdepthExpectedOut below sliceDepth5Wide) }
     ,
-    -- Branch: `SDEPTH` reads depth from the backing cell, not from slice cursor positions.
-    { name := "unit/direct/cursor-invariance-window-slices"
+    -- Branch: `SDEPTH` counts the references left in the slice only (C++ `CellSlice::get_depth`).
+    { name := "unit/direct/remaining-refs-window-slices"
       run := do
-        let windows : Array Slice := #[sliceWindowHead, sliceWindowMid, sliceWindowConsumed]
-        for s in windows do
+        let windows : Array (Slice × Int) :=
+          #[(sliceWindowHead, 4), (sliceWindowMid, 4), ({ sliceWindowMid with refPos := 2 }, 3),
+            (sliceWindowConsumed, 0)]
+        for (s, d) in windows do
           expectOkStack s!"window/bitPos-{s.bitPos}/refPos-{s.refPos}"
             (runSdepthDirect #[.slice s])
-            (sdepthExpectedOut #[] s) }
+            #[intV d]
+        for k in [0:5] do
+          expectOkStack s!"advanced/refPos-{k}"
+            (runSdepthDirect #[.slice { advSlice 16 with bitPos := 8, refPos := k }])
+            #[intV advExpected[k]!] }
     ,
     -- Branch: all direct failures come from `popSlice`.
     { name := "unit/direct/underflow-and-type-checks"
@@ -466,7 +507,7 @@ def suite : InstrSuite where
           (runSdepthDispatchFallback clevelInstr #[.cell cellDepth1])
           #[.cell cellDepth1, intV dispatchSentinel] }
   ]
-  oracle := oracleSuccessCases ++ oracleErrorCases ++ oracleGasCases
+  oracle := oracleSuccessCases ++ oracleAdvancedCases ++ oracleErrorCases ++ oracleGasCases
   fuzz := #[
     { seed := 2026021007
       count := 500

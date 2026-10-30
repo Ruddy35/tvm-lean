@@ -22,6 +22,13 @@ def Slice.toCellRemaining (s : Slice) : Cell :=
     (s.cell.bits.extract s.bitPos s.cell.bits.size)
     (s.cell.refs.extract s.refPos s.cell.refs.size)
 
+/-- C++ `CellSlice::get_depth` (crypto/vm/cells/CellSlice.cpp:803-809): one more than the deepest
+of the references left in the slice (`Cell::get_depth()`, the depth at the maximal level: the slice's
+children are not virtualized, a child's level is at most the effective level of its parent), 0 if
+none is left. -/
+def Slice.depth (s : Slice) : Nat :=
+  (s.cell.refs.extract s.refPos s.cell.refs.size).foldl (fun d c => Nat.max d (c.depth + 1)) 0
+
 def Slice.haveBits (s : Slice) (n : Nat) : Bool :=
   decide (s.bitPos + n ≤ s.cell.bits.size)
 
