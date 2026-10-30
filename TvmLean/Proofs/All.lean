@@ -177,6 +177,7 @@ import TvmLean.Proofs.Exec.Spec.ContMany
 import TvmLean.Proofs.Exec.Spec.SetContVarArgs
 import TvmLean.Proofs.Exec.Spec.HashExt
 import TvmLean.Proofs.Exec.Spec.RunvmArgs
+import TvmLean.Proofs.Exec.Spec.CellCut
 
 /-!
 # All proof modules together
