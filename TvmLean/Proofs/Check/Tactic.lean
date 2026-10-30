@@ -1156,6 +1156,27 @@ register_option check.cut : Nat := {
     auxiliary theorem over the hypotheses it uses (0: no cut)"
 }
 
+register_option check.reuse : Bool := {
+  defValue := true
+  descr := "whether `check_paths` (TvmLean/Proofs/Check/Tactic.lean) states a cut over the steps, the \
+    libraries loaded and the actions written as variables, cuts where an earlier path was cut, and \
+    closes a cut by the theorem of an earlier cut with the same statement"
+}
+
+register_option check.joinVisited : Bool := {
+  defValue := true
+  descr := "whether `check_paths` also cuts where an earlier path ran from (`check.reuse`)"
+}
+
+register_option check.cutClean : Bool := {
+  defValue := true
+  descr := "whether the cut every `check.cut` steps waits for a goal that is a run and nothing else"
+}
+
+register_option check.cutFuel : Bool := {
+  defValue := true
+  descr := "whether a cut states its run over its fuel as a variable (`check.reuse`)"
+}
 
 register_option check.stepHeartbeats : Nat := {
   defValue := 0
@@ -1179,7 +1200,7 @@ and the hypotheses about the gas cleared (those of `pathCondition`'s count): a s
 the goal. The gas of a run is a term that grows with every step, its loads nested in the loaded cells
 before them (`cellLoadGas (cellsLoadedAfter ...) c`); no path's end depends on it (a run commits or
 not whatever its gas, and every gas check is a case anyway), so a cut makes it a variable again. -/
-def generalizeGas (g : MVarId) : MetaM MVarId := g.withContext do
+def generalizeGas (g : MVarId) (more : Bool := true) : MetaM MVarId := g.withContext do
   let ty ← instantiateMVars (← g.getType)
   let some st := Exec.runState? ty | return g
   unless st.isAppOfArity ``VmState.mk 20 do return g
@@ -1187,6 +1208,27 @@ def generalizeGas (g : MVarId) : MetaM MVarId := g.withContext do
   let some iGas := fields.idxOf? `gas | return g
   let some iLc := fields.idxOf? `loadedCells | return g
   let mut g := g
+  -- the counters no step reads (as the holes of a loop: `loopHolesX`), the steps run and the
+  -- libraries loaded, made variables in their field only (`#[]` of the libraries loaded is also the
+  -- libraries refused and missed, which the run reads): paths that meet at a code position then
+  -- reach one statement there
+  for n in (if more then [`steps, `loadedLibraries] else []) do
+    let some i := fields.idxOf? n | continue
+    let g0 := g
+    let g? ← g0.withContext do
+      let ty ← instantiateMVars (← g0.getType)
+      let some st := Exec.runState? ty | return none
+      unless st.isAppOfArity ``VmState.mk 20 do return none
+      let e := st.getArg! i
+      if e.isFVar || e.hasLooseBVars then return none
+      let stB := mkAppN st.getAppFn (st.getAppArgs.set! i (mkBVar 0))
+      let body := ty.replace fun x => if x == st then some stB else none
+      unless body.hasLooseBVars do return none
+      let m ← mkFreshExprSyntheticOpaqueMVar (mkForall n .default (← inferType e) body) (← g0.getTag)
+      g0.assign (mkApp m e)
+      let (_, g') ← m.mvarId!.intro1P
+      return some g'
+    if let some g' := g? then g := g'
   for (i, n) in [(iGas, `gas), (iLc, `loaded)] do
     let ty ← instantiateMVars (← g.getType)
     let some st := Exec.runState? ty | return g
@@ -1213,16 +1255,218 @@ def generalizeGas (g : MVarId) : MetaM MVarId := g.withContext do
         clear := clear.push d.fvarId
     g.tryClearMany clear
 
-/-- Cuts the path at the goal `g`: its run with the gas and the loaded cells made variables
-(`generalizeGas`), over the hypotheses it uses, is proved as an auxiliary theorem (`mkAuxTheorem`,
-checked by the kernel on its own) by `sub`, and closes `g`. The reports of `sub` (then `g` is left
-open: the whole check fails). Two paths that reach the same statement share its theorem. -/
-def cutGoal (g : MVarId) (sub : List MVarId → TacticM (Array MessageData)) :
+/-- `c5` of the run in the goal `g` made a variable with `SafeActs` of it a hypothesis, once
+`safe_acts_close` shows it of the actions written: the rest of the run reads the actions only to add
+to them and the end of a path asks `SafeActs` of the list, so paths that sent different messages
+reach one statement there (`cutGoal`). `g` as it is if `c5` is a variable or not shown safe. -/
+def generalizeC5 (g : MVarId) : TacticM MVarId := g.withContext do
+  let ty ← instantiateMVars (← g.getType)
+  -- (`Keeps`, which asks `SafeActs`; not `KeepsActs`, which asks its own predicate)
+  unless ty.isAppOfArity ``Keeps 2 do return g
+  let some st := Exec.runState? ty | return g
+  unless st.isAppOfArity ``VmState.mk 20 do return g
+  let fields := getStructureFields (← getEnv) ``VmState
+  let some iRegs := fields.idxOf? `regs | return g
+  let regs := st.getArg! iRegs
+  unless regs.isAppOfArity ``Regs.mk 7 do return g
+  let c5 := regs.getArg! 5
+  if c5.isFVar || c5.hasLooseBVars then return g
+  let hm ← mkFreshExprSyntheticOpaqueMVar (← mkAppM ``SafeActs #[c5])
+  match ← tryTac hm.mvarId! (← `(tactic| safe_acts_close)) 200000 with
+  | some [] => pure ()
+  | _ => return g
+  -- (in its register only: the same cell elsewhere, as `c4` or on the stack, stays)
+  let stB := mkAppN st.getAppFn
+    (st.getAppArgs.set! iRegs (mkAppN regs.getAppFn (regs.getAppArgs.set! 5 (mkBVar 0))))
+  let body := ty.replace fun x => if x == st then some stB else none
+  unless body.hasLooseBVars do return g
+  let newTy := mkForall `c5 .default (mkConst ``Cell)
+    (mkForall `hc5 .default (mkApp (mkConst ``SafeActs) (mkBVar 0)) (body.liftLooseBVars 0 1))
+  let m ← mkFreshExprSyntheticOpaqueMVar newTy (← g.getTag)
+  g.assign (mkApp2 m c5 (← instantiateMVars hm))
+  let (_, g') ← m.mvarId!.introNP 2
+  return g'
+
+/-- The fuel of the run in the goal `g` (`Keeps P (VmState.runWith execInstr f st)`) made a
+variable: a path that reaches a code position a step before or after its fuel was split
+(`vm_fuel`, `n` or `n + 1`) then reaches one statement there (`cutGoal`). The fuel of a loop's
+induction (`check_loop`: its hypotheses name the variables of the fuel) only once the state holds no
+loop (no loop continuation: the induction cannot close the rest of the path), its hypotheses then
+cleared (the theorem of the cut is not stated over them). `g` as it is otherwise. -/
+def generalizeFuel (g : MVarId) : MetaM MVarId := g.withContext do
+  let ty ← instantiateMVars (← g.getType)
+  -- (or `KeepsActs P A (...)`)
+  let iRun := if ty.isAppOfArity ``KeepsActs 3 then 2 else 1
+  unless ty.isAppOfArity ``Keeps 2 || ty.isAppOfArity ``KeepsActs 3 do return g
+  let r := ty.getArg! iRun
+  unless r.isAppOfArity ``VmState.runWith 3 do return g
+  let f := r.getArg! 1
+  if f.hasLooseBVars || f.hasExprMVar then return g
+  let body := mkAppN ty.getAppFn
+    (ty.getAppArgs.set! iRun (mkAppN r.getAppFn #[r.getArg! 0, mkBVar 0, r.getArg! 2]))
+  let fvs := (collectFVars {} f).fvarIds
+  let mut inHyps := false
+  for fv in fvs do
+    if body.containsFVar fv then return g
+    for d in ← getLCtx do
+      if d.isImplementationDetail || d.fvarId == fv then continue
+      if (← instantiateMVars d.type).containsFVar fv then inHyps := true
+      if let some v := d.value? then
+        if (← instantiateMVars v).containsFVar fv then return g
+  -- (a variable no hypothesis names: as it is)
+  if f.isFVar && !inHyps then return g
+  if inHyps then
+    let loop := (r.getArg! 2).find? fun x =>
+      x.isAppOf ``Continuation.whileCond || x.isAppOf ``Continuation.whileBody ||
+      x.isAppOf ``Continuation.untilBody || x.isAppOf ``Continuation.repeatBody ||
+      x.isAppOf ``Continuation.againBody
+    if loop.isSome then return g
+  let m ← mkFreshExprSyntheticOpaqueMVar (mkForall `fuel .default (← inferType f) body) (← g.getTag)
+  g.assign (mkApp m f)
+  let (_, g') ← m.mvarId!.intro1P
+  unless inHyps do return g'
+  g'.withContext do
+    let mut clear := #[]
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let t ← instantiateMVars d.type
+      if fvs.contains d.fvarId || fvs.any t.containsFVar then clear := clear.push d.fvarId
+    g'.tryClearMany clear
+
+/-- What `explore` remembers of its cuts (`cutGoal`): the code positions it cut at (`runPosKey?`),
+where the other paths are cut too, the code positions a path ran from (where another path that
+reaches them is cut: a join point), and the theorems it made, by their statement with its variables
+abstracted (`cutKey`), which a later cut with the same statement applies instead of running again
+(`reuseCut`); the number of such reuses. -/
+structure CutMemo where
+  positions : IO.Ref (Std.HashSet UInt64)
+  visited : IO.Ref (Std.HashSet UInt64)
+  thms : IO.Ref (Std.HashMap UInt64 (Array (Expr × Expr)))
+  hits : IO.Ref Nat
+
+def CutMemo.new : IO CutMemo :=
+  return { positions := ← IO.mkRef {}, visited := ← IO.mkRef {}, thms := ← IO.mkRef {},
+           hits := ← IO.mkRef 0 }
+
+/-- The code position of the run in the goal `g`: a hash of its current continuation and of `c0`
+(where it returns), if its state is written out. -/
+def runPosKey? (g : MVarId) : MetaM (Option UInt64) := do
+  let ty ← instantiateMVars (← g.getType)
+  let some st := Exec.runState? ty | return none
+  unless st.isAppOfArity ``VmState.mk 20 do return none
+  let fields := getStructureFields (← getEnv) ``VmState
+  let some iCc := fields.idxOf? `cc | return none
+  let some iRegs := fields.idxOf? `regs | return none
+  let regs := st.getArg! iRegs
+  let c0 := if regs.isAppOfArity ``Regs.mk 7 then regs.getArg! 0 else regs
+  return some (mixHash (st.getArg! iCc).hash c0.hash)
+
+/-- The statement `ty` with its variables abstracted (in the order they occur), and its hash. -/
+def cutKey (ty : Expr) : MetaM (Expr × UInt64) := do
+  let ty ← instantiateMVars ty
+  let fvs := (collectFVars {} ty).fvarIds
+  let body := ty.abstract (fvs.map mkFVar)
+  return (body, body.hash)
+
+/-- Closes `g` by the theorem `c` of an earlier cut: its conclusion unified with the goal (at reducible
+transparency), the hypotheses it was proved over found in the context. Whether it did (nothing kept
+if not). -/
+def reuseCut (g : MVarId) (c : Expr) : MetaM Bool := g.withContext do
+  let s ← saveState
+  try
+    -- (its binders only: not into `Keeps`, which unfolds to a `∀`)
+    let (ms, _, concl) ← forallMetaTelescope (← inferType c)
+    let tgt ← instantiateMVars (← g.getType)
+    unless ← withReducible (isDefEq concl tgt) do
+      if check.debug.get (← getOptions) && check.progress.get (← getOptions) then
+        -- the first place the two differ
+        let rec firstDiff (a b : Expr) (fuel : Nat) : MetaM String := do
+          match fuel with
+          | 0 => return "…"
+          | k + 1 =>
+            let a ← instantiateMVars a
+            if a.isMVar then return "(an unknown)"
+            if a.getAppFn != b.getAppFn || a.getAppNumArgs != b.getAppNumArgs then
+              return s!"{(← ppExpr a).pretty.take 600}  ≠  {(← ppExpr b).pretty.take 600}"
+            for (x, y) in a.getAppArgs.zip b.getAppArgs do
+              unless ← withReducible (isDefEq x y) do return ← firstDiff x y k
+            return s!"(the heads agree) {(← ppExpr a).pretty.take 300}"
+        progressLine s!"  reuseCut: differs at {← firstDiff concl tgt 64}"
+      throwError "cut: statement"
+    -- the hypotheses, which also fix the variables the statement does not mention (those of the
+    -- hypotheses only)
+    for m in ms do
+      if ← m.mvarId!.isAssigned then continue
+      let mty ← instantiateMVars (← inferType m)
+      unless ← isProp mty do continue
+      let mut found := false
+      for d in ← getLCtx do
+        if d.isImplementationDetail then continue
+        let s1 ← saveState
+        if ← withReducible (isDefEq mty d.type) then
+          m.mvarId!.assign d.toExpr
+          found := true
+          break
+        s1.restore
+      unless found do throwError "cut: a hypothesis {← ppExpr mty}"
+    -- the variables left the theorem's proof only names (the statement and the hypotheses it is
+    -- proved over do not): any of their type, a variable here or its default
+    for m in ms do
+      if ← m.mvarId!.isAssigned then continue
+      let mty ← instantiateMVars (← inferType m)
+      if mty.hasExprMVar then throwError "cut: a variable of an open type {← ppExpr mty}"
+      let mut found := false
+      for d in ← getLCtx do
+        if d.isImplementationDetail then continue
+        if ← withReducible (isDefEq mty d.type) then
+          m.mvarId!.assign d.toExpr
+          found := true
+          break
+      unless found do
+        let some v ← observing? (mkAppOptM ``Inhabited.default #[mty, none])
+          | throwError "cut: a variable {← ppExpr mty}"
+        m.mvarId!.assign v
+    let pf ← instantiateMVars (mkAppN c ms)
+    if pf.hasExprMVar then throwError "cut: left"
+    g.assign pf
+    return true
+  catch ex =>
+    if check.debug.get (← getOptions) && check.progress.get (← getOptions) then
+      progressLine s!"  reuseCut: {((← ex.toMessageData.toString).take 1500)}"
+    s.restore
+    return false
+
+/-- Cuts the path at the goal `g`: its run with the gas, the loaded cells, the steps run, the
+libraries loaded (`generalizeGas`), the actions written (`generalizeC5`) and the fuel
+(`generalizeFuel`) made variables, over the hypotheses it uses, is proved as an auxiliary theorem
+(`mkAuxTheorem`, checked by the kernel on its own) by `sub`, and closes `g`. The reports of `sub`
+(then `g` is left open: the whole check fails). A path that reaches the statement of an earlier cut
+is closed by its theorem instead (`memo`, `reuseCut`): the paths that meet there share the rest of
+the run. -/
+def cutGoal (memo : CutMemo) (g : MVarId) (sub : List MVarId → TacticM (Array MessageData)) :
     TacticM (Array MessageData) := do
   let tag ← g.getTag
-  let g ← generalizeGas g
+  let opts ← getOptions
+  let reuse := check.reuse.get opts
+  let g ← generalizeGas g reuse
+  let g ← if reuse then generalizeC5 g else pure g
+  let g ← if reuse && check.cutFuel.get opts then generalizeFuel g else pure g
   g.withContext do
   let ty ← instantiateMVars (← g.getType)
+  -- the theorem of an earlier cut with the same statement, if one applies here
+  let (key, h) ← cutKey ty
+  -- with `check.debug`: the statement of a cut at a join point, to compare with the others there
+  if check.debug.get (← getOptions) && check.progress.get (← getOptions) then
+    let hs ← (← getLCtx).foldlM (init := "") fun acc d => do
+      if d.isImplementationDetail then return acc
+      return acc ++ s!"\n    {d.userName} : {← ppExpr d.type}"
+    progressLine s!"cut-statement {h} at {← describePos tag}:{hs}\n  ⊢ {← ppExpr ty}\nend-cut-statement"
+  for (k, c) in (← memo.thms.get).getD h #[] do
+    if reuse && k == key then
+      if ← reuseCut g c then
+        memo.hits.modify (· + 1)
+        progressLine s!"a cut at {← describePos tag}: the theorem of an earlier cut applies"
+        return #[]
   let m ← mkFreshExprSyntheticOpaqueMVar ty tag
   let mctx0 ← getMCtx
   let fails ← sub [m.mvarId!]
@@ -1246,6 +1490,7 @@ def cutGoal (g : MVarId) (sub : List MVarId → TacticM (Array MessageData)) :
   -- not keep every step of every path it has proved
   setMCtx mctx0
   g.assign c
+  memo.thms.modify fun t => t.insert h ((t.getD h #[]).push (key, c.getAppFn))
   progressLine s!"a cut at {pos}: its theorem made (checked by the kernel) in {(← IO.monoMsNow) - t1} ms"
   return #[]
 
@@ -1271,10 +1516,12 @@ def debugStep (g : MVarId) (alts : Array (String × TSyntax `tactic)) : TacticM 
     if check.progress.get (← getOptions) then progressLine ((← m.toString).take 4000) else logInfo m
 
 /-- Every path from the goals `goals` (`check_one_step` as `step`), each end closed (`finishLeaf`);
-a path is cut (`cutGoal`) every `cut` steps, at most `depth` cuts deep; at most `budget` steps in
-all. The reports of the paths not proved. -/
-def explore (step : TSyntax `tactic) (args : Array Syntax) (cut : Nat) (budget : IO.Ref Nat)
-    (alts : Array (String × TSyntax `tactic) := #[]) :
+a path is cut (`cutGoal`) every `cut` steps and at join points (`memo`), at most `depth` cuts deep;
+at most `budget` steps in all. `root`: the code position of the cut whose goal `goals` is (no join
+point there: its steps before the instruction runs, as the split of the fuel, stay there). The
+reports of the paths not proved. -/
+def explore (memo : CutMemo) (step : TSyntax `tactic) (args : Array Syntax) (cut : Nat) (budget : IO.Ref Nat)
+    (alts : Array (String × TSyntax `tactic) := #[]) (root : Option UInt64 := none) :
     (depth : Nat) → List MVarId → TacticM (Array MessageData)
   | depth, goals => do
     -- the goals to explore, the last first, each with its steps since the last cut
@@ -1282,19 +1529,46 @@ def explore (step : TSyntax `tactic) (args : Array Syntax) (cut : Nat) (budget :
     let mut fails : Array MessageData := #[]
     let progress := check.progress.get (← getOptions)
     let stepHb := check.stepHeartbeats.get (← getOptions)
+    let reuse := check.reuse.get (← getOptions)
+    let joinVisited := check.joinVisited.get (← getOptions)
+    let cutClean := check.cutClean.get (← getOptions)
     let t0 ← IO.monoMsNow
     for i in [0:100000000] do
       let some (g, n) := work.back? | break
       work := work.pop
       if ← g.isAssigned then continue
       if progress then
-        progressLine s!"{(← IO.monoMsNow) - t0} ms, step {i}, depth {depth}, {work.size + 1} open: \
-          {← describePos (← g.getTag)}"
-      if cut != 0 && n ≥ cut then
+        -- (a goal no step has noted the code position of: where its run stands, as in a report)
+        let mut pos ← describePos (← g.getTag)
+        if pos == "(unknown)" then
+          if let some s' ← g.withContext (do stuckAt (← instantiateMVars (← g.getType))) then
+            pos := s!"(unknown) {s'}"
+        progressLine s!"{(← IO.monoMsNow) - t0} ms, step {i}, depth {depth}, {work.size + 1} open: {pos}"
+      -- a cut every `cut` steps, and at a join point: where an earlier path was cut (after a step),
+      -- or where an earlier path ran from (after `cut / 4` steps, so that the path that goes on
+      -- from there is not cut at each of its steps), not at `root`: the paths that meet there may
+      -- share the theorem of the rest
+      let posKey? ← if cut != 0 then runPosKey? g else pure none
+      let positions ← memo.positions.get
+      -- (at a goal that is a run and nothing else: not in the middle of a step's cases)
+      let clean ← do
+        match ← keepsParts? (← g.getType) with
+        | some (_, r) => pure (r.isAppOfArity ``VmState.runWith 3)
+        | none => pure false
+      let mut atJoin := false
+      if let some k := posKey? then
+        if reuse && clean && root != some k then
+          let seen := (← memo.visited.get).contains k
+          memo.visited.modify (·.insert k)
+          atJoin := (n ≥ 1 && positions.contains k) || (joinVisited && n ≥ max 2 (cut / 4) && seen)
+      -- (the cut every `cut` steps also waits for such a goal, up to `cut` steps more: a statement
+      -- in the middle of a step, as its gas check, holds the gas and the steps the step reads)
+      if cut != 0 && ((n ≥ cut && (clean || !cutClean || n ≥ 2 * cut)) || atJoin) then
         match depth with
         | d + 1 =>
           if ← isRunGoal g then
-            fails := fails ++ (← cutGoal g (explore step args cut budget alts d))
+            if let some k := posKey? then memo.positions.modify (·.insert k)
+            fails := fails ++ (← cutGoal memo g (explore memo step args cut budget alts posKey? d))
             continue
         | 0 => pure ()
       -- out of steps (`check.maxSteps`): the path is reported where it stands
@@ -1356,9 +1630,14 @@ syntax (name := checkPaths) "check_paths" " [" Lean.Parser.Tactic.simpArg,* "]" 
             | check_step [$args,*])))]
     -- no info trees: they would keep the metavariable context before and after every step of
     -- every path (the memory of a long run)
+    let memo ← CutMemo.new
     let fails ← withEnableInfoTree false <|
-      explore step args.elemsAndSeps (check.cut.get (← getOptions)) budget alts 10000
+      explore memo step args.elemsAndSeps (check.cut.get (← getOptions)) budget alts none 10000
         (← getUnsolvedGoals)
+    if check.progress.get (← getOptions) then
+      progressLine s!"cuts: {(← memo.thms.get).fold (fun n _ v => n + v.size) 0} theorems made, \
+        {← memo.hits.get} reused, {(← memo.positions.get).size} positions, \
+        {(← memo.visited.get).size} visited"
     if fails.isEmpty then setGoals [] else throwReports fails
   | _ => throwUnsupportedSyntax
 
