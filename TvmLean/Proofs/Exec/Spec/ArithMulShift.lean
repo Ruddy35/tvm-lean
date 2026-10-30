@@ -13,7 +13,10 @@ every rounding mode the decoder makes (`rm`: -1 down, 0 to nearest with ties up,
   quiet forms, the shift on the stack: `mulShrVar`, `mulModPow2Var`, `mulShrModVar`;
 * `MULADDRSHIFTMOD`, `MULADDRSHIFTRMOD`, `MULADDRSHIFTCMOD` and their quiet forms
   (`shrMod true true 3`, from global version 4): `mulAddShrModVar`; `MULADDRSHIFT#MOD`,
-  `MULADDRSHIFTR#MOD`, `MULADDRSHIFTC#MOD`: `mulAddShrModConst`.
+  `MULADDRSHIFTR#MOD`, `MULADDRSHIFTC#MOD`: `mulAddShrModConst`;
+* `MULRSHIFT#`, `MULMODPOW2#`, `MULRSHIFT#MOD` and their rounding forms (`A9Bxyy`, the instruction
+  `mulShrModConst`, the shift a constant `1..256`): `mulShrConst`, `mulModPow2Const`,
+  `mulShrModConst`.
 
 The quotient is `rshiftPow2Round` and the remainder `modPow2Round` of `x * y` (`+ w`)
 (`Spec/ArithRound.lean`: the operations of `Int` for each rounding mode). A shift from the stack
@@ -161,5 +164,52 @@ the quotient and the remainder of `x * y + w`. -/
   vm_simp [hs, unfoldPrivateRun, rshiftPow2Round_ite_zero, modPow2Round_ite_zero, roundMode_ite_ok _ rm hrm,
     roundMode_prop_ok rm hrm, intPow2, Int.add_zero, not_true_eq_false, or_false, and_false, hz,
     show ¬ (z : Int) > 256 by omega]
+
+/-- The rounding mode of a `MUL*#` instruction of the decoder is not 2 (the decoder rejects it,
+cp0: `mulShrModConst`). -/
+theorem roundMode_ne_two (rm : Int) (h : rm = -1 ∨ rm = 0 ∨ rm = 1) : (rm == 2) = false := by
+  rcases h with rfl | rfl | rfl <;> rfl
+
+set_option maxHeartbeats 4000000 in
+/-- `MULRSHIFT#`, `MULRSHIFTR#`, `MULRSHIFTC#` (`A9B4yy`-`A9B6yy`, the shift `z = yy + 1`; C++
+`exec_mulshrmod`, arithops.cpp:520, mode 2, result mode 1): `rshiftPow2Round (x * y) z rm`, int_ov
+if it does not fit 257 bits (no quiet form). -/
+@[vm_spec] theorem mulShrConst (st : VmState) (s : Stack) (x y rm : Int) (z : Nat)
+    (hrm : rm = -1 ∨ rm = 0 ∨ rm = 1)
+    (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
+    ExceptT.run (execInstr (.mulShrModConst 1 rm z)) st =
+      if -2 ^ 256 ≤ rshiftPow2Round (x * y) z rm ∧ rshiftPow2Round (x * y) z rm < 2 ^ 256 then
+        (.ok (), { st with stack := s.push (.int (.num (rshiftPow2Round (x * y) z rm))) })
+      else (.error .intOv, { st with stack := s }) := by
+  vm_simp [hs, roundMode_ne_two rm hrm, intPow2]
+
+set_option maxHeartbeats 4000000 in
+/-- `MULMODPOW2#`, `MULMODPOW2R#`, `MULMODPOW2C#` (`A9B8yy`-`A9BAyy`; C++ `exec_mulshrmod`, mode 2,
+result mode 2): `modPow2Round (x * y) z rm`. -/
+@[vm_spec] theorem mulModPow2Const (st : VmState) (s : Stack) (x y rm : Int) (z : Nat)
+    (hrm : rm = -1 ∨ rm = 0 ∨ rm = 1)
+    (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
+    ExceptT.run (execInstr (.mulShrModConst 2 rm z)) st =
+      if -2 ^ 256 ≤ modPow2Round (x * y) z rm ∧ modPow2Round (x * y) z rm < 2 ^ 256 then
+        (.ok (), { st with stack := s.push (.int (.num (modPow2Round (x * y) z rm))) })
+      else (.error .intOv, { st with stack := s }) := by
+  vm_simp [hs, roundMode_ne_two rm hrm, intPow2]
+
+set_option maxHeartbeats 4000000 in
+/-- `MULRSHIFT#MOD`, `MULRSHIFTR#MOD`, `MULRSHIFTC#MOD` (`A9BCyy`-`A9BEyy`; C++ `exec_mulshrmod`,
+mode 2, result mode 3): the quotient, then the remainder; a quotient that does not fit is int_ov
+with nothing pushed, a remainder with the quotient pushed. -/
+@[vm_spec] theorem mulShrModConst (st : VmState) (s : Stack) (x y rm : Int) (z : Nat)
+    (hrm : rm = -1 ∨ rm = 0 ∨ rm = 1)
+    (hs : st.stack = (s.push (.int (.num x))).push (.int (.num y))) :
+    ExceptT.run (execInstr (.mulShrModConst 3 rm z)) st =
+      if -2 ^ 256 ≤ rshiftPow2Round (x * y) z rm ∧ rshiftPow2Round (x * y) z rm < 2 ^ 256 then
+        if -2 ^ 256 ≤ modPow2Round (x * y) z rm ∧ modPow2Round (x * y) z rm < 2 ^ 256 then
+          (.ok (), { st with
+            stack :=
+              (s.push (.int (.num (rshiftPow2Round (x * y) z rm)))).push (.int (.num (modPow2Round (x * y) z rm))) })
+        else (.error .intOv, { st with stack := s.push (.int (.num (rshiftPow2Round (x * y) z rm))) })
+      else (.error .intOv, { st with stack := s }) := by
+  vm_simp [hs, roundMode_ne_two rm hrm, intPow2]
 
 end TvmLean.Spec
