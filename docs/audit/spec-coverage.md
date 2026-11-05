@@ -1,6 +1,6 @@
 # Покрытие инструкций символьным исполнением
 
-Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `1451088`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
+Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `b928d5c`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
 
 ```sh
 export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут
@@ -16,6 +16,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 - Каждая форма перебирается по аргументам (все значения, если их не больше 256, иначе 64 по диапазону); опкод с хвостом из 999 нулей (иначе единиц) и четырьмя пустыми ссылками декодируется декодером модели, как его декодирует `vm_step`.
 - **Лемма**: лемма `vm_spec`, чья инструкция унифицируется с декодированной (`withReducible isDefEq`, как `applySpec` в `TvmLean/Proofs/Exec/Tactic.lean`), из модулей, которые импортирует `TvmLean.Proofs.Check.Tactic` (их видит модуль `tools/contract-check`). Условия леммы на состояние (форма стека, факт кода) — то, что должен дать прогон.
 - **Обработчик**: если ни одна лемма не подходит, `runInstr` исполняет обработчик модели (диспетчеры `execInstr` пройдены, программы VM считаются леммами `vm_run` или разворачиваются, `unfoldModelRun`). Статически: каждая программа VM обработчика либо считается леммой `vm_run`, либо разворачивается (нерекурсивное определение модели), либо **блокирует** (рекурсивная программа, комбинатор вне модели: `forIn`, ...).
+- **Обрамлённый шаг**: инструкции, которые `check_framed` (`TvmLean/Proofs/Check/Framed.lean`, `FramedStep.of?`; `check_extra_step` пробует его раньше лемм) исполняет на ячейке или срезе, которых прогон не знает (словарь из сообщения, адрес из тела, конфигурация): что верно для любой такой ячейки — стек после инструкции из заданного множества, газ и загруженные ячейки любые, исключение ничего не фиксирует (`ExecFramed`, `TvmLean/Proofs/Exec/Framed.lean`). На ячейке, которую прогон знает, инструкцию исполняют лемма или обработчик.
 - **Прогон** (`--deep`): первая выборка формы исполняется на символьном состоянии — стек из значений сигнатуры формы (целые, срезы, ячейки, построители, простые продолжения, кортежи; по снимку спецификации) поверх неизвестного стека, `c0` — простое продолжение возврата, `c7` — кортеж фазы исполнения из одного неизвестного значения, остальное неизвестно: (1) срабатывает ли лемма (`simp` только с `applySpec`, с разрядчиком `vm_disch`); (2) считается ли обработчик (`vm_simp`): в цели не остаётся ни `execInstr`, ни прогона программы (`ExceptT.run`), только `if` и `match` по неизвестным значениям (на них `vm_split` делит путь). Это приближение одного шага на самом общем состоянии: в настоящем прогоне состояние конкретнее (например, `CALLCC` и `AGAINBRK` здесь не посчитаны — `simp` упирается в глубину рекурсии, — а их пробы ниже проходят), и наоборот, посчитанный шаг не значит, что путь дойдёт до конца (`CONFIGOPTPARAM`); целые пути проверяют пробы шаблонов.
 
 Статусы формы:
@@ -24,30 +25,31 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 |---|---|
 | лемма | лемма `vm_spec` подходит к каждой выборке и срабатывает на символьном стеке сигнатуры |
 | лемма с условием | лемма подходит не ко всем аргументам, требует факта кода (словарь-константа) или условия, которого нет на общем символьном стеке (`c.special = false`, форма `c7`); остальное — обработчиком |
+| обрамлённый шаг | леммы нет на каждую выборку; каждую исполняет обрамлённый шаг `check_framed` на ячейке или срезе, которых прогон не знает (на известных — обработчик) |
 | лемма вне contract-check | лемма есть только в модулях, которые `TvmLean.Proofs.Check.Tactic` не импортирует (подключить импорт) |
 | развёртка обработчика | леммы нет; обработчик считается развёрткой (прогон: посчитан) |
 | не исполняется | леммы нет; обработчик блокирует или его прогон не считается |
 
 ## Итог по семействам
 
-Сейчас, в окружении contract-check: **покрыто** — лемма (и лемма с условием); **развёртка** — обработчик считается (в том числе у форм с леммой вне contract-check: в скобках — сколько из них); **не исполняется** — остальное.
+Сейчас, в окружении contract-check: **покрыто** — лемма (и лемма с условием, обрамлённый шаг); **развёртка** — обработчик считается (в том числе у форм с леммой вне contract-check: в скобках — сколько из них); **не исполняется** — остальное.
 
-| Семейство | Форм | Лемма | Лемма с условием | Лемма вне contract-check (из них развёртка) | Развёртка обработчика | Не исполняется | Покрыто / развёртка / не исполняется сейчас |
-|---|---:|---:|---:|---:|---:|---:|---|
-| stack | 50 | 50 | 0 | 0 (0) | 0 | 0 | 50 / 0 / 0 |
-| arith | 246 | 230 | 15 | 0 (0) | 1 | 0 | 245 / 1 / 0 |
-| cell | 199 | 115 | 2 | 0 (0) | 82 | 0 | 117 / 82 / 0 |
-| cont/flow | 85 | 35 | 5 | 0 (0) | 40 | 5 | 40 / 40 / 5 |
-| loops | 16 | 8 | 0 | 0 (0) | 8 | 0 | 8 / 8 / 0 |
-| exceptions | 17 | 13 | 0 | 0 (0) | 4 | 0 | 13 / 4 / 0 |
-| dict | 143 | 4 | 74 | 0 (0) | 45 | 20 | 78 / 45 / 20 |
-| tuple | 34 | 30 | 2 | 0 (0) | 2 | 0 | 32 / 2 / 0 |
-| msg/actions | 13 | 2 | 7 | 0 (0) | 4 | 0 | 9 / 4 / 0 |
-| tonenv/c7 | 55 | 9 | 11 | 0 (0) | 31 | 4 | 20 / 31 / 4 |
-| crypto | 50 | 8 | 4 | 0 (0) | 32 | 6 | 12 / 32 / 6 |
-| debug | 7 | 0 | 0 | 0 (0) | 7 | 0 | 0 / 7 / 0 |
-| misc | 4 | 4 | 0 | 0 (0) | 0 | 0 | 4 / 0 / 0 |
-| **всего** | **919** | **508** | **120** | **0** **(0)** | **256** | **35** | **628 / 256 / 35** |
+| Семейство | Форм | Лемма | Лемма с условием | Обрамлённый шаг | Лемма вне contract-check (из них развёртка) | Развёртка обработчика | Не исполняется | Покрыто / развёртка / не исполняется сейчас |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| stack | 50 | 50 | 0 | 0 | 0 (0) | 0 | 0 | 50 / 0 / 0 |
+| arith | 246 | 230 | 15 | 0 | 0 (0) | 1 | 0 | 245 / 1 / 0 |
+| cell | 199 | 115 | 2 | 0 | 0 (0) | 82 | 0 | 117 / 82 / 0 |
+| cont/flow | 85 | 35 | 5 | 0 | 0 (0) | 40 | 5 | 40 / 40 / 5 |
+| loops | 16 | 8 | 0 | 0 | 0 (0) | 8 | 0 | 8 / 8 / 0 |
+| exceptions | 17 | 13 | 0 | 0 | 0 (0) | 4 | 0 | 13 / 4 / 0 |
+| dict | 143 | 4 | 74 | 39 | 0 (0) | 24 | 2 | 117 / 24 / 2 |
+| tuple | 34 | 30 | 2 | 0 | 0 (0) | 2 | 0 | 32 / 2 / 0 |
+| msg/actions | 13 | 2 | 7 | 4 | 0 (0) | 0 | 0 | 13 / 0 / 0 |
+| tonenv/c7 | 55 | 9 | 11 | 2 | 0 (0) | 29 | 4 | 22 / 29 / 4 |
+| crypto | 50 | 8 | 4 | 0 | 0 (0) | 32 | 6 | 12 / 32 / 6 |
+| debug | 7 | 0 | 0 | 0 | 0 (0) | 7 | 0 | 0 / 7 / 0 |
+| misc | 4 | 4 | 0 | 0 | 0 (0) | 0 | 0 | 4 / 0 / 0 |
+| **всего** | **919** | **508** | **120** | **45** | **0** **(0)** | **229** | **17** | **673 / 229 / 17** |
 
 Лемм `vm_spec`: 523, из них в импортах contract-check 523; вне их: нет.
 
@@ -91,42 +93,42 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 
 ## Предпроверка контрактов
 
-`contract-check <код> --precheck` (`spec_coverage.py precheck ... --save`): весь код, достижимый из корня (неявные `JMPREF`, `PUSHCONT`, `CALLREF`, `IF*REF`, процедуры `DICTPUSHCONST`), дизассемблирован декодером модели; каждая инструкция — по её точным аргументам (лемма), иначе по результату формы выше. Вхождения инструкций:
+`contract-check <код> --precheck` (`spec_coverage.py precheck ... --save`): весь код, достижимый из корня (неявные `JMPREF`, `PUSHCONT`, `CALLREF`, `IF*REF`, процедуры `DICTPUSHCONST`), дизассемблирован декодером модели; каждая инструкция — по её точным аргументам (лемма, обрамлённый шаг), иначе по результату формы выше. Вхождения инструкций:
 
-| Код | Инструкций | Форм | Лемма | Лемма для словаря-константы | Лемма вне contract-check | Развёртка обработчика | Не исполняется | Формы без леммы contract-check |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| `wallet3` | 59 | 36 | 59 | 0 | 0 | 0 | 0 | — |
-| `highload2` | 125 | 61 | 123 | 0 | 0 | 1 | 1 | `DICTIGETNEXT`, `DICTUREMMIN` (нет) |
-| `elector` | 2158 | 138 | 2121 | 0 | 0 | 36 | 1 | `CONFIGOPTPARAM`, `DICTUGETPREV`, `REWRITESTDADDR`, `DICTUGETNEXT`, `DICTREMMIN` (нет) |
-| `config` | 1294 | 130 | 1274 | 0 | 0 | 20 | 0 | `CONFIGOPTPARAM`, `DICTIGETOPTREF`, `DICTISETGETOPTREF`, `DICTUGETPREV`, `DICTUGETNEXTEQ`, `REWRITESTDADDR` |
-| `dns` | 436 | 100 | 430 | 0 | 0 | 5 | 1 | `DICTUGETOPTREF`, `DICTUREMMIN` (нет), `DICTUSETGETOPTREF`, `PFXDICTDEL`, `PFXDICTGETQ`, `PFXDICTSET` |
-| `simple-wallet` | 38 | 30 | 38 | 0 | 0 | 0 | 0 | — |
-| `wallet2` | 53 | 36 | 53 | 0 | 0 | 0 | 0 | — |
-| `pow` | 311 | 85 | 311 | 0 | 0 | 0 | 0 | — |
-| `multisig` | 538 | 108 | 536 | 0 | 0 | 1 | 1 | `DICTUGETNEXT`, `DICTUREMMIN` (нет) |
-| `restricted3` | 163 | 63 | 160 | 0 | 0 | 3 | 0 | `DICTIGETPREVEQ`, `CONFIGOPTPARAM` |
-| `pchan` | 572 | 85 | 572 | 0 | 0 | 0 | 0 | — |
-| `highload1` | 72 | 46 | 71 | 0 | 0 | 1 | 0 | `DICTIGETNEXT` |
-| `simple-wallet-ext` | 67 | 39 | 67 | 0 | 0 | 0 | 0 | — |
-| `restricted1` | 129 | 57 | 125 | 0 | 0 | 4 | 0 | `CONFIGOPTPARAM`, `REWRITESTDADDR` |
-| `restricted2` | 143 | 62 | 140 | 0 | 0 | 3 | 0 | `DICTIGETPREVEQ`, `CONFIGOPTPARAM` |
-| `dnsauto` | 875 | 120 | 869 | 0 | 0 | 6 | 0 | `DICTUMIN`, `DICTUGETOPTREF`, `DICTUMAX`, `REWRITESTDADDR` |
-| `storage` | 388 | 85 | 388 | 0 | 0 | 0 | 0 | — |
-| `wallet4` | 376 | 92 | 374 | 0 | 0 | 1 | 1 | `DICTREMMIN` (нет), `REWRITESTDADDR` |
-| `wallet5` | 320 | 97 | 316 | 0 | 0 | 4 | 0 | `REWRITESTDADDR` |
-| `jetton.minter` | 390 | 71 | 389 | 0 | 0 | 1 | 0 | `REWRITESTDADDR` |
-| `jetton.wallet` | 443 | 75 | 442 | 0 | 0 | 1 | 0 | `REWRITESTDADDR` |
-| `jetton1.minter` | 388 | 70 | 387 | 0 | 0 | 1 | 0 | `REWRITESTDADDR` |
-| `jetton1.wallet` | 439 | 75 | 438 | 0 | 0 | 1 | 0 | `REWRITESTDADDR` |
-| `nft.collection` | 291 | 73 | 290 | 0 | 0 | 0 | 1 | `DICTUREMMIN` (нет) |
-| `nft.item` | 254 | 71 | 253 | 0 | 0 | 1 | 0 | `REWRITESTDADDR` |
-| `nft2.item` | 257 | 73 | 256 | 0 | 0 | 1 | 0 | `REWRITESTDADDR` |
+| Код | Инструкций | Форм | Лемма | Лемма для словаря-константы | Обрамлённый шаг | Лемма вне contract-check | Развёртка обработчика | Не исполняется | Формы без леммы и обрамлённого шага |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `wallet3` | 59 | 36 | 59 | 0 | 0 | 0 | 0 | 0 | — |
+| `highload2` | 125 | 61 | 123 | 0 | 2 | 0 | 0 | 0 | — |
+| `elector` | 2158 | 138 | 2121 | 0 | 37 | 0 | 0 | 0 | — |
+| `config` | 1294 | 130 | 1274 | 0 | 13 | 0 | 7 | 0 | `DICTIGETOPTREF`, `DICTISETGETOPTREF` |
+| `dns` | 436 | 100 | 430 | 0 | 1 | 0 | 5 | 0 | `DICTUGETOPTREF`, `DICTUSETGETOPTREF`, `PFXDICTDEL`, `PFXDICTGETQ`, `PFXDICTSET` |
+| `simple-wallet` | 38 | 30 | 38 | 0 | 0 | 0 | 0 | 0 | — |
+| `wallet2` | 53 | 36 | 53 | 0 | 0 | 0 | 0 | 0 | — |
+| `pow` | 311 | 85 | 311 | 0 | 0 | 0 | 0 | 0 | — |
+| `multisig` | 538 | 108 | 536 | 0 | 2 | 0 | 0 | 0 | — |
+| `restricted3` | 163 | 63 | 160 | 0 | 3 | 0 | 0 | 0 | — |
+| `pchan` | 572 | 85 | 572 | 0 | 0 | 0 | 0 | 0 | — |
+| `highload1` | 72 | 46 | 71 | 0 | 1 | 0 | 0 | 0 | — |
+| `simple-wallet-ext` | 67 | 39 | 67 | 0 | 0 | 0 | 0 | 0 | — |
+| `restricted1` | 129 | 57 | 125 | 0 | 4 | 0 | 0 | 0 | — |
+| `restricted2` | 143 | 62 | 140 | 0 | 3 | 0 | 0 | 0 | — |
+| `dnsauto` | 875 | 120 | 869 | 0 | 5 | 0 | 1 | 0 | `DICTUGETOPTREF` |
+| `storage` | 388 | 85 | 388 | 0 | 0 | 0 | 0 | 0 | — |
+| `wallet4` | 376 | 92 | 374 | 0 | 2 | 0 | 0 | 0 | — |
+| `wallet5` | 320 | 97 | 316 | 0 | 4 | 0 | 0 | 0 | — |
+| `jetton.minter` | 390 | 71 | 389 | 0 | 1 | 0 | 0 | 0 | — |
+| `jetton.wallet` | 443 | 75 | 442 | 0 | 1 | 0 | 0 | 0 | — |
+| `jetton1.minter` | 388 | 70 | 387 | 0 | 1 | 0 | 0 | 0 | — |
+| `jetton1.wallet` | 439 | 75 | 438 | 0 | 1 | 0 | 0 | 0 | — |
+| `nft.collection` | 291 | 73 | 290 | 0 | 1 | 0 | 0 | 0 | — |
+| `nft.item` | 254 | 71 | 253 | 0 | 1 | 0 | 0 | 0 | — |
+| `nft2.item` | 257 | 73 | 256 | 0 | 1 | 0 | 0 | 0 | — |
 
 ## Что не покрыто
 
 **cont/flow** (5): `CALLCCVARARGS` (прогон обработчика: предел heartbeats); `JMPXARGS` (прогон обработчика остановился на VM.jump); `RETARGS` (прогон обработчика остановился на VM.jump); `CALLXARGS` (прогон обработчика остановился на VM.call); `CALLXARGS_1` (прогон обработчика остановился на VM.call).
 
-**dict** (20): `DICTMINREF` (прогон обработчика: предел heartbeats); `DICTIMINREF` (прогон обработчика: предел heartbeats); `DICTUMINREF` (прогон обработчика: предел heartbeats); `DICTMAXREF` (прогон обработчика: предел heartbeats); `DICTIMAXREF` (прогон обработчика: предел heartbeats); `DICTUMAXREF` (прогон обработчика: предел heartbeats); `DICTREMMIN` (прогон обработчика: предел heartbeats); `DICTREMMINREF` (прогон обработчика: предел heartbeats); `DICTIREMMINREF` (прогон обработчика: предел heartbeats); `DICTUREMMIN` (прогон обработчика: предел heartbeats); `DICTUREMMINREF` (прогон обработчика: предел heartbeats); `DICTREMMAX` (прогон обработчика: предел heartbeats); `DICTREMMAXREF` (прогон обработчика: предел heartbeats); `DICTIREMMAXREF` (прогон обработчика: предел heartbeats); `DICTUREMMAXREF` (прогон обработчика: предел heartbeats); `DICTREPLACEB` (прогон обработчика: предел heartbeats); `DICTIREPLACEB` (прогон обработчика: предел heartbeats); `DICTUREPLACEB` (прогон обработчика: предел heartbeats); `SUBDICTGET` (прогон обработчика: предел heartbeats); `SUBDICTRPGET` (прогон обработчика: предел heartbeats).
+**dict** (2): `SUBDICTGET` (прогон обработчика: предел heartbeats); `SUBDICTRPGET` (прогон обработчика: предел heartbeats).
 
 **tonenv/c7** (4): `GETSTORAGEFEE` (прогон обработчика: предел heartbeats); `GETFORWARDFEE` (прогон обработчика: предел heartbeats); `GETFORWARDFEESIMPLE` (прогон обработчика: предел heartbeats); `GETEXTRABALANCE` (прогон обработчика: предел heartbeats).
 
@@ -494,7 +496,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `STZEROES` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
 | `STONES` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
 | `STSAME` | развёртка обработчика | — | развёртка | посчитан, ветвлений 23 |
-| `CTOS` | лемма с условием | ctos_mkOrdinary, ctos | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `CTOS` | лемма с условием | ctos_mkOrdinary, ctos; обрамлённый шаг `ctosAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `ENDS` | лемма | ends | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `LDREF` | лемма | ldref | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `LDREFRTOS` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
@@ -807,40 +809,40 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `DICTUGETEXECZ` | лемма с условием | dictGetExec_empty, dictGetExec_found, dictGetExec_noKey, dictGetExec_notFound | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTGET` | лемма с условием | dictGetSlice_found, dictGetSlice_notFound, dictGetSlice_short, dictGetSlice_wf | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTGETREF` | лемма с условием | dictGetSlice_wf | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTIGET` | лемма с условием | dictGetInt_empty, dictGetInt_found, dictGetInt_noKey, dictGetInt_notFound, dictGetInt_wf | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTIGET` | лемма с условием | dictGetInt_empty, dictGetInt_found, dictGetInt_noKey, dictGetInt_notFound, dictGetInt_wf; обрамлённый шаг `dictGetAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTIGETREF` | лемма с условием | dictGetIntRef_found, dictGetIntRef_notFound, dictGetInt_wf | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTUGET` | лемма с условием | dictGetInt_empty, dictGetInt_found, dictGetInt_noKey, dictGetInt_notFound, dictGetInt_wf | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTUGET` | лемма с условием | dictGetInt_empty, dictGetInt_found, dictGetInt_noKey, dictGetInt_notFound, dictGetInt_wf; обрамлённый шаг `dictGetAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUGETREF` | лемма с условием | dictGetIntRef_found, dictGetIntRef_notFound, dictGetInt_wf | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTSET` | лемма с условием | dictSetSliceEmpty_flag, dictSetSliceEmpty_set, dictSetSlice_flag, dictSetSlice_set | развёртка | предел глубины рекурсии simp |
-| `DICTSETREF` | лемма с условием | dictSetSliceRefEmpty_flag, dictSetSliceRefEmpty_set, dictSetSliceRef_flag, dictSetSliceRef_set | развёртка | предел глубины рекурсии simp |
-| `DICTISET` | лемма с условием | dictSetIntEmpty_flag, dictSetIntEmpty_set, dictSetInt_flag, dictSetInt_set | развёртка | предел heartbeats |
-| `DICTISETREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRefEmpty_set, dictSetIntRef_flag, dictSetIntRef_set | развёртка | предел heartbeats |
-| `DICTUSET` | лемма с условием | dictSetIntEmpty_flag, dictSetIntEmpty_set, dictSetInt_flag, dictSetInt_set | развёртка | предел heartbeats |
-| `DICTUSETREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRefEmpty_set, dictSetIntRef_flag, dictSetIntRef_set | развёртка | предел heartbeats |
+| `DICTSET` | лемма с условием | dictSetSliceEmpty_flag, dictSetSliceEmpty_set, dictSetSlice_flag, dictSetSlice_set; обрамлённый шаг `dictSetAny` | развёртка | предел глубины рекурсии simp |
+| `DICTSETREF` | лемма с условием | dictSetSliceRefEmpty_flag, dictSetSliceRefEmpty_set, dictSetSliceRef_flag, dictSetSliceRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел глубины рекурсии simp |
+| `DICTISET` | лемма с условием | dictSetIntEmpty_flag, dictSetIntEmpty_set, dictSetInt_flag, dictSetInt_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTISETREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRefEmpty_set, dictSetIntRef_flag, dictSetIntRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUSET` | лемма с условием | dictSetIntEmpty_flag, dictSetIntEmpty_set, dictSetInt_flag, dictSetInt_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUSETREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRefEmpty_set, dictSetIntRef_flag, dictSetIntRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTSETGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTSETGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTISETGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTISETGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUSETGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUSETGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTREPLACE` | лемма с условием | dictSetSliceEmpty_flag, dictSetSlice_flag | развёртка | предел heartbeats |
-| `DICTREPLACEREF` | лемма с условием | dictSetSliceRefEmpty_flag, dictSetSliceRef_flag | развёртка | предел heartbeats |
-| `DICTIREPLACE` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag | развёртка | предел heartbeats |
-| `DICTIREPLACEREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag | развёртка | предел heartbeats |
-| `DICTUREPLACE` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag | развёртка | предел heartbeats |
-| `DICTUREPLACEREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag | развёртка | предел heartbeats |
+| `DICTREPLACE` | лемма с условием | dictSetSliceEmpty_flag, dictSetSlice_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTREPLACEREF` | лемма с условием | dictSetSliceRefEmpty_flag, dictSetSliceRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTIREPLACE` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTIREPLACEREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUREPLACE` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUREPLACEREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTREPLACEGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTREPLACEGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTIREPLACEGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTIREPLACEGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUREPLACEGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUREPLACEGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTADD` | лемма с условием | dictSetSliceEmpty_flag, dictSetSlice_flag | развёртка | предел heartbeats |
-| `DICTADDREF` | лемма с условием | dictSetSliceRefEmpty_flag, dictSetSliceRef_flag | развёртка | предел heartbeats |
-| `DICTIADD` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag | развёртка | предел heartbeats |
-| `DICTIADDREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag | развёртка | предел heartbeats |
-| `DICTUADD` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag | развёртка | предел heartbeats |
-| `DICTUADDREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag | развёртка | предел heartbeats |
+| `DICTADD` | лемма с условием | dictSetSliceEmpty_flag, dictSetSlice_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTADDREF` | лемма с условием | dictSetSliceRefEmpty_flag, dictSetSliceRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTIADD` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTIADDREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUADD` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUADDREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTADDGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTADDGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTIADDGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
@@ -853,45 +855,45 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `DICTIDELGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTUDELGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTUDELGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTMIN` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTMINREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTIMIN` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTIMINREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTUMIN` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTUMINREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTMAX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTMAXREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTIMAX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTIMAXREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTUMAX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTUMAXREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTREMMIN` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTREMMINREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTIREMMIN` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTIREMMINREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTUREMMIN` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTUREMMINREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTREMMAX` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTREMMAXREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTIREMMAX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTIREMMAXREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTUREMMAX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTUREMMAXREF` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTSETB` | лемма с условием | dictSetSliceBEmpty_flag, dictSetSliceBEmpty_set, dictSetSliceB_flag, dictSetSliceB_set | развёртка | предел heartbeats |
-| `DICTISETB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntBEmpty_set, dictSetIntB_flag, dictSetIntB_set | развёртка | предел heartbeats |
-| `DICTUSETB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntBEmpty_set, dictSetIntB_flag, dictSetIntB_set | развёртка | предел heartbeats |
+| `DICTMIN` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTMINREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTIMIN` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTIMINREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTUMIN` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTUMINREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTMAX` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTMAXREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTIMAX` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTIMAXREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTUMAX` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTUMAXREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTREMMIN` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTREMMINREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTIREMMIN` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTIREMMINREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTUREMMIN` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTUREMMINREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTREMMAX` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTREMMAXREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTIREMMAX` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTIREMMAXREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTUREMMAX` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTUREMMAXREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
+| `DICTSETB` | лемма с условием | dictSetSliceBEmpty_flag, dictSetSliceBEmpty_set, dictSetSliceB_flag, dictSetSliceB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTISETB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntBEmpty_set, dictSetIntB_flag, dictSetIntB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUSETB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntBEmpty_set, dictSetIntB_flag, dictSetIntB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTSETGETB` | лемма с условием | dictSetGetSliceB, dictSetGetSliceBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTISETGETB` | лемма с условием | dictSetGetIntB, dictSetGetIntBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUSETGETB` | лемма с условием | dictSetGetIntB, dictSetGetIntBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTREPLACEB` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTIREPLACEB` | не исполняется | — | развёртка | предел heartbeats |
-| `DICTUREPLACEB` | не исполняется | — | развёртка | предел heartbeats |
+| `DICTREPLACEB` | обрамлённый шаг | обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTIREPLACEB` | обрамлённый шаг | обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUREPLACEB` | обрамлённый шаг | обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTREPLACEGETB` | лемма с условием | dictSetGetSliceB, dictSetGetSliceBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTIREPLACEGETB` | лемма с условием | dictSetGetIntB, dictSetGetIntBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUREPLACEGETB` | лемма с условием | dictSetGetIntB, dictSetGetIntBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTADDB` | лемма с условием | dictSetSliceBEmpty_flag, dictSetSliceB_flag | развёртка | предел heartbeats |
-| `DICTIADDB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntB_flag | развёртка | предел heartbeats |
-| `DICTUADDB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntB_flag | развёртка | предел heartbeats |
+| `DICTADDB` | лемма с условием | dictSetSliceBEmpty_flag, dictSetSliceB_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTIADDB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntB_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUADDB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntB_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTADDGETB` | лемма с условием | dictSetGetSliceB, dictSetGetSliceBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTIADDGETB` | лемма с условием | dictSetGetIntB, dictSetGetIntBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUADDGETB` | лемма с условием | dictSetGetIntB, dictSetGetIntBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
@@ -910,18 +912,18 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `SUBDICTRPGET` | не исполняется | — | развёртка | предел heartbeats |
 | `SUBDICTIRPGET` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SUBDICTURPGET` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTGETNEXT` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTGETNEXTEQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTGETPREV` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTGETPREVEQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `DICTIGETNEXT` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTIGETNEXTEQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTIGETPREV` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTIGETPREVEQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTUGETNEXT` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTUGETNEXTEQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTUGETPREV` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTUGETPREVEQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTGETNEXT` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTGETNEXTEQ` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTGETPREV` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTGETPREVEQ` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTIGETNEXT` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTIGETNEXTEQ` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTIGETPREV` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTIGETPREVEQ` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTUGETNEXT` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTUGETNEXTEQ` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTUGETPREV` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `DICTUGETPREVEQ` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTPUSHCONST` | лемма | dictPushConst | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `PFXDICTSWITCH` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 
@@ -970,10 +972,10 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 |---|---|---|---|---|
 | `PARSEMSGADDR` | лемма с условием | parseMsgAddr, parseMsgAddr_error | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `PARSEMSGADDRQ` | лемма с условием | parseMsgAddr, parseMsgAddr_error | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `REWRITESTDADDR` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `REWRITESTDADDRQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `REWRITEVARADDR` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `REWRITEVARADDRQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `REWRITESTDADDR` | обрамлённый шаг | обрамлённый шаг `rewriteStdAddrAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `REWRITESTDADDRQ` | обрамлённый шаг | обрамлённый шаг `rewriteStdAddrAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `REWRITEVARADDR` | обрамлённый шаг | обрамлённый шаг `rewriteVarAddrAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `REWRITEVARADDRQ` | обрамлённый шаг | обрамлённый шаг `rewriteVarAddrAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SENDRAWMSG` | лемма | sendRawMsg | развёртка | лемма срабатывает; посчитан, ветвлений 14 |
 | `RAWRESERVE` | лемма с условием | rawReserve, rawReserve_le15 | развёртка | посчитан, ветвлений 32 |
 | `RAWRESERVEX` | лемма с условием | rawReserveX_cell, rawReserveX_null | развёртка | предел heartbeats |
@@ -1004,8 +1006,8 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `UNPACKEDCONFIGTUPLE` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DUEPAYMENT` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `CONFIGDICT` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `CONFIGPARAM` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `CONFIGOPTPARAM` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `CONFIGPARAM` | обрамлённый шаг | обрамлённый шаг `configParamAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `CONFIGOPTPARAM` | обрамлённый шаг | обрамлённый шаг `configParamAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `PREVMCBLOCKS` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `PREVKEYBLOCK` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `PREVMCBLOCKS_100` v9 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
