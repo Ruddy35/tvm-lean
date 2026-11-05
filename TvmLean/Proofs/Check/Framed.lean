@@ -306,29 +306,78 @@ elab "check_dict_get_any" : tactic => do
   let (_, i, S) ← mainNextInstr "check_dict_get_any"
   dictGetAny i S
 
-/-- `check_framed`: the instruction the run is about to run decoded once, then `knownSpecial`,
+/-- The framed steps of `check_framed`: each runs its instructions on a cell or slice the run does
+not know (`FramedStep.of?`). -/
+inductive FramedStep where
+  /-- `CTOS` (`ctosAny`). -/
+  | ctos
+  /-- `DICTIGET`/`DICTUGET` (`dictGetAny`). -/
+  | dictGet
+  /-- `CONFIGPARAM`/`CONFIGOPTPARAM` (`configParamAny`). -/
+  | configParam
+  /-- `REWRITEVARADDR{Q}` (`rewriteVarAddrAny`). -/
+  | rewriteVarAddr
+  /-- `REWRITESTDADDR{Q}` (`rewriteStdAddrAny`). -/
+  | rewriteStdAddr
+  /-- `DICT{,I,U}{,REM}{MIN,MAX}{,REF}` (`dictMinMaxAny`). -/
+  | dictMinMax
+  /-- `DICT{,I,U}GET{NEXT,PREV}{,EQ}` (`dictNearAny`). -/
+  | dictNear
+  /-- `DICT{,I,U}SET{,REF,B}` in any mode, `DICT{,I,U}REPLACEB` (`dictSetAny`). -/
+  | dictSet
+  deriving Repr, BEq, Inhabited
+
+/-- The framed step `check_framed` takes for `i`, if any: the dispatch of `check_framed`, and the forms
+tools/spec-coverage counts as run by a framed step (its class `framed`). -/
+def FramedStep.of? : Instr → Option FramedStep
+  | .ctos => some .ctos
+  | .dictGet true _ false => some .dictGet
+  | .tonEnvOp (.configParam _) => some .configParam
+  | .tonEnvOp (.rewriteVarAddr _) => some .rewriteVarAddr
+  | .tonEnvOp (.rewriteStdAddr _) => some .rewriteStdAddr
+  | .dictGetMinMax _ => some .dictMinMax
+  | .dictGetNear _ => some .dictNear
+  | .dictSet _ _ _ _ => some .dictSet
+  | .dictSetB _ _ _ => some .dictSet
+  | .dictReplaceB _ _ => some .dictSet
+  | _ => none
+
+/-- The name of a framed step (tools/spec-coverage prints it). -/
+def FramedStep.name : FramedStep → String
+  | .ctos => "ctosAny"
+  | .dictGet => "dictGetAny"
+  | .configParam => "configParamAny"
+  | .rewriteVarAddr => "rewriteVarAddrAny"
+  | .rewriteStdAddr => "rewriteStdAddrAny"
+  | .dictMinMax => "dictMinMaxAny"
+  | .dictNear => "dictNearAny"
+  | .dictSet => "dictSetAny"
+
+/-- `check_framed`: the instruction the run is about to run decoded once; for `CTOS` and `XCTOS`
+`knownSpecial` first (a cell ordinary by definition), then the framed step of `FramedStep.of?`:
 `ctosAny`, `dictGetAny`, `configParamAny`, `rewriteVarAddrAny`, `rewriteStdAddrAny`, `dictMinMaxAny`,
-`dictNearAny` or `dictSetAny`, whichever applies. Fails for any other instruction. -/
+`dictNearAny` or `dictSetAny`. Fails for any other instruction. -/
 elab "check_framed" : tactic => do
   let (g, i, S) ← mainNextInstr "check_framed"
-  match i with
-  | .ctos =>
+  if i matches .xctos then
+    knownSpecial g i S
+    return
+  if i matches .ctos then
     let s ← saveState
-    try knownSpecial g i S
-    catch _ =>
-      s.restore
-      ctosAny i S
-  | .xctos => knownSpecial g i S
-  | .dictGet true _ false => dictGetAny i S
-  | .tonEnvOp (.configParam _) => configParamAny i
-  | .tonEnvOp (.rewriteVarAddr _) => rewriteVarAddrAny i S
-  | .tonEnvOp (.rewriteStdAddr _) => rewriteStdAddrAny i S
-  | .dictGetMinMax _ => dictMinMaxAny i S
-  | .dictGetNear _ => dictNearAny i S
-  | .dictSet _ _ _ _ => dictSetAny i S
-  | .dictSetB _ _ _ => dictSetAny i S
-  | .dictReplaceB _ _ => dictSetAny i S
-  | _ => throwError "check_framed: not an instruction on a cell the run does not know"
+    try
+      knownSpecial g i S
+      return
+    catch _ => s.restore
+  match FramedStep.of? i with
+  | some .ctos => ctosAny i S
+  | some .dictGet => dictGetAny i S
+  | some .configParam => configParamAny i
+  | some .rewriteVarAddr => rewriteVarAddrAny i S
+  | some .rewriteStdAddr => rewriteStdAddrAny i S
+  | some .dictMinMax => dictMinMaxAny i S
+  | some .dictNear => dictNearAny i S
+  | some .dictSet => dictSetAny i S
+  | none => throwError "check_framed: not an instruction on a cell the run does not know"
 
 /-! ## An exception that ends the run
 

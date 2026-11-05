@@ -2,6 +2,8 @@ import Lean
 -- BEGIN IMPORTS: written by tools/spec-coverage/spec_coverage.py (the modules of symbolic
 -- execution, TvmLean/Proofs/Exec/ but its pilots, and the tactic of tools/contract-check)
 import TvmLean.Proofs.Check.Tactic
+import TvmLean.Proofs.Check.Framed
+import TvmLean.Proofs.Check.Loops
 import TvmLean.Proofs.Exec.Attr
 import TvmLean.Proofs.Exec.Closure
 import TvmLean.Proofs.Exec.Cont
@@ -48,7 +50,8 @@ import TvmLean.Proofs.Exec.VM
 # Which instructions symbolic execution runs, and how (`tools/spec-coverage`)
 
 Run by `tools/spec-coverage/spec_coverage.py` (`lake env lean` on a copy of this file whose imports
-it writes: every module of `TvmLean/Proofs/Exec/` but the pilots, and `TvmLean.Proofs.Check.Tactic`);
+it writes: every module of `TvmLean/Proofs/Exec/` but the pilots, and the modules of contract-check's
+steps, `TvmLean.Proofs.Check.Tactic`, `Check.Framed` and `Check.Loops`);
 nothing here is part of the libraries. It reads the environment, as `vm_step` would
 (`TvmLean/Proofs/Exec/Tactic.lean`, `runInstr`): an instruction runs by a lemma of the simp set
 `vm_spec` whose instruction unifies with it (`applySpec`), else by its handler (`dispatchRun`: the
@@ -68,11 +71,16 @@ For an instruction (decoded from a code cell, as the tactic decodes it) it print
   looked into), or neither — a *blocker*: a recursive program, a combinator outside the model
   (`forIn`, `tryCatch`), an opaque definition. A handler with no blocker runs by unfolding (the
   conditions on unknown values left as `if`s and `match`es, which `vm_split` splits); one with a
-  blocker leaves the run of that program unreduced in the goal.
+  blocker leaves the run of that program unreduced in the goal;
+* the framed step of `check_framed` (TvmLean/Proofs/Check/Framed.lean, `FramedStep.of?`) that runs it
+  on a cell or slice the run does not know, if any: `DICT*MIN`/`MAX`, `DICT*GETNEXT`/`PREV`, the
+  sets, `CONFIGPARAM`, `REWRITESTDADDR`, ... (`check_extra_step` tries it before the lemmas; on a
+  cell the run knows the lemmas or the handler run it).
 
-`spec_coverage.py` runs it twice: importing `TvmLean.Proofs.Check.Tactic` only (contract-check's
-environment: the lemmas that fire there, its `vm_run` set, the deep check), and importing every module
-of `TvmLean/Proofs/Exec/` (the `vm_spec` lemmas a contract-check run would get from those modules).
+`spec_coverage.py` runs it twice: importing the modules of contract-check's steps only
+(`TvmLean.Proofs.Check.Tactic`, `Check.Framed`, `Check.Loops`: contract-check's environment, the
+lemmas that fire there, its `vm_run` set, the deep check), and importing every module of
+`TvmLean/Proofs/Exec/` (the `vm_spec` lemmas a contract-check run would get from those modules).
 
 Input and output are files named by environment variables:
 
@@ -324,7 +332,9 @@ def guarded {α : Type} (hb : Nat) (x : MetaM α) : MetaM (Option α) := do
 
 /-- The fields of the classification of an instruction: its text, the `vm_spec` lemmas that unify
 (those a module of `tools/contract-check` sees, the others), and, with `handler`, the handler
-(`unfold` or `blocked`), its blockers and the programs computed by `vm_run`'s lemmas (else `-`). -/
+(`unfold` or `blocked`), its blockers and the programs computed by `vm_run`'s lemmas (else `-`);
+last, the framed step of `check_framed` that takes it (`TvmLean.Check.FramedStep.of?`,
+TvmLean/Proofs/Check/Framed.lean; empty if none). -/
 def classify (heads : NameSet) (inCheck : NameSet) (cache : IO.Ref (Std.HashMap String (List String)))
     (handler : Bool) (i : Instr) : MetaM (List String) := do
   let key := toString i ++ (if handler then "|h" else "")
@@ -343,7 +353,12 @@ def classify (heads : NameSet) (inCheck : NameSet) (cache : IO.Ref (Std.HashMap 
       pure [if found.blockers.isEmpty then "unfold" else "blocked", ";".intercalate blockers,
         ";".intercalate (found.byLemma.toList.map toString)]
     else pure ["-", "", ""]
-  let r := [toString i, ";".intercalate (sc.toList.map toString), ";".intercalate (sl.toList.map toString)] ++ hs
+  -- the framed step of `check_framed` that runs it on a cell or slice the run does not know
+  let framed := match TvmLean.Check.FramedStep.of? i with
+    | some k => k.name
+    | none => ""
+  let r := [toString i, ";".intercalate (sc.toList.map toString), ";".intercalate (sl.toList.map toString)] ++ hs ++
+    [framed]
   cache.modify (·.insert key r)
   return r
 

@@ -17,9 +17,12 @@ snapshot lacks), sampled over its arguments (every argument value when there are
 whose instruction unifies with it (as `vm_step`'s `applySpec` tries them,
 TvmLean/Proofs/Exec/Tactic.lean), else its handler analysed (the VM programs it runs computed by a
 `vm_run` lemma, unfolded, or blocking); with `--deep`, the first sample of each form also run on a
-symbolic stack of its signature (by a lemma only, and by the handler: `vm_simp`). Two passes: in
-contract-check's environment (`TvmLean.Proofs.Check.Tactic`: what a proof gets) and in the
-library's (every module of TvmLean/Proofs/Exec/: the lemmas contract-check does not import yet).
+symbolic stack of its signature (by a lemma only, and by the handler: `vm_simp`); and the framed
+step of `check_framed` that runs it on a cell or slice the run does not know, if any
+(TvmLean/Proofs/Check/Framed.lean, `FramedStep.of?`: the class `framed`). Two passes: in
+contract-check's environment (`TvmLean.Proofs.Check.Tactic`, `Check.Framed`, `Check.Loops`: what a
+proof gets) and in the library's (every module of TvmLean/Proofs/Exec/: the lemmas contract-check
+does not import yet).
 Writes the table per family (`--md`), the result per form (`--save`: forms.json, which `precheck`
 reads) and the raw lines (`--raw`).
 
@@ -37,7 +40,7 @@ the model's instructions (`Acts`, any code for `SETCODE`); a pattern is handled 
 its probes reaches its end (`--save`: probe-results.json; `--md`: the section of the patterns of the
 document rewritten from it, the rest kept).
 
-The Lean side needs the modules of TvmLean/Proofs/Exec/ and TvmLean.Proofs.Check.Tactic built; the
+The Lean side needs the modules of TvmLean/Proofs/Exec/ and those of `ENV_CHECK` built; the
 script builds them first (`lake build`, skipped with `--no-build`). `LEAN_NUM_THREADS` and a
 command prefix (`--wrap`, e.g. a memory cap) apply as in `tools/contract-check`.
 """
@@ -128,9 +131,9 @@ def form_of_op(forms: list[dict], op: int) -> dict | None:
 
 
 def exec_modules() -> list[str]:
-    """The modules of symbolic execution (TvmLean/Proofs/Exec/ but the pilots) and the tactic of
-    tools/contract-check."""
-    mods = ["TvmLean.Proofs.Check.Tactic"]
+    """The modules of symbolic execution (TvmLean/Proofs/Exec/ but the pilots) and those of the steps
+    of tools/contract-check (`ENV_CHECK`)."""
+    mods = list(ENV_CHECK)
     root = REPO / "TvmLean" / "Proofs" / "Exec"
     for p in sorted(root.rglob("*.lean")):
         rel = p.relative_to(REPO).with_suffix("")
@@ -215,7 +218,7 @@ def _run_part(script: Path, mode: str, lines: list[str], tmp: Path, tag: str, en
 # The two environments: contract-check's (what a module of tools/contract-check imports: the lemmas
 # that fire there, its vm_run set, the deep check) and the library's (every module of
 # TvmLean/Proofs/Exec: the vm_spec lemmas a contract-check run would get by importing them).
-ENV_CHECK = ["TvmLean.Proofs.Check.Tactic"]
+ENV_CHECK = ["TvmLean.Proofs.Check.Tactic", "TvmLean.Proofs.Check.Framed", "TvmLean.Proofs.Check.Loops"]
 
 
 def run_lean(mode: str, inp: Path, out: Path, build: bool, wrap: str, jobs: int = 1,
@@ -365,7 +368,8 @@ def cmd_inventory(args: argparse.Namespace) -> None:
         keep = []
         for c in classified:
             keep.append({k: c[k] for k in ("name", "family", "status", "samples", "with_spec", "lemmas",
-                                           "lib_lemmas", "closed", "handler_ok", "blockers", "deep", "versions")})
+                                           "lib_lemmas", "closed", "framed", "handler_ok", "blockers", "deep",
+                                           "versions")})
             keep[-1]["why"] = [why_missing(c)] if c["status"] == "missing" and why_missing(c) else []
         FORMS_JSON.write_text(json_lines(keep))
         print(f"spec-coverage: wrote {FORMS_JSON.relative_to(REPO)}")
@@ -403,16 +407,20 @@ def load_form_results() -> dict:
 
 
 def instr_status(specs_check: list[str], specs_lib: list[str], handler: str, specs: dict,
-                 form: dict | None = None) -> str:
+                 form: dict | None = None, framed: str = "") -> str:
     """The status of one instruction of a code: `spec` (a lemma contract-check sees unifies with it, its
     exact arguments; its conditions on the state are the run's to meet), `spec-closed` (only lemmas that
-    need a closed fact of the code: a dictionary constant, as the method dispatch's), `spec-lib` (only
+    need a closed fact of the code: a dictionary constant, as the method dispatch's), `framed` (no
+    lemma; a framed step of `check_framed` runs it on a cell or slice the run does not know, the
+    handler on one it knows), `spec-lib` (only
     lemmas outside contract-check's imports), `unfold` (the handler runs by unfolding: the inventory's
     deep check of the form, else the static analysis), `blocked`, `?`."""
     if specs_check:
         if all(specs.get(n, {}).get("closed") for n in specs_check):
             return "spec-closed"
         return "spec"
+    if framed:
+        return "framed"
     if specs_lib:
         return "spec-lib"
     if form is not None and form.get("samples"):
@@ -427,6 +435,7 @@ def instr_status(specs_check: list[str], specs_lib: list[str], handler: str, spe
 STATUS_TEXT = {
     "spec": "vm_spec lemma",
     "spec-closed": "vm_spec lemma only for a closed dictionary of the code",
+    "framed": "framed step of check_framed (on a cell or slice the run does not know)",
     "spec-lib": "vm_spec lemma outside contract-check's imports",
     "unfold": "handler unfolded (no lemma)",
     "blocked": "not handled",
@@ -492,10 +501,10 @@ def precheck_report(name: str, src: str, data: dict, forms: list[dict]) -> tuple
     code = [r for r in data.get("CODE", []) if r[0] == name]
     by_form: dict[str, list] = collections.defaultdict(list)
     for r in occ:
-        _, loc, op, ver, text, sc, sl, handler, blockers, _heads = (r + [""] * 10)[:10]
+        _, loc, op, ver, text, sc, sl, handler, blockers, _heads, framed = (r + [""] * 11)[:11]
         f = form_of_op(forms, int(op, 16))
         fname = f["name"] if f else f"?{op}"
-        st = instr_status(split_list(sc), split_list(sl), handler, specs, fres.get(fname))
+        st = instr_status(split_list(sc), split_list(sl), handler, specs, fres.get(fname), framed)
         why = split_list(blockers)
         if st == "blocked" and fname in fres:
             why = fres[fname].get("why") or why
@@ -509,12 +518,13 @@ def precheck_report(name: str, src: str, data: dict, forms: list[dict]) -> tuple
     out.append("  " + ", ".join(f"{STATUS_TEXT[k]}: {counts[k]}" for k in STATUS_TEXT if counts[k]))
     bad = code_issues(code)
     out += [f"  code: {b}" for b in bad]
-    # the gaps: forms with an occurrence not run by a vm_spec lemma contract-check sees
+    # the gaps: forms with an occurrence run neither by a vm_spec lemma contract-check sees nor by a
+    # framed step
     gaps = []
     gap_list = []
     for fname, os_ in sorted(by_form.items()):
         worst = sorted({o["status"] for o in os_}, key=list(STATUS_TEXT).index)
-        if set(worst) <= {"spec", "spec-closed"}:
+        if set(worst) <= {"spec", "spec-closed", "framed"}:
             continue
         sts = ", ".join(f"{STATUS_TEXT[s]} x{sum(1 for o in os_ if o['status'] == s)}" for s in worst)
         blk = sorted({b for o in os_ for b in o["blockers"]})
@@ -523,9 +533,9 @@ def precheck_report(name: str, src: str, data: dict, forms: list[dict]) -> tuple
         gaps.append(f"  {fname} ({os_[0]['family']}): {sts}" + (f"; blocked by {'; '.join(blk)}" if blk else "")
                     + f"; at {where}")
         gap_list.append({"form": fname, "family": os_[0]["family"], "count": len(os_),
-                         "status": [s for s in worst if s not in ("spec", "spec-closed")]})
+                         "status": [s for s in worst if s not in ("spec", "spec-closed", "framed")]})
     if gaps:
-        out.append("  instructions not run by a vm_spec lemma of contract-check:")
+        out.append("  instructions run neither by a vm_spec lemma of contract-check nor by a framed step:")
         out += ["  " + g for g in gaps]
     vers = sorted({(f, o["ver"]) for f, os_ in by_form.items() for o in os_ if o["ver"] > 0})
     if vers:
@@ -1063,6 +1073,9 @@ def classify_forms(raw: dict, forms: list[dict]) -> list[dict]:
     * `spec-cond`: such a lemma unifies with some samples only, needs a closed fact of the code (a
       dictionary constant), or does not fire on a generic stack (a condition the run must meet:
       `c.special = false`, a shape of `c7`, an argument); the other cases run by the handler;
+    * `framed`: no lemma for every sample, and every sample is an instruction a framed step of
+      `check_framed` runs on a cell or slice the run does not know (`FramedStep.of?`,
+      TvmLean/Proofs/Check/Framed.lean); on one it knows, the handler runs it;
     * `spec-lib`: only lemmas of modules contract-check does not import (TvmLean/Proofs/Exec/...);
     * `unfold`: no lemma; the handler runs by unfolding (deep check: computed; else: no blocker);
     * `missing`: no lemma, and the handler is blocked (a recursive program, a combinator outside the
@@ -1081,6 +1094,8 @@ def classify_forms(raw: dict, forms: list[dict]) -> list[dict]:
         sc = [split_list(r[5]) for r in ok]
         sl = [split_list(r[6]) for r in ok]
         handlers = [r[7] for r in ok if r[7] in ("unfold", "blocked")]
+        steps = sorted({r[10] for r in ok if len(r) > 10 and r[10]})
+        framed = steps[0] if len(steps) == 1 and all(len(r) > 10 and r[10] for r in ok) else ""
         blockers = sorted({b for r in ok for b in split_list(r[8])})
         lemmas = sorted({x for xs in sc for x in xs})
         lib_lemmas = sorted({x for xs in sl for x in xs} - set(lemmas))
@@ -1105,6 +1120,8 @@ def classify_forms(raw: dict, forms: list[dict]) -> list[dict]:
             status = "spec"
         elif with_spec > 0:
             status = "spec-cond"
+        elif framed:
+            status = "framed"
         elif lib_lemmas:
             status = "spec-lib"
         elif handler_ok:
@@ -1113,7 +1130,7 @@ def classify_forms(raw: dict, forms: list[dict]) -> list[dict]:
             status = "missing"
         vers = sorted({int(r[2]) for r in ok if r[2].isdigit() and int(r[2]) > 0})
         out.append(dict(f, samples=n, with_spec=with_spec, lemmas=lemmas, lib_lemmas=lib_lemmas,
-                        closed=closed, handler_ok=handler_ok, blockers=blockers, deep=dinfo,
+                        closed=closed, handler_ok=handler_ok, blockers=blockers, deep=dinfo, framed=framed,
                         status=status, versions=vers, text=ok[0][4] if ok else ""))
     return out
 
@@ -1121,6 +1138,7 @@ def classify_forms(raw: dict, forms: list[dict]) -> list[dict]:
 STATUS_RU = {
     "spec": "лемма",
     "spec-cond": "лемма с условием",
+    "framed": "обрамлённый шаг",
     "spec-lib": "лемма вне contract-check",
     "unfold": "развёртка обработчика",
     "missing": "не исполняется",
@@ -1272,6 +1290,12 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
              "`unfoldModelRun`). Статически: каждая программа VM обработчика либо считается леммой `vm_run`, "
              "либо разворачивается (нерекурсивное определение модели), либо **блокирует** (рекурсивная "
              "программа, комбинатор вне модели: `forIn`, ...).")
+    L.append("- **Обрамлённый шаг**: инструкции, которые `check_framed` (`TvmLean/Proofs/Check/Framed.lean`, "
+             "`FramedStep.of?`; `check_extra_step` пробует его раньше лемм) исполняет на ячейке или срезе, "
+             "которых прогон не знает (словарь из сообщения, адрес из тела, конфигурация): что верно для "
+             "любой такой ячейки — стек после инструкции из заданного множества, газ и загруженные ячейки "
+             "любые, исключение ничего не фиксирует (`ExecFramed`, `TvmLean/Proofs/Exec/Framed.lean`). На "
+             "ячейке, которую прогон знает, инструкцию исполняют лемма или обработчик.")
     if deep:
         L.append("- **Прогон** (`--deep`): первая выборка формы исполняется на символьном состоянии — стек из "
                  "значений сигнатуры формы (целые, срезы, ячейки, построители, простые продолжения, кортежи; "
@@ -1293,6 +1317,8 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
     L.append("| лемма с условием | лемма подходит не ко всем аргументам, требует факта кода (словарь-константа) "
              "или условия, которого нет на общем символьном стеке (`c.special = false`, форма `c7`); остальное — "
              "обработчиком |")
+    L.append("| обрамлённый шаг | леммы нет на каждую выборку; каждую исполняет обрамлённый шаг `check_framed` на "
+             "ячейке или срезе, которых прогон не знает (на известных — обработчик) |")
     L.append("| лемма вне contract-check | лемма есть только в модулях, которые `TvmLean.Proofs.Check.Tactic` не "
              "импортирует (подключить импорт) |")
     L.append("| развёртка обработчика | леммы нет; обработчик считается развёрткой" + (" (прогон: посчитан)" if deep else " (нет блокирующих программ)") + " |")
@@ -1301,17 +1327,17 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
     # --- the summary
     L.append("## Итог по семействам")
     L.append("")
-    L.append("Сейчас, в окружении contract-check: **покрыто** — лемма (и лемма с условием); **развёртка** — "
+    L.append("Сейчас, в окружении contract-check: **покрыто** — лемма (и лемма с условием, обрамлённый шаг); **развёртка** — "
              "обработчик считается (в том числе у форм с леммой вне contract-check: в скобках — сколько из них); "
              "**не исполняется** — остальное.")
     L.append("")
-    L.append("| Семейство | Форм | Лемма | Лемма с условием | Лемма вне contract-check (из них развёртка) | "
-             "Развёртка обработчика | Не исполняется | Покрыто / развёртка / не исполняется сейчас |")
-    L.append("|---|---:|---:|---:|---:|---:|---:|---|")
+    L.append("| Семейство | Форм | Лемма | Лемма с условием | Обрамлённый шаг | Лемма вне contract-check (из них "
+             "развёртка) | Развёртка обработчика | Не исполняется | Покрыто / развёртка / не исполняется сейчас |")
+    L.append("|---|---:|---:|---:|---:|---:|---:|---:|---|")
     tot = collections.Counter()
 
     def now(cs: list[dict]) -> tuple[int, int, int]:
-        cov = sum(1 for c in cs if c["status"] in ("spec", "spec-cond"))
+        cov = sum(1 for c in cs if c["status"] in ("spec", "spec-cond", "framed"))
         unf = sum(1 for c in cs if c["status"] == "unfold" or (c["status"] == "spec-lib" and c["handler_ok"]))
         return cov, unf, len(cs) - cov - unf
 
@@ -1322,11 +1348,12 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
         tot["all"] += len(cs)
         tot["lib_unf"] += lib_unf
         cov, unf, no = now(cs)
-        L.append(f"| {f} | {len(cs)} | {cnt['spec']} | {cnt['spec-cond']} | {cnt['spec-lib']} ({lib_unf}) | "
-                 f"{cnt['unfold']} | {cnt['missing']} | {cov} / {unf} / {no} |")
+        L.append(f"| {f} | {len(cs)} | {cnt['spec']} | {cnt['spec-cond']} | {cnt['framed']} | "
+                 f"{cnt['spec-lib']} ({lib_unf}) | {cnt['unfold']} | {cnt['missing']} | {cov} / {unf} / {no} |")
     cov, unf, no = now(classified)
-    L.append(f"| **всего** | **{tot['all']}** | **{tot['spec']}** | **{tot['spec-cond']}** | **{tot['spec-lib']}** "
-             f"**({tot['lib_unf']})** | **{tot['unfold']}** | **{tot['missing']}** | **{cov} / {unf} / {no}** |")
+    L.append(f"| **всего** | **{tot['all']}** | **{tot['spec']}** | **{tot['spec-cond']}** | **{tot['framed']}** | "
+             f"**{tot['spec-lib']}** **({tot['lib_unf']})** | **{tot['unfold']}** | **{tot['missing']}** | "
+             f"**{cov} / {unf} / {no}** |")
     L.append("")
     n_check = sum(1 for s in specs.values() if s["check"])
     mods = collections.Counter(s["module"] for s in specs.values() if not s["check"])
@@ -1342,12 +1369,12 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
         L.append("")
         L.append("`contract-check <код> --precheck` (`spec_coverage.py precheck ... --save`): весь код, достижимый "
                  "из корня (неявные `JMPREF`, `PUSHCONT`, `CALLREF`, `IF*REF`, процедуры `DICTPUSHCONST`), "
-                 "дизассемблирован декодером модели; каждая инструкция — по её точным аргументам (лемма), иначе по "
-                 "результату формы выше. Вхождения инструкций:")
+                 "дизассемблирован декодером модели; каждая инструкция — по её точным аргументам (лемма, "
+                 "обрамлённый шаг), иначе по результату формы выше. Вхождения инструкций:")
         L.append("")
-        L.append("| Код | Инструкций | Форм | Лемма | Лемма для словаря-константы | Лемма вне contract-check | Развёртка "
-                 "обработчика | Не исполняется | Формы без леммы contract-check |")
-        L.append("|---|---:|---:|---:|---:|---:|---:|---:|---|")
+        L.append("| Код | Инструкций | Форм | Лемма | Лемма для словаря-константы | Обрамлённый шаг | Лемма вне "
+                 "contract-check | Развёртка обработчика | Не исполняется | Формы без леммы и обрамлённого шага |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
         for p in pre:
             c = collections.Counter(p["counts"])
             gaps = ", ".join(f"`{g['form']}`" + (" (нет)" if "blocked" in g["status"] else "")
@@ -1356,7 +1383,7 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
             if more > 0:
                 gaps += f" и ещё {more}"
             L.append(f"| `{p['source'].split('#')[-1].replace('.code', '')}` | {p['instructions']} | {p['forms']} | "
-                     f"{c['spec']} | {c['spec-closed']} | {c['spec-lib']} | {c['unfold']} | "
+                     f"{c['spec']} | {c['spec-closed']} | {c['framed']} | {c['spec-lib']} | {c['unfold']} | "
                      f"{c['blocked'] + c['?']} | {gaps or '—'} |")
         L.append("")
         vers = sorted({v for p in pre for v in p["versions"]})
@@ -1397,6 +1424,8 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
                 lem += " (только словарь-константа)"
             if c["lib_lemmas"]:
                 lem += ("; " if lem else "") + "вне: " + ", ".join(short(x) for x in c["lib_lemmas"])
+            if c.get("framed"):
+                lem += ("; " if lem else "") + f"обрамлённый шаг `{c['framed']}`"
             hand = "развёртка" if not c["blockers"] else "блок: " + ", ".join(short(b) for b in c["blockers"])
             row = f"| `{md_escape(c['name'])}`" + (f" v{c['versions'][0]}" if c["versions"] else "") + \
                   f" | {STATUS_RU[c['status']]} | {md_escape(lem) or '—'} | {md_escape(hand)} |"
