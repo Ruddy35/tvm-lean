@@ -16,8 +16,8 @@ the two counters only; it pushes an integer; it fails only with an exception of 
   a framed computation that leaves the counters; the combinators `StepsX.keep_bind`, ...;
   `AtX`: the same at one state (a program that reads the state and sets it);
 * the local functions of a `do` block (its join points `__do_jp`, a helper such as the handler's
-  `chargeLoads`) followed once, not once per use (`StepsX.let_fun`, tactic `stepsx_let`), and the
-  tactic `stepsx_auto` that follows a handler with these;
+  `chargeLoads`) followed once, not once per use (tactics `stepsx_let`, `stepsx_hyp`, also for
+  `Steps`), and the tactic `stepsx_auto` that follows a handler with these;
 * `StepsX.registerCellLoadCheap`: a cheap load is framed;
 * `DictTail.extraBalance`: the handler (TvmLean/Semantics/Exec/TonEnv/GetExtraBalance.lean) on its
   instruction, the run of `GETEXTRABALANCE` (`DictTail.extraBalanceHandler_eq`);
@@ -270,79 +270,69 @@ theorem AtX.setLoaded (st0 : VmState) (lc : Array (Array UInt8)) :
   refine ⟨rfl, fun _ _ => rfl, ?_, fun _ => rfl⟩
   intro e he; cases he
 
-/-- **A local function of a `do` block, followed once** (`let jp := J; B jp`, as a join point
-`__do_jp` of `do` or a local helper elaborates): if each call of `J` is framed with `Q`, `B` is
-framed for any function framed with `Q` in its place. -/
-theorem StepsX.let_fun {β γ δ : Type} {J : β → VM δ} {B : (β → VM δ) → VM γ}
-    {Q : δ → Stack → Stack → Prop} {P : γ → Stack → Stack → Prop}
-    (hJ : ∀ y, StepsX (J y) Q) (hB : ∀ jp : β → VM δ, (∀ y, StepsX (jp y) Q) → StepsX (B jp) P) :
-    StepsX (B J) P :=
-  hB J hJ
-
-/-- `StepsX.let_fun` at one state. -/
-theorem AtX.let_fun {β γ δ : Type} {st0 : VmState} {J : β → VM δ} {B : (β → VM δ) → VM γ}
-    {Q : δ → Stack → Stack → Prop} {P : γ → Stack → Stack → Prop}
-    (hJ : ∀ y, StepsX (J y) Q) (hB : ∀ jp : β → VM δ, (∀ y, StepsX (jp y) Q) → AtX st0 (B jp) P) :
-    AtX st0 (B J) P :=
-  hB J hJ
-
 open Lean Meta Elab Tactic in
-/-- `stepsx_let`: the program of the goal (`StepsX m P`, `AtX st m P`) is a `let`. A value that is
-not a function is put in place. A function (a join point `__do_jp` of `do`, or a local helper) is
-followed once (`StepsX.let_fun`, `AtX.let_fun`): two goals, `StepsX (J y) Q` for its value `J` (`y`
-introduced), and the goal with a variable `jp` in its place and the hypothesis
-`hjp : ∀ y, StepsX (jp y) Q`; `Q` is the relation of the goal for a join point (a call of it ends
-the program) and the stack unchanged for a helper. -/
+/-- `stepsx_let`: the program of the goal (`StepsX m P`, `Steps m P`, `AtX st m P`) is a `let`. A
+value that is not a function is put in place. A function of any number of arguments (a join point
+`__do_jp` of `do`, or a local helper such as the handler's `chargeLoads`) is followed once instead of
+once per call: two goals, `∀ ys, StepsX (J ys) Q` for its value `J` (the arguments introduced), and
+the goal with a variable `jp` in its place and the hypothesis `hjp : ∀ ys, StepsX (jp ys) Q`
+(`Steps` for a goal `Steps`); `Q` is the relation of the goal for a join point (a call of it ends
+the program) and the stack unchanged for a helper. The proof is the second goal applied to `J` and
+to the first (`(fun jp hjp => _) J hJ`; the `let` is its `zeta`). -/
 elab "stepsx_let" : tactic => withMainContext do
   let g ← getMainGoal
   let t ← instantiateMVars (← g.getType)
-  let (isAt, idx) ←
-    if t.isAppOfArity ``StepsX 3 then pure (false, 1)
-    else if t.isAppOfArity ``AtX 4 then pure (true, 2)
-    else throwError "stepsx_let: the goal is not `StepsX` or `AtX`"
+  let (pred, idx) ←
+    if t.isAppOfArity ``StepsX 3 then pure (``StepsX, 1)
+    else if t.isAppOfArity ``AtX 4 then pure (``StepsX, 2)
+    else if t.isAppOfArity ``Steps 3 then pure (``Steps, 1)
+    else throwError "stepsx_let: the goal is not `StepsX`, `Steps` or `AtX`"
   let args := t.getAppArgs
   let .letE n ty v b _ := args[idx]! | throwError "stepsx_let: the program is not a `let`"
-  let tyW ← whnf ty
-  let .forallE yn β body _ := tyW | do
+  unless (← whnfR ty).isForall do
     replaceMainGoal [← g.replaceTargetDefEq (mkAppN t.getAppFn (args.set! idx (b.instantiate1 v)))]
-  if body.hasLooseBVars || !body.isApp then throwError "stepsx_let: a function of more than one argument"
-  let δ := body.appArg!
+    return
   let P := args.back!
   let stackT := mkConst ``TvmLean.Stack
-  let Q ← if n.eraseMacroScopes.toString.startsWith "__do_jp" then pure P else
-    withLocalDeclD `x δ fun x => withLocalDeclD `s stackT fun s => withLocalDeclD `s' stackT fun s' => do
-      mkLambdaFVars #[x, s, s'] (← mkEq s' s)
-  let stepsX (m : Expr) : Expr := mkApp3 (mkConst ``StepsX) δ m Q
-  let hJty ← withLocalDeclD yn β fun y => do mkForallFVars #[y] (stepsX (mkApp v y).headBeta)
-  let hBty ← withLocalDeclD `jp ty fun jp => do
-    let hjpTy ← withLocalDeclD yn β fun y => do mkForallFVars #[y] (stepsX (mkApp jp y))
-    withLocalDeclD `hjp hjpTy fun hjp => do
-      mkForallFVars #[jp, hjp] (mkAppN t.getAppFn (args.set! idx (b.instantiate1 jp)))
+  let isJp := n.eraseMacroScopes.toString.startsWith "__do_jp"
+  let (hJty, hBty, k) ← forallTelescope ty fun ys body => do
+    unless body.isApp do throwError "stepsx_let: not a function to a program"
+    let δ := body.appArg!
+    if δ.hasAnyFVar (fun f => ys.any (·.fvarId! == f)) then throwError "stepsx_let: a dependent function"
+    let Q ← if isJp then
+        unless ← isDefEq δ args[0]! do throwError "stepsx_let: a join point of another type"
+        pure P
+      else
+        withLocalDeclD `x δ fun x => withLocalDeclD `s stackT fun s => withLocalDeclD `s' stackT fun s' => do
+          mkLambdaFVars #[x, s, s'] (← mkEq s' s)
+    let pr (m : Expr) : Expr := mkApp3 (mkConst pred) δ m Q
+    let hJty ← mkForallFVars ys (pr (mkAppN v ys).headBeta)
+    let hBty ← withLocalDeclD `jp ty fun jp => do
+      let hjpTy ← mkForallFVars ys (pr (mkAppN jp ys))
+      withLocalDeclD `hjp hjpTy fun hjp => do
+        mkForallFVars #[jp, hjp] (mkAppN t.getAppFn (args.set! idx (b.instantiate1 jp)))
+    return (hJty, hBty, ys.size)
   let gJ ← mkFreshExprSyntheticOpaqueMVar hJty
   let gB ← mkFreshExprSyntheticOpaqueMVar hBty
-  let B := Expr.lam n ty b .default
-  let pf ← if isAt then
-      mkAppOptM ``AtX.let_fun #[none, none, none, args[1]!, v, B, Q, P, gJ, gB]
-    else
-      mkAppOptM ``StepsX.let_fun #[none, none, none, v, B, Q, P, gJ, gB]
-  g.assign pf
-  let (_, gJ') ← gJ.mvarId!.intro `y
+  g.assign (mkApp2 gB v gJ)
+  let (_, gJ') ← gJ.mvarId!.introN k
   let (_, gB') ← gB.mvarId!.introN 2 [`jp, `hjp]
   replaceMainGoal [gJ', gB']
 
 open Lean Meta Elab Tactic in
-/-- `stepsx_hyp`: the program of the goal (`StepsX (jp a) P`) is a call of a local function, framed
-by a hypothesis (`∀ y, StepsX (jp y) P`, of `stepsx_let`). -/
+/-- `stepsx_hyp`: the program of the goal (`StepsX (jp as) P`, `Steps (jp as) P`) is a call of a
+local function, framed by a hypothesis (`∀ ys, StepsX (jp ys) P`, of `stepsx_let`). -/
 elab "stepsx_hyp" : tactic => withMainContext do
   let g ← getMainGoal
   let t ← instantiateMVars (← g.getType)
-  unless t.isAppOfArity ``StepsX 3 do throwError "stepsx_hyp: the goal is not `StepsX`"
+  unless t.isAppOfArity ``StepsX 3 || t.isAppOfArity ``Steps 3 do
+    throwError "stepsx_hyp: the goal is not `StepsX` or `Steps`"
   let f := (t.getArg! 1).getAppFn
   unless f.isFVar do throwError "stepsx_hyp: the program is not a call of a variable"
   for d in ← getLCtx do
     if d.isImplementationDetail then continue
     let fits ← forallTelescope d.type fun _ b =>
-      pure (b.isAppOfArity ``StepsX 3 && (b.getArg! 1).getAppFn == f)
+      pure ((b.isAppOfArity ``StepsX 3 || b.isAppOfArity ``Steps 3) && (b.getArg! 1).getAppFn == f)
     if fits then
       if let some gs ← observing? (g.apply d.toExpr) then
         replaceMainGoal gs
