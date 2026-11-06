@@ -685,11 +685,12 @@ PATTERNS: list[dict] = [
                "RETURNARGS", "RETURNVARARGS"],
      "probes": ["callxargs", "jmpxargs", "retargs", "callxvarargs", "retvarargs", "returnargs", "returnvarargs",
                 "returnargs-top", "returnvarargs-top"],
-     "how": "the handler unfolded; VM.call/VM.jump with passArgs; Spec.callxVarArgs, Spec.retVarArgs, "
-            "Spec.returnArgs_ord/_quit, Spec.returnVarArgs_ord/_quit (Exec/Spec/VarArgs.lean)"},
+     "how": "Spec.callxArgs, Spec.jmpxArgs, Spec.retArgs (Exec/Spec/CallArgs.lean); VM.call/VM.jump with "
+            "passArgs; Spec.callxVarArgs, Spec.retVarArgs, Spec.returnArgs_ord/_quit, Spec.returnVarArgs_ord/_quit "
+            "(Exec/Spec/VarArgs.lean)"},
     {"id": "callcc", "title": "CALLCC and variants (the current continuation as a value)",
      "forms": ["CALLCC", "CALLCCARGS", "CALLCCVARARGS"], "probes": ["callcc", "callccargs", "callccvarargs"],
-     "how": "the handler unfolded (VM.extractCc)"},
+     "how": "the handler unfolded (VM.extractCc); Spec.callccVarArgs (Exec/Spec/CallArgs.lean)"},
     {"id": "retalt", "title": "RETALT / c1 (the alternative return)", "forms": ["RETALT", "IFRETALT", "IFNOTRETALT"],
      "probes": ["retalt", "samealtsave-retalt"],
      "how": "Spec.retAlt, Spec.retAlt_envelope, Spec.retAlt_quit (Exec/Spec/ContSave.lean); IFRETALT, "
@@ -782,9 +783,20 @@ PATTERNS: list[dict] = [
     {"id": "dict-unknown", "title": "DICTGET / DICTSET on a dictionary the run does not know",
      "forms": [], "regex": r"^DICT[IU]?(GET|SET|ADD|REPLACE|DEL)(?!NEXT|PREV)(?!.*(JMP|EXEC))",
      "probes": ["dictget-unknown", "dictset-unknown", "dictusetb-unknown", "dictiadd-unknown",
-                "dictusetref-unknown", "dictureplaceb-unknown", "dictireplaceb-unknown"],
+                "dictusetref-unknown", "dictureplaceb-unknown", "dictireplaceb-unknown", "dictugetoptref-unknown",
+                "dictigetoptref-unknown", "dictgetoptref-unknown", "dictusetgetoptref-unknown",
+                "dictusetgetoptref-del-unknown", "dictisetgetoptref-unknown", "dictsetgetoptref-unknown"],
      "how": "Spec.dictGetInt_* need dictLookupLoads facts: closed, or a hypothesis; Exec/FramedDict.lean for "
-            "framed cells; the sets on a dictionary without Dict.WF framed (Exec/FramedDictSet.lean)"},
+            "framed cells; the sets on a dictionary without Dict.WF framed (Exec/FramedDictSet.lean); "
+            "GETOPTREF, SETGETOPTREF framed (Exec/FramedDictOptRef.lean)"},
+    {"id": "dict-ext", "title": "PFXDICT* and SUBDICT*GET on a dictionary the run does not know",
+     "forms": ["PFXDICTGETQ", "PFXDICTGET", "PFXDICTSET", "PFXDICTREPLACE", "PFXDICTADD", "PFXDICTDEL",
+               "SUBDICTGET", "SUBDICTIGET", "SUBDICTUGET", "SUBDICTRPGET", "SUBDICTIRPGET", "SUBDICTURPGET"],
+     "probes": ["pfxdictgetq-unknown", "pfxdictget-unknown", "pfxdictset-unknown", "pfxdictreplace-unknown",
+                "pfxdictadd-unknown", "pfxdictdel-unknown", "subdictget-unknown", "subdictrpget-unknown",
+                "subdicturpget-unknown", "subdictiget-unknown"],
+     "how": "framed: PFXDICTGETQ, PFXDICTGET, PFXDICTSET/REPLACE/ADD, PFXDICTDEL (Exec/FramedDictPfx.lean), "
+            "SUBDICT*GET (Exec/FramedDictSubdict.lean); PFXDICTGETJMP/EXEC, PFXDICTSWITCH by the handler"},
     {"id": "dict-iter", "title": "dictionary iteration on an unknown dictionary (GETNEXT/PREV/MIN/MAX)",
      "forms": [], "regex": r"^DICT[IU]?(GETNEXT|GETPREV|MIN|MAX|REMMIN|REMMAX)",
      "probes": ["dictgetnext-unknown", "dictmin-unknown", "dicturemmin-unknown", "dictimaxref-unknown",
@@ -797,6 +809,13 @@ PATTERNS: list[dict] = [
     {"id": "c7-params", "title": "c7 parameters (NOW, BALANCE, MYADDR, GETPARAM) with c7 unknown",
      "forms": ["NOW", "BALANCE", "MYADDR", "GETPARAM", "BLOCKLT", "LTIME", "RANDSEED", "MYCODE", "INCOMINGVALUE"],
      "probes": ["now"], "how": "Spec.getParam and aliases need c7[0]! = .tuple params as a hypothesis; else the handler"},
+    {"id": "fees", "title": "the fee getters (the prices in c7[0][14])",
+     "forms": ["GETGASFEE", "GETSTORAGEFEE", "GETFORWARDFEE", "GETORIGINALFWDFEE", "GETGASFEESIMPLE",
+               "GETFORWARDFEESIMPLE", "GETEXTRABALANCE"],
+     "probes": ["getgasfee", "getstoragefee", "getforwardfee", "getoriginalfwdfee", "getgasfeesimple",
+                "getforwardfeesimple", "getextrabalance"],
+     "how": "Spec.getStorageFee, Spec.getForwardFee, ... (Exec/Spec/Fees.lean): the parses of the prices "
+            "irreducible, their results split by vm_split; GETEXTRABALANCE by the handler"},
     {"id": "version", "title": "an opcode of global version > 0 (e.g. GASCONSUMED, v4) under a symbolic global version",
      "forms": [], "version": True, "probes": ["gasconsumed-v4"],
      "how": "stepCode decides `k <= globalVersion` by decide on the state's version"},
@@ -818,11 +837,12 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '`Spec.blessVarArgs` (`Exec/Spec/VarArgs.lean`)'),
     'xargs': (
         '`CALLXARGS` / `JMPXARGS` / `RETARGS` (число аргументов и результатов)',
-        'обработчик; `VM.call`/`VM.jump` с `passArgs`; `Spec.callxVarArgs`, `Spec.retVarArgs`, '
-        '`Spec.returnArgs_ord`/`_quit`, `Spec.returnVarArgs_ord`/`_quit` (`Exec/Spec/VarArgs.lean`)'),
+        '`Spec.callxArgs`, `Spec.jmpxArgs`, `Spec.retArgs` (`Exec/Spec/CallArgs.lean`); `VM.call`/`VM.jump` с '
+        '`passArgs`; `Spec.callxVarArgs`, `Spec.retVarArgs`, `Spec.returnArgs_ord`/`_quit`, '
+        '`Spec.returnVarArgs_ord`/`_quit` (`Exec/Spec/VarArgs.lean`)'),
     'callcc': (
         '`CALLCC` и варианты (текущее продолжение как значение)',
-        'обработчик (`VM.extractCc`)'),
+        'обработчик (`VM.extractCc`); `Spec.callccVarArgs` (`Exec/Spec/CallArgs.lean`)'),
     'retalt': (
         '`RETALT` / `c1` (альтернативный возврат)',
         '`Spec.retAlt`, `Spec.retAlt_envelope`, `Spec.retAlt_quit` (`Exec/Spec/ContSave.lean`); `IFRETALT`, '
@@ -907,7 +927,12 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '`DICTGET` / `DICTSET` по словарю, которого прогон не знает',
         '`Spec.dictGetInt_*` требуют фактов `dictLookupLoads`: замкнутых или гипотезы; '
         '`Exec/FramedDict.lean` — для обрамлённых ячеек; записи в словарь без `Dict.WF` — обрамлённые '
-        '(`Exec/FramedDictSet.lean`)'),
+        '(`Exec/FramedDictSet.lean`); `GETOPTREF`, `SETGETOPTREF` — обрамлённые (`Exec/FramedDictOptRef.lean`)'),
+    'dict-ext': (
+        '`PFXDICT*` и `SUBDICT*GET` по словарю, которого прогон не знает',
+        'обрамлённые шаги: `PFXDICTGETQ`, `PFXDICTGET`, `PFXDICTSET`/`REPLACE`/`ADD`, `PFXDICTDEL` '
+        '(`Exec/FramedDictPfx.lean`), `SUBDICT*GET` (`Exec/FramedDictSubdict.lean`); `PFXDICTGETJMP`/`EXEC`, '
+        '`PFXDICTSWITCH` — обработчиком'),
     'dict-iter': (
         'перебор неизвестного словаря (`GETNEXT`/`PREV`/`MIN`/`MAX`)',
         'обрамлённые шаги: `MIN`/`MAX` и их формы `REM`/`REF` (`Exec/FramedDictMinMax.lean`), `GETNEXT`/`PREV` '
@@ -918,6 +943,10 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
     'c7-params': (
         'параметры `c7` (`NOW`, `BALANCE`, `MYADDR`, `GETPARAM`) при неизвестном `c7`',
         '`Spec.getParam` и синонимы требуют гипотезы `c7[0]! = .tuple params`; иначе обработчик'),
+    'fees': (
+        'получение цен и комиссий (цены в `c7[0][14]`)',
+        '`Spec.getStorageFee`, `Spec.getForwardFee`, ... (`Exec/Spec/Fees.lean`): разбор цен — нераскрываемые '
+        'определения (`irreducible`), их результат делит `vm_split`; `GETEXTRABALANCE` — обработчиком'),
     'version': (
         'опкод глобальной версии > 0 (например `GASCONSUMED`, v4) при символьной версии',
         '`stepCode`: `k ≤ globalVersion` — `decide` при известной версии, иначе `omega` из гипотез о '
@@ -930,6 +959,13 @@ PATTERN_GAPS: dict[str, tuple[str, str]] = {
         'VM.call/VM.jump with a number of arguments or results (passArgs, retArgs) have no vm_run lemma',
         'у `VM.call`/`VM.jump` с числом аргументов или результатов (`passArgs`, `retArgs`) нет леммы '
         '`vm_run`'),
+    'fees': (
+        'GETEXTRABALANCE on a balance the run does not know: the lookup walks unknown cells, and its cheap '
+        'charge of the cells loaded changes counters (getExtraBalanceCounter, freeGasConsumed) that a framed '
+        'step may not change (Framed.Frame)',
+        '`GETEXTRABALANCE` на балансе, которого прогон не знает: поиск идёт по неизвестным ячейкам, а его '
+        'дешёвая оплата загруженных ячеек меняет счётчики (`getExtraBalanceCounter`, `freeGasConsumed`), '
+        'которые обрамлённый шаг менять не может (`Framed.Frame`)'),
     'retalt': (
         'after RETALT (a jump to c1) the next step is left as `VmState.stepFinish` of the state',
         'после `RETALT` (переход в `c1`) следующий шаг остаётся `VmState.stepFinish` состояния'),
