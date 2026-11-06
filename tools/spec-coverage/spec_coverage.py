@@ -815,13 +815,21 @@ PATTERNS: list[dict] = [
      "forms": ["GETGASFEE", "GETSTORAGEFEE", "GETFORWARDFEE", "GETORIGINALFWDFEE", "GETGASFEESIMPLE",
                "GETFORWARDFEESIMPLE", "GETEXTRABALANCE"],
      "probes": ["getgasfee", "getstoragefee", "getforwardfee", "getoriginalfwdfee", "getgasfeesimple",
-                "getforwardfeesimple", "getextrabalance"],
+                "getforwardfeesimple", "getextrabalance", "getextrabalance-unknown-id"],
      "how": "Spec.getStorageFee, Spec.getForwardFee, ... (Exec/Spec/Fees.lean): the parses of the prices "
             "irreducible, their results split by vm_split; GETEXTRABALANCE on any balance framed "
             "(Exec/FramedExtraBalance.lean, the counters of its cheap calls in the frame)"},
     {"id": "version", "title": "an opcode of global version > 0 (e.g. GASCONSUMED, v4) under a symbolic global version",
      "forms": [], "version": True, "probes": ["gasconsumed-v4"],
      "how": "stepCode decides `k <= globalVersion` by decide on the state's version"},
+    {"id": "bls-count", "title": "the BLS forms with a count on the stack (AGGREGATE, FASTAGGREGATEVERIFY, "
+     "AGGREGATEVERIFY, G1/G2_MULTIEXP, PAIRING)",
+     "forms": ["BLS_AGGREGATE", "BLS_FASTAGGREGATEVERIFY", "BLS_AGGREGATEVERIFY", "BLS_G1_MULTIEXP",
+               "BLS_G2_MULTIEXP", "BLS_PAIRING"],
+     "probes": ["bls-aggregate-unknown", "bls-fastaggregateverify-unknown", "bls-aggregateverify-unknown",
+                "bls-g1-multiexp-unknown", "bls-g2-multiexp-unknown", "bls-pairing-unknown", "bls-g1-multiexp-const"],
+     "how": "a count the run knows: the handler, its loop unrolled; one it does not know: framed "
+            "(Exec/FramedBls.lean: some entries popped, a slice or an integer pushed)"},
 ]
 
 # The patterns in Russian, for docs/audit/spec-coverage.md: (title, what runs them).
@@ -956,6 +964,11 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'опкод глобальной версии > 0 (например `GASCONSUMED`, v4) при символьной версии',
         '`stepCode`: `k ≤ globalVersion` — `decide` при известной версии, иначе `omega` из гипотез о '
         'версии (`hgv`); не решено — `if` на `k ≤ gv` (`VmState.stepOnceWith_instrVer\'`)'),
+    'bls-count': (
+        'формы BLS со счётчиком на стеке (`AGGREGATE`, `FASTAGGREGATEVERIFY`, `AGGREGATEVERIFY`, '
+        '`G1/G2_MULTIEXP`, `PAIRING`)',
+        'известный прогону счётчик — обработчик, его цикл развёрнут; неизвестный — обрамлённый шаг '
+        '(`Exec/FramedBls.lean`: сняты сколько-то значений, положен срез или целое)'),
 }
 
 # What a pattern lacks, from the probes' failures (English for precheck, Russian for the document).
