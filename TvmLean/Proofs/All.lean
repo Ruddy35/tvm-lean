@@ -126,6 +126,7 @@ import TvmLean.Proofs.Exec.FramedDictMinMax
 import TvmLean.Proofs.Exec.FramedDictNear
 import TvmLean.Proofs.Exec.FramedDictSet
 import TvmLean.Proofs.Exec.FramedDictOptRef
+import TvmLean.Proofs.Exec.FramedDictPfx
 import TvmLean.Proofs.Check.StackNorm
 import TvmLean.Proofs.Exec.IteInst
 import TvmLean.Proofs.Exec.Havoc
