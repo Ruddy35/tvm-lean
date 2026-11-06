@@ -11,6 +11,7 @@ import TvmLean.Proofs.Exec.FramedDictNear
 import TvmLean.Proofs.Exec.FramedDictSet
 import TvmLean.Proofs.Exec.FramedDictOptRef
 import TvmLean.Proofs.Exec.FramedDictPfx
+import TvmLean.Proofs.Exec.FramedDictSubdict
 
 /-!
 # Checking an invariant over all transactions: cells the run does not know
@@ -49,6 +50,8 @@ framed instructions of TvmLean/Proofs/Exec/Framed.lean and FramedDict.lean:
   compute them on null either; `vm_pfx_getq_any`, `vm_pfx_get_any`, `vm_pfx_del_any`,
   `vm_pfx_set_any`, TvmLean/Proofs/Exec/FramedDictPfx.lean): any slices found, a new root (null or
   any cell) and a flag, or an exception;
+* `SUBDICT{,I,U}{,RP}GET` on a dictionary the run does not know (`vm_subdict_get_any`,
+  TvmLean/Proofs/Exec/FramedDictSubdict.lean): a new root, null or any cell, or an exception;
 * `CTOS` of a cell that is ordinary by definition but not written as `Cell.mkOrdinary` (`encode d` of
   the data the invariant gives, the data a run wrote): its `special` flag, `false`, as a hypothesis,
   for the specification `Spec.ctos`.
@@ -330,8 +333,8 @@ def dictSetGetOptRefAny (S : Expr) : TacticM Unit := withMainContext do
 
 /-- A framed step on a dictionary (at the stack's position 1) the run does not know, or on the empty
 one if `null` (`PFXDICT*`: their private, recursive walks do not compute on null either): the
-tactic `tac`, then the runs with the stack `ok` (`Framed.PfxGetQOk`, `Framed.PfxGetOk` or
-`Framed.RootFlagOk`) taken apart. -/
+tactic `tac`, then the runs with the stack `ok` (`Framed.PfxGetQOk`, `Framed.PfxGetOk`,
+`Framed.RootFlagOk` or `Framed.OptRefOk`) taken apart. -/
 def dictAny (S : Expr) (null : Bool) (tac : TSyntax `tactic) (ok : Name) : TacticM Unit := withMainContext do
   let some root ← stackEntry? S 1 | throwError "check_framed: the stack"
   unless null && root.isConstOf ``Value.null do
@@ -348,6 +351,8 @@ def dictAny (S : Expr) (null : Bool) (tac : TSyntax `tactic) (ok : Name) : Tacti
     evalTactic (← `(tactic| rcases h with ⟨k, $rflI:ident⟩ | ⟨p, v, k, $rflI:ident⟩))
   else if ok == ``Framed.PfxGetOk then
     evalTactic (← `(tactic| rcases h with ⟨p, v, k, $rflI:ident⟩))
+  else if ok == ``Framed.OptRefOk then
+    evalTactic (← `(tactic| rcases h with $rflI:ident | ⟨c, $rflI:ident⟩))
   else
     evalTactic (← `(tactic| rcases h with ⟨f, $rflI:ident⟩ | ⟨c, f, $rflI:ident⟩))
   evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
@@ -404,6 +409,8 @@ inductive FramedStep where
   | pfxDel
   /-- `PFXDICT{SET,REPLACE,ADD}` (`dictAny`, `vm_pfx_set_any`). -/
   | pfxSet
+  /-- `SUBDICT{,I,U}{,RP}GET` (`dictAny`, `vm_subdict_get_any`). -/
+  | subdictGet
   deriving Repr, BEq, Inhabited
 
 /-- The framed step `check_framed` takes for `i`, if any: the dispatch of `check_framed`, and the forms
@@ -425,6 +432,7 @@ def FramedStep.of? : Instr → Option FramedStep
   | .dictExt (.pfxGet .get) => some .pfxGet
   | .dictExt .pfxDel => some .pfxDel
   | .dictExt (.pfxSet _) => some .pfxSet
+  | .dictExt (.subdictGet _ _ _) => some .subdictGet
   | _ => none
 
 /-- The name of a framed step (tools/spec-coverage prints it). -/
@@ -443,6 +451,7 @@ def FramedStep.name : FramedStep → String
   | .pfxGet => "pfxGetAny"
   | .pfxDel => "pfxDelAny"
   | .pfxSet => "pfxSetAny"
+  | .subdictGet => "subdictGetAny"
 
 /-- `check_framed`: the instruction the run is about to run decoded once; for `CTOS` and `XCTOS`
 `knownSpecial` first (a cell ordinary by definition), then the framed step of `FramedStep.of?`:
@@ -475,6 +484,7 @@ elab "check_framed" : tactic => do
   | some .pfxGet => dictAny S true (← `(tactic| vm_pfx_get_any)) ``Framed.PfxGetOk
   | some .pfxDel => dictAny S true (← `(tactic| vm_pfx_del_any)) ``Framed.RootFlagOk
   | some .pfxSet => dictAny S true (← `(tactic| vm_pfx_set_any)) ``Framed.RootFlagOk
+  | some .subdictGet => dictAny S false (← `(tactic| vm_subdict_get_any)) ``Framed.OptRefOk
   | none => throwError "check_framed: not an instruction on a cell the run does not know"
 
 /-! ## An exception that ends the run
