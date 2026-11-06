@@ -4,8 +4,9 @@ import TvmLean.Proofs.Exec.Eval
 # Specifications: registers and the blockchain environment
 
 In the format of `Proofs/Exec/Spec/Stack.lean`: the persistent data `c4` (`PUSHROOT`, `POPROOT`),
-`ACCEPT`, and the parameters of `c7` (`NOW`, `BALANCE`, `MYADDR`, `GETPARAM i` and its other
-aliases). A parameter is entry `i` of the tuple `c7[0]` (`SmartContractInfo.params`), a tuple of at most 255
+`ACCEPT`, `GASCONSUMED`, and the parameters of `c7` (`NOW`, `BALANCE`, `MYADDR`, `GETPARAM i` and its
+other aliases, `CONFIGDICT`, the entries of the inbound message's tuple `c7[0][17]`, `INMSG_*`,
+and of the previous blocks' tuple `c7[0][13]`, `PREVMCBLOCKS`, `PREVKEYBLOCK`, `PREVMCBLOCKS_100`). A parameter is entry `i` of the tuple `c7[0]` (`SmartContractInfo.params`), a tuple of at most 255
 entries (C++ `get_param`, tonops.cpp:121-128, reads it `as_tuple_range(255)`: type_chk for a
 longer one); the specifications take that tuple as a hypothesis on `c7` (`c7[0]! = .tuple params`,
 which `vm_run` finds among the hypotheses of the goal), so `c7` itself may stay unknown.
@@ -116,6 +117,106 @@ theorem pushC7Param (st : VmState) (i : Nat) (params : Array Value) (h0 : 0 < st
     (hl : params.size ≤ 255) :
     ExceptT.run (execInstr (.tonEnvOp .incomingValue)) st = (.ok (), { st with stack := st.stack.push params[11]! }) := by
   vm_simp [pushC7Param st 11 params h0 hc7 hp hl]
+
+/-- `RANDSEED` = `GETPARAM 6` (tonops.cpp:463). -/
+@[vm_spec] theorem randSeed (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 6 < params.size)
+    (hl : params.size ≤ 255) :
+    ExceptT.run (execInstr (.tonEnvOp .randSeed)) st = (.ok (), { st with stack := st.stack.push params[6]! }) := by
+  vm_simp [pushC7Param st 6 params h0 hc7 hp hl]
+
+/-- `CONFIGROOT` = `GETPARAM 9` (tonops.cpp:466). -/
+@[vm_spec] theorem configRoot (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 9 < params.size)
+    (hl : params.size ≤ 255) :
+    ExceptT.run (execInstr (.tonEnvOp .configRoot)) st = (.ok (), { st with stack := st.stack.push params[9]! }) := by
+  vm_simp [pushC7Param st 9 params h0 hc7 hp hl]
+
+/-- `STORAGEFEES` = `GETPARAM 12` (tonops.cpp:469). -/
+@[vm_spec] theorem storageFees (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 12 < params.size)
+    (hl : params.size ≤ 255) :
+    ExceptT.run (execInstr (.tonEnvOp .storageFees)) st = (.ok (), { st with stack := st.stack.push params[12]! }) := by
+  vm_simp [pushC7Param st 12 params h0 hc7 hp hl]
+
+/-- `PREVBLOCKSINFOTUPLE` = `GETPARAM 13` (tonops.cpp:470). -/
+@[vm_spec] theorem prevBlocksInfoTuple (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 13 < params.size)
+    (hl : params.size ≤ 255) :
+    ExceptT.run (execInstr (.tonEnvOp .prevBlocksInfoTuple)) st =
+      (.ok (), { st with stack := st.stack.push params[13]! }) := by
+  vm_simp [pushC7Param st 13 params h0 hc7 hp hl]
+
+/-- `UNPACKEDCONFIGTUPLE` = `GETPARAM 14` (tonops.cpp:472). -/
+@[vm_spec] theorem unpackedConfigTuple (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 14 < params.size)
+    (hl : params.size ≤ 255) :
+    ExceptT.run (execInstr (.tonEnvOp .unpackedConfigTuple)) st =
+      (.ok (), { st with stack := st.stack.push params[14]! }) := by
+  vm_simp [pushC7Param st 14 params h0 hc7 hp hl]
+
+/-- `DUEPAYMENT` = `GETPARAM 15` (tonops.cpp:474). -/
+@[vm_spec] theorem duePayment (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 15 < params.size)
+    (hl : params.size ≤ 255) :
+    ExceptT.run (execInstr (.tonEnvOp .duePayment)) st = (.ok (), { st with stack := st.stack.push params[15]! }) := by
+  vm_simp [pushC7Param st 15 params h0 hc7 hp hl]
+
+/-- `GETPRECOMPILEDGAS` (C++ `exec_get_precompiled_gas`, tonops.cpp:343) = `GETPARAM 16`. -/
+@[vm_spec] theorem getPrecompiledGas (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 16 < params.size)
+    (hl : params.size ≤ 255) :
+    ExceptT.run (execInstr (.tonEnvOp .getPrecompiledGas)) st =
+      (.ok (), { st with stack := st.stack.push params[16]! }) := by
+  vm_simp [h0, hc7, hp, Nat.not_lt.mpr hl]
+
+/-- `CONFIGDICT` (C++ `exec_get_config_dict`, tonops.cpp:183): `GETPARAM 9`, then 32 (the key
+length). -/
+@[vm_spec] theorem configDict (st : VmState) (params : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 9 < params.size)
+    (hl : params.size ≤ 255) :
+    ExceptT.run (execInstr (.tonEnvOp .configDict)) st =
+      (.ok (), { st with stack := (st.stack.push params[9]!).push (.int (.num 32)) }) := by
+  vm_simp [pushC7Param st 9 params h0 hc7 hp hl]
+
+/-- `INMSG_*` and `INMSGPARAM i` (C++ `exec_get_in_msg_param`, tonops.cpp:165) when `c7[0]` is the
+tuple `params` and its entry 17 the tuple `inMsg` (of any length) of more than `i` entries: entry
+`i` of `inMsg` is pushed. -/
+@[vm_spec] theorem inMsgParam (st : VmState) (i : Nat) (params inMsg : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 17 < params.size) (hl : params.size ≤ 255)
+    (hm : params[17]! = .tuple inMsg) (hi : i < inMsg.size) :
+    ExceptT.run (execInstr (.tonEnvOp (.inMsgParam i))) st = (.ok (), { st with stack := st.stack.push inMsg[i]! }) := by
+  vm_simp [h0, hc7, hp, Nat.not_lt.mpr hl, hm, hi]
+
+/-- `PREVMCBLOCKS` (C++ `exec_get_prev_blocks_info`, tonops.cpp:260, index 0) when `c7[0]` is the
+tuple `params` and its entry 13 the tuple `t` (at most 255 entries, as `as_tuple_range(255)`
+reads it): entry 0 of `t` is pushed. -/
+@[vm_spec] theorem prevMcBlocks (st : VmState) (params t : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 13 < params.size) (hl : params.size ≤ 255)
+    (ht : params[13]! = .tuple t) (htl : t.size ≤ 255) (hi : 0 < t.size) :
+    ExceptT.run (execInstr (.tonEnvOp .prevMcBlocks)) st = (.ok (), { st with stack := st.stack.push t[0]! }) := by
+  vm_simp [VM.pushPrevBlocksInfo, pushC7Param st 13 params h0 hc7 hp hl, ht, Nat.not_lt.mpr htl, hi]
+
+/-- `PREVKEYBLOCK` (C++ `exec_get_prev_blocks_info`, index 1): entry 1 of the tuple `c7[0][13]`. -/
+@[vm_spec] theorem prevKeyBlock (st : VmState) (params t : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 13 < params.size) (hl : params.size ≤ 255)
+    (ht : params[13]! = .tuple t) (htl : t.size ≤ 255) (hi : 1 < t.size) :
+    ExceptT.run (execInstr (.tonEnvOp .prevKeyBlock)) st = (.ok (), { st with stack := st.stack.push t[1]! }) := by
+  vm_simp [VM.pushPrevBlocksInfo, pushC7Param st 13 params h0 hc7 hp hl, ht, Nat.not_lt.mpr htl, hi]
+
+/-- `PREVMCBLOCKS_100` (C++ `exec_get_prev_blocks_info`, index 2): entry 2 of the tuple
+`c7[0][13]`. -/
+@[vm_spec] theorem prevMcBlocks100 (st : VmState) (params t : Array Value) (h0 : 0 < st.regs.c7.size)
+    (hc7 : st.regs.c7[0]! = .tuple params) (hp : 13 < params.size) (hl : params.size ≤ 255)
+    (ht : params[13]! = .tuple t) (htl : t.size ≤ 255) (hi : 2 < t.size) :
+    ExceptT.run (execInstr (.tonEnvOp .prevMcBlocks100)) st = (.ok (), { st with stack := st.stack.push t[2]! }) := by
+  vm_simp [VM.pushPrevBlocksInfo, pushC7Param st 13 params h0 hc7 hp hl, ht, Nat.not_lt.mpr htl, hi]
+
+/-- `GASCONSUMED` (C++ `exec_gas_consumed`, tonops.cpp:97): the gas consumed so far is pushed. -/
+@[vm_spec] theorem gasConsumed (st : VmState) :
+    ExceptT.run (execInstr (.tonEnvOp .gasConsumed)) st =
+      (.ok (), { st with stack := st.stack.push (.int (.num st.gas.gasConsumed)) }) := by
+  vm_simp
 
 /-- `COMMIT` (C++ `exec_commit`): `c4` and `c5` become the committed state if they are at most
 `max_data_depth` deep and of level 0, else cell_ov (`VmState.tryCommit`). -/
