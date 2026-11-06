@@ -206,3 +206,12 @@ PROGRAM{
 <{ DROP LDDICT DROP 5 INT SWAP 8 INT SWAP 32 INT SUBDICTURPGET DROP }>c "subdicturpget-unknown" put
 <{ DROP LDDICT DROP -5 INT SWAP 8 INT SWAP 32 INT SUBDICTIGET DROP }>c "subdictiget-unknown" put
 <{ 5 INT GETEXTRABALANCE DROP }>c "getextrabalance" put
+// wave 9: GETEXTRABALANCE on a currency the run does not know; the BLS forms on a count the run does not know
+<{ DROP 32 PLDU GETEXTRABALANCE DROP }>c "getextrabalance-unknown-id" put
+<{ DROP 32 PLDU BLS_AGGREGATE DROP }>c "bls-aggregate-unknown" put
+<{ DROP 32 PLDU x{} PUSHSLICE DUP BLS_FASTAGGREGATEVERIFY DROP }>c "bls-fastaggregateverify-unknown" put
+<{ DROP 32 PLDU x{} PUSHSLICE BLS_AGGREGATEVERIFY DROP }>c "bls-aggregateverify-unknown" put
+<{ DROP 32 PLDU BLS_G1_MULTIEXP DROP }>c "bls-g1-multiexp-unknown" put
+<{ DROP 32 PLDU BLS_G2_MULTIEXP DROP }>c "bls-g2-multiexp-unknown" put
+<{ DROP 32 PLDU BLS_PAIRING DROP }>c "bls-pairing-unknown" put
+<{ DROP 3 INT BLS_G1_MULTIEXP DROP }>c "bls-g1-multiexp-const" put

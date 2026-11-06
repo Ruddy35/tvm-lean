@@ -13,6 +13,7 @@ import TvmLean.Proofs.Exec.FramedDictOptRef
 import TvmLean.Proofs.Exec.FramedDictPfx
 import TvmLean.Proofs.Exec.FramedDictSubdict
 import TvmLean.Proofs.Exec.FramedExtraBalance
+import TvmLean.Proofs.Exec.FramedBls
 
 /-!
 # Checking an invariant over all transactions: cells the run does not know
@@ -55,6 +56,10 @@ framed instructions of TvmLean/Proofs/Exec/Framed.lean and FramedDict.lean:
   TvmLean/Proofs/Exec/FramedDictSubdict.lean): a new root, null or any cell, or an exception;
 * `GETEXTRABALANCE` on any balance (`vm_extra_balance_any`, TvmLean/Proofs/Exec/FramedExtraBalance.lean):
   any integer, or an exception; the counters of its cheap calls any (`Framed.afterC`);
+* `BLS_AGGREGATE`, `BLS_FASTAGGREGATEVERIFY`, `BLS_AGGREGATEVERIFY`, `BLS_G1_MULTIEXP`,
+  `BLS_G2_MULTIEXP`, `BLS_PAIRING` with a count the run does not know (`vm_bls_any`,
+  TvmLean/Proofs/Exec/FramedBls.lean): some entries of the stack popped and a slice or an integer
+  pushed, or an exception;
 * `CTOS` of a cell that is ordinary by definition but not written as `Cell.mkOrdinary` (`encode d` of
   the data the invariant gives, the data a run wrote): its `special` flag, `false`, as a hypothesis,
   for the specification `Spec.ctos`.
@@ -410,6 +415,26 @@ def extraBalanceAny : TacticM Unit := withMainContext do
   evalTactic (← `(tactic| rcases h with ⟨x, $rflI:ident⟩))
   evalTactic (← `(tactic| all_goals (simp only [Framed.afterC]; vm_clear_unused)))
 
+/-- A BLS form with a count on the stack the run does not know (at the stack's position 0, 1 for
+`BLS_AGGREGATEVERIFY`, 2 for `BLS_FASTAGGREGATEVERIFY`): by `vm_bls_any`, the runs with some entries
+popped and a slice or an integer pushed. -/
+def blsAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
+  let .cryptoOp (.ext op) := i | throwError "check_framed: not a BLS form"
+  let depth : Nat := match op with
+    | .blsFastAggregateVerify => 2
+    | .blsAggregateVerify => 1
+    | _ => 0
+  let some cnt ← stackEntry? S depth | throwError "check_framed: the stack"
+  if Exec.isClosed cnt then throwError "check_framed: a count the run knows"
+  evalTactic (← `(tactic| vm_bls_any))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
+  evalTactic (← `(tactic| intro s' g lc ll fuel hfuel h))
+  evalTactic (← `(tactic| simp only [Framed.BlsSliceOk, Framed.BlsIntOk] at h))
+  let rflI := mkIdent `rfl
+  evalTactic (← `(tactic| rcases h with ⟨s0, v, hb, $rflI:ident⟩))
+  evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
+
 /-- The instruction the run in the main goal is about to run (`nextInstr?`), with the state. -/
 def mainNextInstr (what : String) : TacticM (MVarId × Instr × Expr) := withMainContext do
   let g ← getMainGoal
@@ -466,6 +491,8 @@ inductive FramedStep where
   | subdictGet
   /-- `GETEXTRABALANCE` (`extraBalanceAny`). -/
   | extraBalance
+  /-- The BLS forms with a count on the stack (`blsAny`). -/
+  | bls
   deriving Repr, BEq, Inhabited
 
 /-- The framed step `check_framed` takes for `i`, if any: the dispatch of `check_framed`, and the forms
@@ -489,6 +516,9 @@ def FramedStep.of? : Instr → Option FramedStep
   | .dictExt (.pfxSet _) => some .pfxSet
   | .dictExt (.subdictGet _ _ _) => some .subdictGet
   | .tonEnvOp .getExtraBalance => some .extraBalance
+  | .cryptoOp (.ext .blsAggregate) | .cryptoOp (.ext .blsFastAggregateVerify)
+  | .cryptoOp (.ext .blsAggregateVerify) | .cryptoOp (.ext .blsG1MultiExp)
+  | .cryptoOp (.ext .blsG2MultiExp) | .cryptoOp (.ext .blsPairing) => some .bls
   | _ => none
 
 /-- The name of a framed step (tools/spec-coverage prints it). -/
@@ -509,6 +539,7 @@ def FramedStep.name : FramedStep → String
   | .pfxSet => "pfxSetAny"
   | .subdictGet => "subdictGetAny"
   | .extraBalance => "extraBalanceAny"
+  | .bls => "blsAny"
 
 /-- The framed step of `FramedStep.of? i` on the main goal (`check_framed`). -/
 def framedStep (i : Instr) (S : Expr) : TacticM Unit := do
@@ -529,12 +560,14 @@ def framedStep (i : Instr) (S : Expr) : TacticM Unit := do
   | some .pfxSet => dictAny S true (← `(tactic| vm_pfx_set_any)) ``Framed.RootFlagOk
   | some .subdictGet => dictAny S false (← `(tactic| vm_subdict_get_any)) ``Framed.OptRefOk
   | some .extraBalance => extraBalanceAny
+  | some .bls => blsAny i S
   | none => throwError "check_framed: not an instruction on a cell the run does not know"
 
 /-- `check_framed`: the instruction the run is about to run decoded once; for `CTOS` and `XCTOS`
 `knownSpecial` first (a cell ordinary by definition), then the framed step of `FramedStep.of?`:
 `ctosAny`, `dictGetAny`, `configParamAny`, `rewriteVarAddrAny`, `rewriteStdAddrAny`, `dictMinMaxAny`,
-`dictNearAny`, `dictSetAny`, `dictGetOptRefAny`, `dictSetGetOptRefAny`, `dictAny` or `extraBalanceAny`;
+`dictNearAny`, `dictSetAny`, `dictGetOptRefAny`, `dictSetGetOptRefAny`, `dictAny`, `extraBalanceAny` or
+`blsAny`;
 the global version split on first if the run does not know whether it reaches the instruction's
 (`Exec.versionLe?`). Fails for any other instruction. -/
 elab "check_framed" : tactic => do
