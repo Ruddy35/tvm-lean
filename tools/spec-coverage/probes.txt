@@ -153,3 +153,11 @@ subdictrpget-unknown te6ccgEBAQEAEQAAHjD0BDCLEBgBeAGAIPS1MA==
 subdicturpget-unknown te6ccgEBAQEADwAAGjD0BDB1AXgBgCD0tzA=
 subdictiget-unknown te6ccgEBAQEADwAAGjD0BDB7AXgBgCD0sjA=
 getextrabalance te6ccgEBAQEABgAACHX4gDA=
+getextrabalance-unknown-id te6ccgEBAQEACQAADjDXCx/4gDA=
+bls-aggregate-unknown te6ccgEBAQEACgAAEDDXCx/5MAEw
+bls-fastaggregateverify-unknown te6ccgEBAQEADQAAFjDXCx+LCCD5MAIw
+bls-aggregateverify-unknown te6ccgEBAQEADAAAFDDXCx+LCPkwAzA=
+bls-g1-multiexp-unknown te6ccgEBAQEACgAAEDDXCx/5MBQw
+bls-g2-multiexp-unknown te6ccgEBAQEACgAAEDDXCx/5MCQw
+bls-pairing-unknown te6ccgEBAQEACgAAEDDXCx/5MDAw
+bls-g1-multiexp-const te6ccgEBAQEACAAADDBz+TAUMA==
