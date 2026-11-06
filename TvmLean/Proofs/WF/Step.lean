@@ -114,31 +114,6 @@ set_option mvcgen.warning false
 
 namespace TvmLean
 
-/-! ## Private helpers of the instruction files -/
-
-open Lean Elab Tactic Meta in
-/-- `unfold_private M f` unfolds in the goal the private definition `f` of the module `M` (a helper
-of an instruction file, `private def`, which cannot be named from another module), so that `mvcgen`
-sees its code. -/
-elab "unfold_private " m:ident n:ident : tactic => do
-  let full := Name.mkNum (`_private ++ m.getId) 0 ++ n.getId
-  unless (← getEnv).contains full do
-    throwError "unfold_private: no private definition {n.getId} in {m.getId}"
-  let g ← getMainGoal
-  g.withContext do
-    let t ← instantiateMVars (← g.getType)
-    let t' ← deltaExpand t (· == full)
-    replaceMainGoal [← g.replaceTargetDefEq t'.headBeta]
-
-open Lean Elab Term in
-/-- `private% M f`: the private definition `f` of the module `M`, as a term (to state its
-specification). -/
-elab "private% " m:ident n:ident : term => do
-  let full := Name.mkNum (`_private ++ m.getId) 0 ++ n.getId
-  let some ci := (← getEnv).find? full
-    | throwError "private%: no private definition {n.getId} in {m.getId}"
-  return mkConst full (ci.levelParams.map fun _ => levelZero)
-
 /-! ## Loops computing values -/
 
 /-- A loop over a range in `Id` keeps an invariant every step keeps (for the values instructions

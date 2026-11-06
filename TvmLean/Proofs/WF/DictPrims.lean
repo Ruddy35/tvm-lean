@@ -41,18 +41,6 @@ set_option mvcgen.warning false
 
 namespace TvmLean
 
-open Lean Elab Term Meta in
-/-- `private_eq% M f`: the unfolding equation of the private definition `f` of the module `M`, also
-of a recursive one (whose body `unfold_private` cannot show: it would unfold its fixpoint). -/
-elab "private_eq% " m:ident n:ident : term => do
-  let full := Name.mkNum (`_private ++ m.getId) 0 ++ n.getId
-  unless (← getEnv).contains full do
-    throwError "private_eq%: no private definition {n.getId} in {m.getId}"
-  let some eqn ← getUnfoldEqnFor? full (nonRec := true)
-    | throwError "private_eq%: no unfolding equation for {n.getId}"
-  let ci ← getConstInfo eqn
-  return mkConst eqn (ci.levelParams.map fun _ => levelZero)
-
 attribute [local irreducible] natToBits Cell.mkOrdinary
 
 /-! ## Specifications in `Except` -/
