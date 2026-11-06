@@ -108,6 +108,7 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.FramedDictMinMax, `TvmLean.Proofs.Exec.FramedDictNear,
     `TvmLean.Proofs.Exec.FramedDictSet, `TvmLean.Proofs.Exec.FramedDictOptRef,
     `TvmLean.Proofs.Exec.FramedDictPfx, `TvmLean.Proofs.Exec.FramedDictSubdict,
+    `TvmLean.Proofs.Exec.FramedExtraBalance,
     `TvmLean.Proofs.Exec.Dict.Near, `TvmLean.Proofs.Check.Unknown, `TvmLean.Proofs.Check.Tactic,
     `TvmLean.Proofs.Exec.Spec.Ctr, `TvmLean.Proofs.Exec.Spec.FlowRef, `TvmLean.Proofs.Exec.Spec.DictLoad,
     `TvmLean.Proofs.Check.Loops,

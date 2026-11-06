@@ -815,7 +815,8 @@ PATTERNS: list[dict] = [
      "probes": ["getgasfee", "getstoragefee", "getforwardfee", "getoriginalfwdfee", "getgasfeesimple",
                 "getforwardfeesimple", "getextrabalance"],
      "how": "Spec.getStorageFee, Spec.getForwardFee, ... (Exec/Spec/Fees.lean): the parses of the prices "
-            "irreducible, their results split by vm_split; GETEXTRABALANCE by the handler"},
+            "irreducible, their results split by vm_split; GETEXTRABALANCE on any balance framed "
+            "(Exec/FramedExtraBalance.lean, the counters of its cheap calls in the frame)"},
     {"id": "version", "title": "an opcode of global version > 0 (e.g. GASCONSUMED, v4) under a symbolic global version",
      "forms": [], "version": True, "probes": ["gasconsumed-v4"],
      "how": "stepCode decides `k <= globalVersion` by decide on the state's version"},
@@ -946,7 +947,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
     'fees': (
         'получение цен и комиссий (цены в `c7[0][14]`)',
         '`Spec.getStorageFee`, `Spec.getForwardFee`, ... (`Exec/Spec/Fees.lean`): разбор цен — нераскрываемые '
-        'определения (`irreducible`), их результат делит `vm_split`; `GETEXTRABALANCE` — обработчиком'),
+        'определения (`irreducible`), их результат делит `vm_split`; `GETEXTRABALANCE` на любом балансе — '
+        'обрамлённый шаг (`Exec/FramedExtraBalance.lean`, счётчики его дешёвых вызовов входят в рамку)'),
     'version': (
         'опкод глобальной версии > 0 (например `GASCONSUMED`, v4) при символьной версии',
         '`stepCode`: `k ≤ globalVersion` — `decide` при известной версии, иначе `omega` из гипотез о '
@@ -959,13 +961,6 @@ PATTERN_GAPS: dict[str, tuple[str, str]] = {
         'VM.call/VM.jump with a number of arguments or results (passArgs, retArgs) have no vm_run lemma',
         'у `VM.call`/`VM.jump` с числом аргументов или результатов (`passArgs`, `retArgs`) нет леммы '
         '`vm_run`'),
-    'fees': (
-        'GETEXTRABALANCE on a balance the run does not know: the lookup walks unknown cells, and its cheap '
-        'charge of the cells loaded changes counters (getExtraBalanceCounter, freeGasConsumed) that a framed '
-        'step may not change (Framed.Frame)',
-        '`GETEXTRABALANCE` на балансе, которого прогон не знает: поиск идёт по неизвестным ячейкам, а его '
-        'дешёвая оплата загруженных ячеек меняет счётчики (`getExtraBalanceCounter`, `freeGasConsumed`), '
-        'которые обрамлённый шаг менять не может (`Framed.Frame`)'),
     'retalt': (
         'after RETALT (a jump to c1) the next step is left as `VmState.stepFinish` of the state',
         'после `RETALT` (переход в `c1`) следующий шаг остаётся `VmState.stepFinish` состояния'),

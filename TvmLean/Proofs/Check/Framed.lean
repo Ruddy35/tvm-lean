@@ -12,6 +12,7 @@ import TvmLean.Proofs.Exec.FramedDictSet
 import TvmLean.Proofs.Exec.FramedDictOptRef
 import TvmLean.Proofs.Exec.FramedDictPfx
 import TvmLean.Proofs.Exec.FramedDictSubdict
+import TvmLean.Proofs.Exec.FramedExtraBalance
 
 /-!
 # Checking an invariant over all transactions: cells the run does not know
@@ -52,6 +53,8 @@ framed instructions of TvmLean/Proofs/Exec/Framed.lean and FramedDict.lean:
   any cell) and a flag, or an exception;
 * `SUBDICT{,I,U}{,RP}GET` on a dictionary the run does not know (`vm_subdict_get_any`,
   TvmLean/Proofs/Exec/FramedDictSubdict.lean): a new root, null or any cell, or an exception;
+* `GETEXTRABALANCE` on any balance (`vm_extra_balance_any`, TvmLean/Proofs/Exec/FramedExtraBalance.lean):
+  any integer, or an exception; the counters of its cheap calls any (`Framed.afterC`);
 * `CTOS` of a cell that is ordinary by definition but not written as `Cell.mkOrdinary` (`encode d` of
   the data the invariant gives, the data a run wrote): its `special` flag, `false`, as a hypothesis,
   for the specification `Spec.ctos`.
@@ -396,6 +399,17 @@ def dictAny (S : Expr) (null : Bool) (tac : TSyntax `tactic) (ok : Name) : Tacti
     evalTactic (← `(tactic| rcases h with ⟨f, $rflI:ident⟩ | ⟨c, f, $rflI:ident⟩))
   evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
 
+/-- `GETEXTRABALANCE` on any balance: by `vm_extra_balance_any`, the runs with any integer pushed and any
+counters of the cheap calls. -/
+def extraBalanceAny : TacticM Unit := withMainContext do
+  evalTactic (← `(tactic| vm_extra_balance_any))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
+  evalTactic (← `(tactic| intro s' g lc ll ec fg fuel hfuel h))
+  let rflI := mkIdent `rfl
+  evalTactic (← `(tactic| rcases h with ⟨x, $rflI:ident⟩))
+  evalTactic (← `(tactic| all_goals (simp only [Framed.afterC]; vm_clear_unused)))
+
 /-- The instruction the run in the main goal is about to run (`nextInstr?`), with the state. -/
 def mainNextInstr (what : String) : TacticM (MVarId × Instr × Expr) := withMainContext do
   let g ← getMainGoal
@@ -450,6 +464,8 @@ inductive FramedStep where
   | pfxSet
   /-- `SUBDICT{,I,U}{,RP}GET` (`dictAny`, `vm_subdict_get_any`). -/
   | subdictGet
+  /-- `GETEXTRABALANCE` (`extraBalanceAny`). -/
+  | extraBalance
   deriving Repr, BEq, Inhabited
 
 /-- The framed step `check_framed` takes for `i`, if any: the dispatch of `check_framed`, and the forms
@@ -472,6 +488,7 @@ def FramedStep.of? : Instr → Option FramedStep
   | .dictExt .pfxDel => some .pfxDel
   | .dictExt (.pfxSet _) => some .pfxSet
   | .dictExt (.subdictGet _ _ _) => some .subdictGet
+  | .tonEnvOp .getExtraBalance => some .extraBalance
   | _ => none
 
 /-- The name of a framed step (tools/spec-coverage prints it). -/
@@ -491,23 +508,10 @@ def FramedStep.name : FramedStep → String
   | .pfxDel => "pfxDelAny"
   | .pfxSet => "pfxSetAny"
   | .subdictGet => "subdictGetAny"
+  | .extraBalance => "extraBalanceAny"
 
-/-- `check_framed`: the instruction the run is about to run decoded once; for `CTOS` and `XCTOS`
-`knownSpecial` first (a cell ordinary by definition), then the framed step of `FramedStep.of?`:
-`ctosAny`, `dictGetAny`, `configParamAny`, `rewriteVarAddrAny`, `rewriteStdAddrAny`, `dictMinMaxAny`,
-`dictNearAny`, `dictSetAny`, `dictGetOptRefAny`, `dictSetGetOptRefAny` or `dictAny`. Fails for any
-other instruction. -/
-elab "check_framed" : tactic => do
-  let (g, i, S) ← mainNextInstr "check_framed"
-  if i matches .xctos then
-    knownSpecial g i S
-    return
-  if i matches .ctos then
-    let s ← saveState
-    try
-      knownSpecial g i S
-      return
-    catch _ => s.restore
+/-- The framed step of `FramedStep.of? i` on the main goal (`check_framed`). -/
+def framedStep (i : Instr) (S : Expr) : TacticM Unit := do
   match FramedStep.of? i with
   | some .ctos => ctosAny i S
   | some .dictGet => dictGetAny i S
@@ -524,7 +528,45 @@ elab "check_framed" : tactic => do
   | some .pfxDel => dictAny S true (← `(tactic| vm_pfx_del_any)) ``Framed.RootFlagOk
   | some .pfxSet => dictAny S true (← `(tactic| vm_pfx_set_any)) ``Framed.RootFlagOk
   | some .subdictGet => dictAny S false (← `(tactic| vm_subdict_get_any)) ``Framed.OptRefOk
+  | some .extraBalance => extraBalanceAny
   | none => throwError "check_framed: not an instruction on a cell the run does not know"
+
+/-- `check_framed`: the instruction the run is about to run decoded once; for `CTOS` and `XCTOS`
+`knownSpecial` first (a cell ordinary by definition), then the framed step of `FramedStep.of?`:
+`ctosAny`, `dictGetAny`, `configParamAny`, `rewriteVarAddrAny`, `rewriteStdAddrAny`, `dictMinMaxAny`,
+`dictNearAny`, `dictSetAny`, `dictGetOptRefAny`, `dictSetGetOptRefAny`, `dictAny` or `extraBalanceAny`;
+the global version split on first if the run does not know whether it reaches the instruction's
+(`Exec.versionLe?`). Fails for any other instruction. -/
+elab "check_framed" : tactic => do
+  let (g, i, S) ← mainNextInstr "check_framed"
+  if i matches .xctos then
+    knownSpecial g i S
+    return
+  if i matches .ctos then
+    let s ← saveState
+    try
+      knownSpecial g i S
+      return
+    catch _ => s.restore
+  -- an instruction of a later global version (`GETEXTRABALANCE`, version 10) under a version the
+  -- run does not know: the run split on it first, the framed step where it is reached (the goal
+  -- where it is not left to the steps of the run: the invalid opcode)
+  let mut notReached : List MVarId := []
+  if (FramedStep.of? i).isSome then
+    let (k, gvE) ← Exec.framedVersion S
+    let split? ← g.withContext do
+      if (← Exec.versionLe? k gvE).isSome then return none
+      let gvW ← whnfCore (← whnfR gvE)
+      let p ← mkAppM ``LE.le #[mkNatLit k, gvW]
+      if (← Exec.omegaFrom? gvW (mkNot p)).isSome then
+        throwError "check_framed: the global version is below the {k} of the instruction"
+      return some p
+    if let some p := split? then
+      let (pos, neg) ← g.byCases p `hver
+      replaceMainGoal [pos.mvarId]
+      notReached := [neg.mvarId]
+  framedStep i S
+  setGoals ((← getGoals) ++ notReached)
 
 /-! ## An exception that ends the run
 
