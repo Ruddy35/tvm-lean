@@ -195,41 +195,50 @@ def configParamAny (i : Instr) : TacticM Unit := withMainContext do
   evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
 
 /-- The step of the instruction itself at the main goal (`check_step`), kept if it runs the
-instruction through: no goal left with an instruction unreduced (`execInstr`). A fuel that is a
-variable is split first, as `check_one_step` does before a step (the framed lemmas take any fuel):
-the run out of fuel is left as it is. Whether it did (nothing kept if not). `REWRITESTDADDR` on a
-slice that the run reads, as one `LDMSGADDR` split by its kind, is so run exactly: the framed lemma
-would give any address for every kind, also for those whose rewrite throws, and every one of those
-runs would go on. -/
-def exactStep? : TacticM Bool := do
+instruction through: no goal left with an instruction unreduced (`execInstr`) nor with an
+application of one of `stuck` (a computation of the instruction the step could not read through, as
+`Slice.parseMessageAddr` of an address whose bits the run does not know). A fuel that is a variable
+is split first, as `check_one_step` does before a step (the framed lemmas take any fuel): the run out
+of fuel is left as it is. The step has half of the step's heartbeats (`check.stepHeartbeats`; 100000
+without it), an exception of the step (heartbeats among them) is a failure of it. Whether it did
+(nothing kept if not). `REWRITESTDADDR` on a slice that the run reads, as one `LDMSGADDR` split by its
+kind, is so run exactly: the framed lemma would give any address for every kind, also for those
+whose rewrite throws, and every one of those runs would go on. -/
+def exactStep? (stuck : Array Name := #[]) : TacticM Bool := do
   let s ← saveState
-  try
-    evalTactic (← `(tactic| check_mark_pos))
-    evalTactic (← `(tactic| try (vm_fuel <;>
-      try simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt])))
-    let mut out : List MVarId := []
-    let mut stepped := false
-    for g in ← getGoals do
-      if ← g.isAssigned then continue
-      let t ← instantiateMVars (← g.getType)
-      -- the run of the step (the one out of fuel has none left after `simp`)
-      if (t.find? (·.isAppOfArity ``VmState.runWith 3)).isNone then
-        out := out ++ [g]
-        continue
-      setGoals [g]
-      evalTactic (← `(tactic| check_step []))
-      stepped := true
-      out := out ++ (← getGoals)
-    unless stepped do throwError "check_framed: no step"
-    for g in out do
-      let t ← instantiateMVars (← g.getType)
-      if (t.find? (·.isAppOfArity ``execInstr 1)).isSome then
-        throwError "check_framed: the step left the instruction"
-    setGoals out
-    return true
-  catch _ =>
-    s.restore
-    return false
+  let hb := match check.stepHeartbeats.get (← getOptions) with
+    | 0 => 100000
+    | n => n / 2
+  tryCatchRuntimeEx
+    (withCurrHeartbeats <| withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := hb * 1000 }) do
+      evalTactic (← `(tactic| check_mark_pos))
+      evalTactic (← `(tactic| try (vm_fuel <;>
+        try simp only [VmState.runWith_zero, ↓ excnoToIntStop, Excno.toInt])))
+      let mut out : List MVarId := []
+      let mut stepped := false
+      for g in ← getGoals do
+        if ← g.isAssigned then continue
+        let t ← instantiateMVars (← g.getType)
+        -- the run of the step (the one out of fuel has none left after `simp`)
+        if (t.find? (·.isAppOfArity ``VmState.runWith 3)).isNone then
+          out := out ++ [g]
+          continue
+        setGoals [g]
+        evalTactic (← `(tactic| check_step []))
+        stepped := true
+        out := out ++ (← getGoals)
+      unless stepped do throwError "check_framed: no step"
+      for g in out do
+        let t ← instantiateMVars (← g.getType)
+        if (t.find? (·.isAppOfArity ``execInstr 1)).isSome then
+          throwError "check_framed: the step left the instruction"
+        if (t.find? fun x => stuck.any (x.isAppOf ·)).isSome then
+          throwError "check_framed: the step left a computation it could not read through"
+      setGoals out
+      return true)
+    (fun _ => do
+      s.restore
+      return false)
 
 /-- `REWRITEVARADDR`/`REWRITEVARADDRQ` (`i`) from the state `S` on a slice the run does not know (a
 part of the message): by `vm_rewrite_var_addr_any`, the runs with any workchain and address (and,
@@ -249,15 +258,15 @@ def rewriteVarAddrAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext d
   evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
 
 /-- `REWRITESTDADDR`/`REWRITESTDADDRQ` (`i`) from the state `S` on a slice the run does not know
-(the sender's address): its step itself where that runs it through (`exactStep?`), else by
-`vm_rewrite_std_addr_any`, the runs with any workchain and address (and, for `REWRITESTDADDRQ`,
-with none). -/
+(the sender's address): its step itself where that runs it through, the address read
+(`exactStep?`: no `Slice.parseMessageAddr` left), else by `vm_rewrite_std_addr_any`, the runs with
+any workchain and address (and, for `REWRITESTDADDRQ`, with none). -/
 def rewriteStdAddrAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
   unless i matches .tonEnvOp (.rewriteStdAddr _) do throwError "check_framed: not REWRITESTDADDR"
   let some top ← stackEntry? S 0 | throwError "check_framed: the stack"
   unless top.isAppOfArity ``Value.slice 1 do throwError "check_framed: no slice"
   if Exec.isClosed top.appArg! then throwError "check_framed: a slice the run knows"
-  if ← exactStep? then return
+  if ← exactStep? #[``Slice.parseMessageAddr] then return
   evalTactic (← `(tactic| vm_rewrite_std_addr_any))
   evalTactic (← `(tactic| (· intro r h; first
     | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
