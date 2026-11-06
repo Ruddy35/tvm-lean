@@ -717,7 +717,8 @@ PATTERNS: list[dict] = [
     {"id": "loop-in-loop", "title": "a loop inside a loop", "forms": [], "probes": ["loop-in-loop"],
      "how": "nested loop rules (check_loop_close takes the latest ih)"},
     {"id": "try", "title": "TRY / TRYARGS: an exception caught by a handler (c2)", "forms": ["TRY", "TRYARGS"],
-     "probes": ["try-throw", "try-nothrow", "tryargs"], "how": "the handler unfolded; VM.run_throwToHandler"},
+     "probes": ["try-throw", "try-nothrow", "tryargs"],
+     "how": "Spec.try_ (Exec/Spec/FlowExt.lean); TRYARGS: the handler unfolded; VM.run_throwToHandler"},
     {"id": "throw", "title": "THROW* to the default handler (the run halts with the exit code)",
      "forms": ["THROW", "THROW_SHORT", "THROWIF", "THROWIF_SHORT", "THROWIFNOT", "THROWIFNOT_SHORT", "THROWARG",
                "THROWANY", "THROWARGANY", "THROWANYIF", "THROWANYIFNOT", "THROWARGANYIF", "THROWARGANYIFNOT"],
@@ -759,7 +760,8 @@ PATTERNS: list[dict] = [
             "computed (setContCtrManyLoop); VM.run_call_ordinary_cdata (a call to a continuation that saves c0 "
             "is a jump); Spec.saveCtr0..saveCtr7, Spec.sameAltSave (Exec/Spec/ContSave.lean)"},
     {"id": "setcp", "title": "SETCP with a codepage other than 0, SETCPX", "forms": ["SETCP", "SETCPX", "SETCP_SHORT"],
-     "probes": ["setcp1", "setcpx"], "how": "the handler unfolded; stepCode needs cp = 0, else the step unfolded"},
+     "probes": ["setcp1", "setcpx"],
+     "how": "Spec.setcp_ne, Spec.setcpX (Exec/Spec/FlowExt.lean); stepCode needs cp = 0, else the step unfolded"},
     {"id": "safe-actions", "title": "SENDRAWMSG / RAWRESERVE actions (c5)", "forms": ["SENDRAWMSG", "RAWRESERVE"],
      "probes": ["sendrawmsg", "rawreserve"],
      "how": "Spec.sendRawMsg, Spec.rawReserve; SafeActs (or Acts) closes c5 (Check/Tactic.lean)"},
@@ -879,7 +881,7 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'вложенные правила цикла (`check_loop_close` берёт последний `ih`)'),
     'try': (
         '`TRY` / `TRYARGS`: исключение ловит обработчик (`c2`)',
-        'обработчик; `VM.run_throwToHandler`'),
+        '`Spec.try_` (`Exec/Spec/FlowExt.lean`); `TRYARGS` — обработчиком; `VM.run_throwToHandler`'),
     'throw': (
         '`THROW*` в обработчик по умолчанию (прогон останавливается с кодом выхода)',
         '`Spec.throw`, `Spec.throwIf`, `Spec.throwIfNot`, `Spec.throwArg`, `Spec.throwAny`, `Spec.throwArgAny`, '
@@ -912,7 +914,7 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '`c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`)'),
     'setcp': (
         '`SETCP` с кодовой страницей не 0, `SETCPX`',
-        'обработчик; `stepCode` требует `cp = 0`'),
+        '`Spec.setcp_ne`, `Spec.setcpX` (`Exec/Spec/FlowExt.lean`); `stepCode` требует `cp = 0`'),
     'safe-actions': (
         'действия `SENDRAWMSG` / `RAWRESERVE` (`c5`)',
         '`Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` (или `Acts`) закрывает `c5` (`Check/Tactic.lean`)'),
