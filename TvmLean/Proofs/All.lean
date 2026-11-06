@@ -187,6 +187,7 @@ import TvmLean.Proofs.Exec.Spec.CellCut
 import TvmLean.Proofs.Exec.Spec.ContSave
 import TvmLean.Proofs.Exec.Spec.Globals
 import TvmLean.Proofs.Exec.Spec.Rand
+import TvmLean.Proofs.Exec.Spec.Fees
 
 /-!
 # All proof modules together
