@@ -9,6 +9,7 @@ import TvmLean.Proofs.Exec.FramedStdAddr
 import TvmLean.Proofs.Exec.FramedDictMinMax
 import TvmLean.Proofs.Exec.FramedDictNear
 import TvmLean.Proofs.Exec.FramedDictSet
+import TvmLean.Proofs.Exec.FramedDictOptRef
 
 /-!
 # Checking an invariant over all transactions: cells the run does not know
@@ -38,6 +39,10 @@ framed instructions of TvmLean/Proofs/Exec/Framed.lean and FramedDict.lean:
 * `DICT{,I,U}SET{,REF,B}` (any mode) and `DICT{,I,U}REPLACEB` on a dictionary the run does not know
   and of which no `Dict.WF` is known (`vm_dict_set_any`, TvmLean/Proofs/Exec/FramedDictSet.lean): a
   new root, null or any cell, and the flag (any integer) of `ADD`/`REPLACE`, or an exception;
+* `DICT{,I,U}GETOPTREF` on a dictionary the run does not know (`vm_dict_getoptref_any`,
+  TvmLean/Proofs/Exec/FramedDictOptRef.lean): any cell or null, or an exception; and
+  `DICT{,I,U}SETGETOPTREF` on one (or on the empty dictionary: `vm_dict_setgetoptref_any`): a new
+  root and an old value, each null or any cell, or an exception;
 * `CTOS` of a cell that is ordinary by definition but not written as `Cell.mkOrdinary` (`encode d` of
   the data the invariant gives, the data a run wrote): its `special` flag, `false`, as a hypothesis,
   for the specification `Spec.ctos`.
@@ -285,6 +290,38 @@ def dictSetAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
     evalTactic (← `(tactic| rcases h with ⟨f, $rflI:ident⟩ | ⟨c, f, $rflI:ident⟩))
   evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
 
+/-- `DICT{,I,U}GETOPTREF` from the state `S` on a dictionary the run does not know: by
+`vm_dict_getoptref_any`, the runs with a cell found (any) and with none. -/
+def dictGetOptRefAny (S : Expr) : TacticM Unit := withMainContext do
+  let some root ← stackEntry? S 1 | throwError "check_framed: the stack"
+  unless root.isAppOfArity ``Value.cell 1 do throwError "check_framed: no cell"
+  if Exec.isClosed root.appArg! then throwError "check_framed: a dictionary the run knows"
+  evalTactic (← `(tactic| vm_dict_getoptref_any))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
+  evalTactic (← `(tactic| intro s' g lc ll fuel hfuel h))
+  evalTactic (← `(tactic| try simp only [Framed.OptRefOk] at h))
+  let rflI := mkIdent `rfl
+  evalTactic (← `(tactic| rcases h with $rflI:ident | ⟨c, $rflI:ident⟩))
+  evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
+
+/-- `DICT{,I,U}SETGETOPTREF` from the state `S` on a dictionary the run does not know, or on the
+empty one (null; no specification has it): by `vm_dict_setgetoptref_any`, the runs with each new
+root and old value null or any cell. -/
+def dictSetGetOptRefAny (S : Expr) : TacticM Unit := withMainContext do
+  let some root ← stackEntry? S 1 | throwError "check_framed: the stack"
+  unless root.isConstOf ``Value.null do
+    unless root.isAppOfArity ``Value.cell 1 do throwError "check_framed: no cell"
+    if Exec.isClosed root.appArg! then throwError "check_framed: a dictionary the run knows"
+  evalTactic (← `(tactic| vm_dict_setgetoptref_any))
+  evalTactic (← `(tactic| (· intro r h; first
+    | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
+  evalTactic (← `(tactic| intro s' g lc ll fuel hfuel h))
+  evalTactic (← `(tactic| try simp only [Framed.SetGetOptRefOk] at h))
+  let rflI := mkIdent `rfl
+  evalTactic (← `(tactic| rcases h with $rflI:ident | ⟨c, $rflI:ident⟩ | ⟨r, $rflI:ident⟩ | ⟨r, c, $rflI:ident⟩))
+  evalTactic (← `(tactic| all_goals (simp only [Framed.after]; vm_clear_unused)))
+
 /-- The instruction the run in the main goal is about to run (`nextInstr?`), with the state. -/
 def mainNextInstr (what : String) : TacticM (MVarId × Instr × Expr) := withMainContext do
   let g ← getMainGoal
@@ -325,6 +362,10 @@ inductive FramedStep where
   | dictNear
   /-- `DICT{,I,U}SET{,REF,B}` in any mode, `DICT{,I,U}REPLACEB` (`dictSetAny`). -/
   | dictSet
+  /-- `DICT{,I,U}GETOPTREF` (`dictGetOptRefAny`). -/
+  | dictGetOptRef
+  /-- `DICT{,I,U}SETGETOPTREF` (`dictSetGetOptRefAny`). -/
+  | dictSetGetOptRef
   deriving Repr, BEq, Inhabited
 
 /-- The framed step `check_framed` takes for `i`, if any: the dispatch of `check_framed`, and the forms
@@ -340,6 +381,8 @@ def FramedStep.of? : Instr → Option FramedStep
   | .dictSet _ _ _ _ => some .dictSet
   | .dictSetB _ _ _ => some .dictSet
   | .dictReplaceB _ _ => some .dictSet
+  | .dictExt (.getOptRef _ _) => some .dictGetOptRef
+  | .dictExt (.setGetOptRef _ _) => some .dictSetGetOptRef
   | _ => none
 
 /-- The name of a framed step (tools/spec-coverage prints it). -/
@@ -352,11 +395,14 @@ def FramedStep.name : FramedStep → String
   | .dictMinMax => "dictMinMaxAny"
   | .dictNear => "dictNearAny"
   | .dictSet => "dictSetAny"
+  | .dictGetOptRef => "dictGetOptRefAny"
+  | .dictSetGetOptRef => "dictSetGetOptRefAny"
 
 /-- `check_framed`: the instruction the run is about to run decoded once; for `CTOS` and `XCTOS`
 `knownSpecial` first (a cell ordinary by definition), then the framed step of `FramedStep.of?`:
 `ctosAny`, `dictGetAny`, `configParamAny`, `rewriteVarAddrAny`, `rewriteStdAddrAny`, `dictMinMaxAny`,
-`dictNearAny` or `dictSetAny`. Fails for any other instruction. -/
+`dictNearAny`, `dictSetAny`, `dictGetOptRefAny` or `dictSetGetOptRefAny`. Fails for any other
+instruction. -/
 elab "check_framed" : tactic => do
   let (g, i, S) ← mainNextInstr "check_framed"
   if i matches .xctos then
@@ -377,6 +423,8 @@ elab "check_framed" : tactic => do
   | some .dictMinMax => dictMinMaxAny i S
   | some .dictNear => dictNearAny i S
   | some .dictSet => dictSetAny i S
+  | some .dictGetOptRef => dictGetOptRefAny S
+  | some .dictSetGetOptRef => dictSetGetOptRefAny S
   | none => throwError "check_framed: not an instruction on a cell the run does not know"
 
 /-! ## An exception that ends the run
