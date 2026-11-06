@@ -193,6 +193,7 @@ import TvmLean.Proofs.Exec.Spec.CallArgs
 import TvmLean.Proofs.Exec.Spec.FlowFlag
 import TvmLean.Proofs.Exec.Spec.CellConst
 import TvmLean.Proofs.Exec.Spec.CellCmp
+import TvmLean.Proofs.Exec.Spec.Debug
 
 /-!
 # All proof modules together
