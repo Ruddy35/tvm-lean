@@ -20,6 +20,41 @@ namespace TvmLean.Tx
 /-- The action list `c5` has no `SETCODE` action. -/
 def NoSetCode (c5 : Cell) : Prop := ∀ c, ¬ActionIn c5 (.setCode c)
 
+/-- The nodes of the list with an action added whose first reference is the list before: after the
+first, the nodes of the list before. -/
+theorem actionNode_succ_of_ref0 (x prev : Cell) (h : x.refs[0]! = prev) :
+    ∀ i, actionNode x (i + 1) = actionNode prev i
+  | 0 => h
+  | i + 1 => by rw [actionNode_succ, actionNode_succ_of_ref0 x prev h i, ← actionNode_succ]
+
+/-- The tag of an action read after its first reference, from a node whose first 32 bits are
+`natToBits t 32`. -/
+theorem uint32_of_tag {node : Cell} {t : Nat} (h : node.bits.extract 0 32 = natToBits t 32)
+    (ht : t < 2 ^ 32) :
+    Reader.uint 32 { cell := node, bitPos := 0, refPos := 1 } =
+      some (t, { cell := node, bitPos := 32, refPos := 1 }) := by
+  have hs : 32 ≤ node.bits.size := by
+    have := congrArg Array.size h
+    simp [natToBits_size] at this
+    omega
+  have hb : bitsToNat (natToBits t 32) = t := by rw [bitsToNat_natToBits]; omega
+  simp only [Reader.uint, bind, StateT.bind, pure, StateT.pure]
+  simp only [Reader.bits, Slice.haveBits, Slice.readBits, Slice.advanceBits, Nat.zero_add, h]
+  simp [hb, hs]
+
+/-- A node whose first 32 bits are the tag of `action_send_msg` never parses as `SETCODE`, whatever
+else it holds (`parseOutAction`: a special node parses as nothing, an ordinary one with this tag as
+`SENDRAWMSG` or nothing). -/
+theorem parseOutAction_sendTag {node c : Cell} (h : node.bits.extract 0 32 = natToBits 0x0ec3c86d 32) :
+    parseOutAction node ≠ some (.setCode c) := by
+  intro hp
+  unfold parseOutAction at hp
+  simp only [Slice.ofCell] at hp
+  rw [uint32_of_tag h (by decide)] at hp
+  split at hp
+  · cases hp
+  · simp [Option.bind_eq_some_iff] at hp
+
 /-- The nodes of the list with a `SENDRAWMSG` action added (`TvmLean.OutAction.sendMsg`): after the
 first, the nodes of the list before. -/
 theorem actionNode_sendMsg_succ (m : Nat) (prev msg : Cell) :
@@ -129,11 +164,19 @@ end TvmLean.Tx
 
 namespace TvmLean
 
-/-- An action list made of `SENDRAWMSG` and `RAWRESERVE` actions, from the empty list. -/
+/-- An action list made of `SENDRAWMSG` and `RAWRESERVE` actions, from the empty list; or, for a
+list a contract takes from a message after checking the tag of each node (wallet v5's
+`verify_c5_actions`), of nodes with the tag of `action_send_msg` down to an end of the list. -/
 inductive SafeActs : Cell → Prop
   | empty : SafeActs Cell.empty
   | send {prev : Cell} (mode : Nat) (msg : Cell) : SafeActs prev → SafeActs (OutAction.sendMsg mode prev msg)
   | reserve {prev : Cell} (mode x : Nat) : SafeActs prev → SafeActs (OutAction.reserve mode x prev)
+  /-- A node whose first 32 bits are the tag of `action_send_msg`, its first reference such a list:
+  whatever else it holds (special or not, its message), the action phase reads it as `SENDRAWMSG`
+  or not at all (`Tx.parseOutAction_sendTag`). -/
+  | sendTag {c : Cell} : c.bits.extract 0 32 = natToBits 0x0ec3c86d 32 → SafeActs c.refs[0]! → SafeActs c
+  /-- The end of a list (`Tx.Terminal`: no bits, no references), whatever else the cell is. -/
+  | terminal {c : Cell} : Tx.Terminal c → SafeActs c
 
 /-- **An action list of `SENDRAWMSG` and `RAWRESERVE` actions has no `SETCODE`.** -/
 theorem SafeActs.noSetCode {c5 : Cell} (h : SafeActs c5) : Tx.NoSetCode c5 := by
@@ -141,5 +184,27 @@ theorem SafeActs.noSetCode {c5 : Cell} (h : SafeActs c5) : Tx.NoSetCode c5 := by
   | empty => exact Tx.noSetCode_empty
   | send m msg _ ih => exact Tx.noSetCode_sendMsg ih m msg
   | reserve m x _ ih => exact Tx.noSetCode_reserve ih m x
+  | @sendTag x htag _ ih =>
+    rintro c ⟨i, hi, hp⟩
+    cases i with
+    | zero => exact Tx.parseOutAction_sendTag htag hp
+    | succ k =>
+      rw [Tx.actionNode_succ_of_ref0 x _ rfl] at hp
+      refine ih c ⟨k, fun j hj => ?_, hp⟩
+      have := hi (j + 1) (by omega)
+      rwa [Tx.actionNode_succ_of_ref0 x _ rfl] at this
+  | terminal ht =>
+    rintro c ⟨i, hi, _⟩
+    exact hi 0 (Nat.zero_le _) ht
+
+/-- The end of a walk over an action list (a contract that checks each node of a list it takes from
+a message, wallet v5's `verify_c5_actions`): the list `c` is safe if `node` ends the list (its slice
+has no bits and no references, `SEMPTY`) and the list is safe if the rest of it from `node` on is.
+The end first: `apply` finds `node` from it. -/
+theorem SafeActs.of_walk_end {c node : Cell}
+    (hend : (Slice.ofCell node).bitsRemaining = 0 ∧ (Slice.ofCell node).refsRemaining = 0)
+    (h : SafeActs node → SafeActs c) : SafeActs c :=
+  h (SafeActs.terminal (by
+    simpa [Tx.Terminal, Slice.ofCell, Slice.bitsRemaining, Slice.refsRemaining] using hend))
 
 end TvmLean

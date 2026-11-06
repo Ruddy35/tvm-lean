@@ -74,9 +74,13 @@ head, or at the loop's entry: its witnesses by unification (`checkExists`), the 
 hypotheses from the context (`closeByHint`: `Queries.set` from the set it is about and the size of
 its key), each within a budget of heartbeats. -/
 def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
+  -- the hints with their separators (`args` are the elements only, `getSepArgs`), as a list of
+  -- `simp` arguments holds them
+  let sepArgs := (Syntax.SepArray.ofElems (sep := ",") args).elemsAndSeps
   let sargs : Syntax.TSepArray [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
-    `Lean.Parser.Tactic.simpLemma] "," := ⟨args⟩
-  let sargs' : Syntax.TSepArray [`Lean.Parser.Tactic.simpErase, `Lean.Parser.Tactic.simpLemma] "," := ⟨args⟩
+    `Lean.Parser.Tactic.simpLemma] "," := ⟨sepArgs⟩
+  let sargs' : Syntax.TSepArray [`Lean.Parser.Tactic.simpErase, `Lean.Parser.Tactic.simpLemma] "," :=
+    ⟨sepArgs⟩
   let mut thms : Array Name := #[]
   for a in args do
     if let some id := a.find? (·.isIdent) then
@@ -88,10 +92,27 @@ def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
   let parts ← checkExists g
   debugLine t0 s!"closeUserFact: the witnesses, {parts.length} parts left"
   for g' in parts do
-    let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl), ← `(tactic| assumption),
+    -- an equation of two different constructors (`Value.int … = Value.cell ?c`: a loop invariant
+    -- of the user that does not hold at this head): no closer shows it
+    if let some (_, a, b) := (← instantiateMVars (← g'.getType)).eq? then
+      let fa := (← whnfR a).getAppFn
+      let fb := (← whnfR b).getAppFn
+      if let (.const ca _, .const cb _) := (fa, fb) then
+        let env ← getEnv
+        if ca != cb && env.isConstructor ca && env.isConstructor cb then
+          if check.debug.get (← getOptions) then
+            let f ← g'.withContext do ppExpr (← instantiateMVars (← g'.getType))
+            progressLine s!"  a fact of the loop invariant that does not hold: {(toString f).take 500}"
+          return false
+    -- the cheap closers first; `simp_all` and `assumption` at the default transparency last (over
+    -- the hypotheses of a long path, seconds each), after `closeData`
+    let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl),
+      ← `(tactic| with_reducible assumption),
       ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
-      ← `(tactic| (simp only [$sargs,*]; done)), ← `(tactic| (simp_all only [$sargs',*]; done)),
+      ← `(tactic| (simp only [$sargs,*]; done)),
       ← `(tactic| (dsimp only; simp only [$sargs,*]; omega))]
+    let lastClosers : Array (TSyntax `tactic) := #[← `(tactic| (simp_all only [$sargs',*]; done)),
+      ← `(tactic| assumption)]
     let mut closed := false
     for t in thms do
       if closed then break
@@ -112,9 +133,14 @@ def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
           if let some ty' ← unfoldDefinition? ty then
             let t0 ← IO.monoMsNow
             let s ← saveState
-            let left ← closeData (← g'.replaceTargetDefEq ty'.headBeta) args
+            let left ← closeData (← g'.replaceTargetDefEq ty'.headBeta) sepArgs
             if left.isEmpty then closed := true else s.restore
             debugLine t0 s!"closeUserFact: {n} unfolded, closeData: {closed}"
+    for c in lastClosers do
+      if closed then break
+      let t0 ← IO.monoMsNow
+      if let some [] ← tryTac g' c 50000 then closed := true
+      debugLine t0 s!"closeUserFact: {c.raw.prettyPrint}: {closed}"
     unless closed do
       if check.debug.get (← getOptions) then
         let f ← g'.withContext do ppExpr (← instantiateMVars (← g'.getType))

@@ -260,12 +260,39 @@ theorem extract_natToBits_past (n k i j : Nat) (h : k ≤ i) : (natToBits n k).e
 theorem extract_natToBits_all (n k j : Nat) (h : k ≤ j) : (natToBits n k).extract 0 j = natToBits n k :=
   Array.extract_eq_self_of_le (by simp [natToBits_size]; omega)
 
+/-- The bits of a two's complement field read whole (a key of a dictionary built as
+`store_int(wc, 8).store_uint(hash, 256)`, wallet v4's plugins). -/
+theorem extract_twosBits_all (x : Int) (k j : Nat) (h : k ≤ j) :
+    (twosBits x k).extract 0 j = twosBits x k :=
+  Array.extract_eq_self_of_le (by simp [twosBits_size]; omega)
+
 theorem readBits_mkOrdinary (b : BitString) (r : Array Cell) (p q n : Nat) :
     Slice.readBits { cell := Cell.mkOrdinary b r, bitPos := p, refPos := q } n = b.extract p (p + n) := rfl
 
 theorem readBits_ofCell_mkOrdinary (b : BitString) (r : Array Cell) (n : Nat) :
     Slice.readBits (Slice.ofCell (Cell.mkOrdinary b r)) n = b.extract 0 n := by
   simp [Slice.readBits, Slice.ofCell, Cell.mkOrdinary]
+
+/-- The bits a slice of a cell written out leaves (`STSLICER` of the rest of the data, as wallet v5
+writes `data_tail`): those after its position. -/
+theorem toCellRemaining_bits_mkOrdinary (b : BitString) (r : Array Cell) (p q : Nat) :
+    (Slice.toCellRemaining { cell := Cell.mkOrdinary b r, bitPos := p, refPos := q }).bits =
+      b.extract p b.size := rfl
+
+/-- The references such a slice leaves when it has read none: all of them. -/
+theorem toCellRemaining_refs_mkOrdinary (b : BitString) (r : Array Cell) (p : Nat) :
+    (Slice.toCellRemaining { cell := Cell.mkOrdinary b r, bitPos := p, refPos := 0 }).refs = r := by
+  simp [Slice.toCellRemaining, Cell.mkOrdinary]
+
+/-- The bits and the references of a whole cell written out, as a slice (`STSLICER` of
+`first_bits` of the data, as wallet v4 writes the fields before its plugins). -/
+theorem toCellRemaining_bits_ofCell_mkOrdinary (b : BitString) (r : Array Cell) :
+    (Slice.ofCell (Cell.mkOrdinary b r)).toCellRemaining.bits = b := by
+  simp [Slice.toCellRemaining, Slice.ofCell, Cell.mkOrdinary]
+
+theorem toCellRemaining_refs_ofCell_mkOrdinary (b : BitString) (r : Array Cell) :
+    (Slice.ofCell (Cell.mkOrdinary b r)).toCellRemaining.refs = r := by
+  simp [Slice.toCellRemaining, Slice.ofCell, Cell.mkOrdinary]
 
 /-- `CTOS` of a cell written as `Cell.mkOrdinary` (ordinary by definition). -/
 @[vm_spec] theorem ctos_mkOrdinary (st : VmState) (s : Stack) (b : BitString) (r : Array Cell)
@@ -284,10 +311,51 @@ namespace TvmLean
 
 /-! ## The action list: `SENDRAWMSG` and `RAWRESERVE` actions -/
 
+/-! ### An action list a contract walks before it sets it
+
+A contract that takes its action list from a message and checks each node before it sets it
+(wallet v5's `verify_c5_actions`: `x{0ec3c86d} SDBEGINS`, 8 bits and 2 references after the tag, down
+to an empty slice) keeps, in its loop, `SafeActs node → SafeActs c`: the list `c` is safe if what is
+left of it from the node `node` on is. At the start `node` is `c` (`SafeActs.walk_start`); a node
+whose slice begins with the tag moves it to the node's first reference (`SafeActs.walk_sdbegins`, the
+fact as the run states it); at the end of the list `c` is safe (`SafeActs.of_walk_end`,
+`safe_walk_close`). -/
+
+/-- At the start of the walk the node is the list. -/
+theorem SafeActs.walk_start (c : Cell) : SafeActs c → SafeActs c := id
+
+/-- A node whose slice begins with the tag of `action_send_msg` (`x{0ec3c86d} SDBEGINS`, as the run
+states it): the walk goes on at its first reference. -/
+theorem SafeActs.walk_sdbegins {c node : Cell} (h : SafeActs node → SafeActs c)
+    (htag : min 32 #[false, false, false, false, true, true, true, false, true, true, false, false, false,
+        false, true, true, true, true, false, false, true, false, false, false, false, true, true, false, true,
+        true, false, true].size ≤ node.bits.size ∧
+      (Slice.ofCell node).readBits (min 32 #[false, false, false, false, true, true, true, false, true, true, false, false, false,
+        false, true, true, true, true, false, false, true, false, false, false, false, true, true, false, true,
+        true, false, true].size) =
+        #[false, false, false, false, true, true, true, false, true, true, false, false, false,
+        false, true, true, true, true, false, false, true, false, false, false, false, true, true, false, true,
+        true, false, true]) :
+    SafeActs node.refs[0]! → SafeActs c := fun h' => h (SafeActs.sendTag (by
+      have h2 := htag.2
+      simp only [Slice.readBits, Slice.ofCell, List.size_toArray, List.length_cons, List.length_nil,
+        Nat.zero_add, Nat.reduceAdd, Nat.min_self] at h2
+      rw [h2]
+      decide) h')
+
+/-- `SafeActs node → SafeActs c` from the hypotheses of a walk: one of them, or a node checked
+(`SafeActs.walk_sdbegins`) after one of them, the run having gone through iterations of the walk. -/
+syntax "safe_walk_close" : tactic
+macro_rules
+  | `(tactic| safe_walk_close) => `(tactic| first
+      | assumption
+      | (apply SafeActs.walk_sdbegins <;> first | assumption | safe_walk_close))
+
 /-- `SafeActs c5`: the empty list, a hypothesis, or `SENDRAWMSG`/`RAWRESERVE` actions added to one.
 First at reducible transparency, the actions as `OutAction.sendMsg`/`OutAction.reserve` terms (else
 `exact SafeActs.empty` on `OutAction.reserve 0 0 Cell.empty` unfolds both cells, for long), then at
-the default one. -/
+the default one; last a list the code walked to its end (`SafeActs.of_walk_end`: the end of the
+list at a node, from the hypotheses, and `SafeActs node → SafeActs c5` by `safe_walk_close`). -/
 syntax "safe_acts_close" : tactic
 macro_rules
   | `(tactic| safe_acts_close) => `(tactic| first
@@ -298,7 +366,8 @@ macro_rules
       | exact SafeActs.empty
       | assumption
       | (refine SafeActs.send _ _ ?_; safe_acts_close)
-      | (refine SafeActs.reserve _ _ ?_; safe_acts_close))
+      | (refine SafeActs.reserve _ _ ?_; safe_acts_close)
+      | (apply SafeActs.of_walk_end <;> first | assumption | safe_walk_close))
 
 /-- `vm_c5_close` (the invariant of `c5` at a loop head of `vm_loop_c5`) for `SafeActs`. -/
 macro_rules
@@ -543,6 +612,7 @@ macro_rules
       GasLimits.changeLimit_infty_min, TvmLean.Exec.iteFreshInst, TvmLean.Exec.diteFreshInst,
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
+      twosBits_size, extract_twosBits_all,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Int.toNat_natCast_add_one,
       Option.getD_some, Option.getD_none, VmState.retCont, havocLoads, havocCellLoads,
       havocLoadsM, havocLoadListM, Havoc.run_loadsM, havocStop,
@@ -564,6 +634,7 @@ macro_rules
       GasLimits.changeLimit_infty_min, TvmLean.Exec.iteFreshInst, TvmLean.Exec.diteFreshInst,
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
+      twosBits_size, extract_twosBits_all,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Int.toNat_natCast_add_one,
       Option.getD_some, Option.getD_none, VmState.retCont, havocLoads, havocCellLoads,
       havocLoadsM, havocLoadListM, Havoc.run_loadsM, havocStop,
@@ -765,24 +836,6 @@ arguments of the projections, `d =?= ⟨?a, ?b⟩`, and so every field with `d`'
 def reduceProjCtors (e : Expr) : MetaM Expr :=
   Meta.transform e (post := fun s => return .done (← projTerm s))
 
-/-- `e` with `Option.isSome` and `Option.toArray` of `none` and `some a` reduced (`false`, `true`,
-`#[]`, `#[a]`, as their definitions read): an `Option` field of a witness that `checkExists` made a
-constructor, against the flag and the references a run wrote. -/
-def reduceOptionCtors (e : Expr) : MetaM Expr :=
-  Meta.transform e (post := fun x => do
-    let some (fn, β, o) := (if x.isAppOfArity ``Option.isSome 2 then some (``Option.isSome, x.getArg! 0, x.getArg! 1)
-        else if x.isAppOfArity ``Option.toArray 2 then some (``Option.toArray, x.getArg! 0, x.getArg! 1)
-        else none) | return .continue
-    let o ← whnfR (← instantiateMVars o)
-    let u ← getDecLevel β
-    let isSome := o.isAppOfArity ``Option.some 2
-    unless isSome || o.isAppOfArity ``Option.none 1 do return .continue
-    if fn == ``Option.isSome then
-      return .done (mkConst (if isSome then ``Bool.true else ``Bool.false))
-    let nil := mkApp (mkConst ``List.nil [u]) β
-    let l := if isSome then mkApp3 (mkConst ``List.cons [u]) β (o.getArg! 1) nil else nil
-    return .done (mkApp2 (mkConst ``List.toArray [u]) β l))
-
 /-- Finds the witnesses of `∃ x, ...` by unification: a witness of a structure type is its
 constructor on new unknowns, the equations among the parts (`∧`) solved by unification
 (reducible) first; of a disjunction the first case whose equations of data (not numbers) all unify.
@@ -807,40 +860,10 @@ def checkExists (g : MVarId) : (depth : Nat := 256) → MetaM (List MVarId)
         return r
       s.restore
       let w ← mkWitness α
-      let s1 ← saveState
       let g' ← mkFreshExprSyntheticOpaqueMVar (← reduceProjCtors (mkApp p w).headBeta) (← g.getTag)
       -- the type of `g'` is that of `p w` with its projections reduced (definitionally equal)
       g.assign (mkAppN (mkConst ``Exists.intro [← getLevel α]) #[α, p, w, g'])
-      let r ← checkExists g'.mvarId! depth
-      if ← allDataEqsSolved r then return r
-      -- an `Option` field the data encodes by its flag and its references (`Option.isSome`,
-      -- `Option.toArray`: the root of a dictionary) does not unify as an unknown: each such field
-      -- `none` or `some` of an unknown, those of its functions reduced (`reduceOptionCtors`)
-      let s2 ← saveState
-      s1.restore
-      let mut opts : Array (MVarId × Expr) := #[]
-      for a in w.getAppArgs do
-        let a ← instantiateMVars a
-        unless a.isMVar do continue
-        let aTy ← whnfR (← inferType a)
-        if aTy.isAppOfArity ``Option 1 then opts := opts.push (a.mvarId!, aTy.appArg!)
-      if !opts.isEmpty && opts.size ≤ 3 then
-        let s3 ← saveState
-        -- the fields `none` (bit `i` of `k` clear) or `some` of an unknown, in turn
-        for k in [0:2 ^ opts.size] do
-          s3.restore
-          for i in [0:opts.size] do
-            let (m, β) := opts[i]!
-            if (k >>> i) % 2 == 0 then m.assign (← mkAppOptM ``Option.none #[β])
-            else m.assign (← mkAppOptM ``Option.some #[β, ← mkFreshExprMVar β])
-          let body ← reduceOptionCtors (← reduceProjCtors (← instantiateMVars (mkApp p w).headBeta))
-          let g'' ← mkFreshExprSyntheticOpaqueMVar body (← g.getTag)
-          let r' ← checkExists g''.mvarId! depth
-          if ← allDataEqsSolved r' then
-            g.assign (mkAppN (mkConst ``Exists.intro [← getLevel α]) #[α, p, ← instantiateMVars w, g''])
-            return r'
-      s2.restore
-      return r
+      return ← checkExists g'.mvarId! depth
     if ty.isAppOfArity ``And 2 then
       let ga ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 0) (← g.getTag)
       let gb ← mkFreshExprSyntheticOpaqueMVar (ty.getArg! 1) (← g.getTag)
@@ -1034,8 +1057,12 @@ def closeData (gP : MVarId) (args : Array Syntax) : TacticM (List MVarId) := do
     Array.empty_append, Array.append_empty, Array.append_assoc, Array.push_empty, Option.some.injEq,
     Int.toNat_natCast_add_one, Int.toNat_natCast, bitsToNat_natToBits, natToBits_size,
     Array.size_append, Array.extract_append, extract_natToBits_empty, extract_natToBits_past,
-    extract_natToBits_all, readBits_mkOrdinary, readBits_ofCell_mkOrdinary, Nat.reducePow,
-    Nat.reduceAdd, Nat.reduceSub, Nat.reduceMod, Nat.mod_eq_of_lt, check_close, $sargs,*])
+    extract_natToBits_all, twosBits_size, extract_twosBits_all, readBits_mkOrdinary,
+    readBits_ofCell_mkOrdinary,
+    toCellRemaining_bits_mkOrdinary, toCellRemaining_refs_mkOrdinary,
+    toCellRemaining_bits_ofCell_mkOrdinary, toCellRemaining_refs_ofCell_mkOrdinary, Nat.reducePow,
+    Nat.reduceAdd, Nat.reduceSub, Nat.reduceMod, Nat.mod_eq_of_lt, List.size_toArray,
+    List.length_cons, List.length_nil, Nat.reduceLeDiff, Nat.reduceLT, check_close, $sargs,*])
   let gs ← match ← tryTac gP simpTac 200000 with
     | some gs => pure gs
     | none => pure [gP]
@@ -1182,7 +1209,7 @@ def finishLeaf (g : MVarId) (args : Array Syntax) : TacticM (Option MessageData)
     logInfo m!"check: the end of a path at {← describePos (← g.getTag)}: \
       {if r.isSome then "not closed" else "closed"}"
     -- with `check.progress` too, the report of a path not closed as the run goes
-    if let some m := r then progressLine ((← m.toString).take 6000)
+    if let some m := r then progressLine ((← m.toString).take 60000)
   if r.isSome then return r
   let pf ← instantiateMVars (mkMVar g)
   let left ← (← getMVarsNoDelayed pf).filterM fun m => return !(← m.isAssigned)
@@ -1559,15 +1586,20 @@ def cutGoal (memo : CutMemo) (g : MVarId) (sub : List MVarId → TacticM (Array 
 
 /-- With the option `check.debug`: why the step at `g` fails, each of the tactics `alts` (the
 alternatives of `check_one_step`) run on its own, its error and the errors it logged reported
-(`logInfo`, or on the checker's output with `check.progress`); nothing of the attempts kept. -/
-def debugStep (g : MVarId) (alts : Array (String × TSyntax `tactic)) : TacticM Unit := do
+(`logInfo`, or on the checker's output with `check.progress`); nothing of the attempts kept. Each
+within the heartbeats of a step (`hb` thousands, `check.stepHeartbeats`; 0: no bound), as the step
+was tried: else a step that failed for its bound runs again without one, for as long as it takes. -/
+def debugStep (g : MVarId) (alts : Array (String × TSyntax `tactic)) (hb : Nat := 0) :
+    TacticM Unit := do
   unless check.debug.get (← getOptions) do return
   for (name, tac) in alts do
     let s ← saveState
     let n0 := (← Core.getMessageLog).toList.length
     let r ← tryCatchRuntimeEx
       (do
-        let gs ← Term.withoutErrToSorry (Tactic.run g (evalTactic tac))
+        let run := Term.withoutErrToSorry (Tactic.run g (evalTactic tac))
+        let gs ← if hb == 0 then run else
+          withCurrHeartbeats <| withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := hb * 1000 }) run
         let msgs := ((← Core.getMessageLog).toList.drop n0).filter (·.severity == .error)
         let mut m := m!"{gs.length} goal(s) left"
         for msg in msgs do m := m ++ m!"\n  logged: " ++ msg.data
@@ -1657,7 +1689,7 @@ def explore (memo : CutMemo) (step : TSyntax `tactic) (args : Array Syntax) (cut
       match r with
       | some gs => work := work ++ (gs.reverse.map (·, n + 1)).toArray
       | none =>
-        if ← isRunGoal g then debugStep g alts
+        if ← isRunGoal g then debugStep g alts stepHb
         if progress && (← isRunGoal g) then
           -- the goal of a path whose run stops before its end, in full
           progressLine s!"the run stops here:\n{← ppGoal g}"

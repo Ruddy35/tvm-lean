@@ -32,10 +32,6 @@ def start (st : VmState) (x : Int) : VmState :=
             cp := 0, chainJumps := 0, librariesRefused := #[], librariesMissed := #[], maxLibraryLoads := none,
             regs := { st.regs with c0 := .quit 0, c2 := .excQuit }, gas := ⟨1000, 1000, 0, 1000, 1000⟩ }
 
-/-- The 8-bit two's complement of an integer has 8 bits. -/
-theorem twosBits_size (x : Int) (n : Nat) : (twosBits x n).size = n := by
-  simp [twosBits, natToBits]
-
 /-- **A byte stored in a new builder takes 8 bits.** For `-128 ≤ x < 128` the run halts with exit
 code `~~~0` and the stack `[8]`. -/
 theorem run_store (fuel : Nat) (st : VmState) (x : Int) (hx : -128 ≤ x ∧ x < 128) :

@@ -11,20 +11,20 @@
 -- the code never changes.
 -- contract-check: invariant Inv key wid n
 -- contract-check: params (key wid n : Nat)
--- contract-check: hints Data.bits, extract_bit_empty, extract_bit_past, extract_bit_all, loadIntValue_bit, twosBits_true, twosBits_false, twosBits_ite
--- contract-check: loop 2 SendList
+-- contract-check: hints Data.bits, extract_bit_empty, extract_bit_past, extract_bit_all, loadIntValue_bit, twosBits_true, twosBits_false, twosBits_ite, SafeActs.walk_start, SafeActs.walk_sdbegins
+-- contract-check: loop 4 ActionWalk
 -- contract-check: loop 1 Actions key wid n
 
-/-- The fields of the data before the dictionary of extensions. -/
+/-- The fields of the data that may change, before the wallet id and the key. -/
 structure Data where
   signatureAllowed : Bool
   seqno : Nat
-  walletId : Nat
-  publicKey : Nat
 
-/-- The flag in one bit, `seqno` and `wallet_id` in 32 bits each, `public_key` in 256. -/
-def Data.bits (d : Data) : BitString :=
-  #[d.signatureAllowed] ++ natToBits d.seqno 32 ++ natToBits d.walletId 32 ++ natToBits d.publicKey 256
+/-- The flag in one bit, `seqno` and the wallet id `wid` in 32 bits each, the key `key` in 256. The
+wallet id and the key are the parameters themselves (not fields equal to them): a data the action
+loop sets is compared with the invariant field by field (`Actions`). -/
+def Data.bits (wid key : Nat) (d : Data) : BitString :=
+  #[d.signatureAllowed] ++ natToBits d.seqno 32 ++ natToBits wid 32 ++ natToBits key 256
 
 /-! The run reads the data as `extract`s of the concatenation (`Array.extract_append`); the lemmas
 of `ran_case` reduce those of the `natToBits` fields (`extract_natToBits_*`,
@@ -54,19 +54,28 @@ theorem twosBits_false : twosBits 0 1 = #[false] := rfl
 theorem twosBits_ite (b : Bool) : twosBits (if b then -1 else 0) 1 = #[b] := by
   cases b <;> rfl
 
-/-- The data is the fields within their widths, with the key `key`, the wallet id `wid` and a seqno
-of at least `n`, then no extension (the bit `0`; signatures allowed) or a well-formed dictionary of
-them (the bit `1` and its root). -/
+/-- The data is the flag, a seqno of at least `n` within 32 bits, the wallet id `wid` and the key
+`key` (within their widths), then no extension (the bit `0`; signatures allowed) or a well-formed
+dictionary of them (the bit `1` and its root). -/
 def Inv (key wid n : Nat) (data : Option Cell) : Prop :=
-  ∃ d : Data, d.seqno < 2 ^ 32 ∧ d.walletId < 2 ^ 32 ∧ d.publicKey < 2 ^ 256 ∧
-    d.publicKey = key ∧ d.walletId = wid ∧ n ≤ d.seqno ∧
-    ((data = some (Cell.mkOrdinary (d.bits ++ #[false]) #[]) ∧ d.signatureAllowed = true) ∨
-      ∃ e : Cell, data = some (Cell.mkOrdinary (d.bits ++ #[true]) #[e]) ∧ Dict.WF (some e) 256)
+  wid < 2 ^ 32 ∧ key < 2 ^ 256 ∧ ∃ d : Data, d.seqno < 2 ^ 32 ∧ n ≤ d.seqno ∧
+    ((data = some (Cell.mkOrdinary (d.bits wid key ++ #[false]) #[]) ∧ d.signatureAllowed = true) ∨
+      ∃ e : Cell, data = some (Cell.mkOrdinary (d.bits wid key ++ #[true]) #[e]) ∧ Dict.WF (some e) 256)
 
-/-- The head of the loop over the send-message actions of the action list (`verify_c5_actions`,
-its stack `cs count`): the rest of the list a slice, the count an integer. -/
-def SendList (cs count : Value) : Prop :=
-  (∃ s, cs = .slice s) ∧ ∃ m : Int, count = .int (.num m)
+/-! The action list of a request (`c5_actions`, a reference of the message) is checked node by
+node (`verify_c5_actions`: the tag of `action_send_msg`, `x{0ec3c86d} SDBEGINS`, 8 bits and 2
+references after it, down to an empty slice) before it becomes the action list: a list of
+`SafeActs` (TvmLean/Proofs/Tx/NoSetCode.lean: `SafeActs.sendTag`, `SafeActs.terminal`), which has
+no `SETCODE`. The loop of the walk keeps `SafeActs node → SafeActs c` (`ActionWalk`), from the start
+(`SafeActs.walk_start`) node by node (`SafeActs.walk_sdbegins`) to the end of the list
+(`SafeActs.of_walk_end`; TvmLean/Proofs/Check/Tactic.lean). -/
+
+/-- The head of the walk over the action list (`verify_c5_actions`, its stack `c5_actions
+is_external cs count`): the list `c`, the slice of the node `node` the walk is at with
+`SafeActs node → SafeActs c`, the flag and the count integers. -/
+def ActionWalk (d x s count : Value) : Prop :=
+  (∃ c node : Cell, d = .cell c ∧ s = .slice (Slice.ofCell node) ∧ (SafeActs node → SafeActs c)) ∧
+    (∃ e : Int, x = .int (.num e)) ∧ ∃ m : Int, count = .int (.num m)
 
 /-- The head of the loop over the other actions (`process_actions`, `while (true)`, its top stack
 entry the rest of the actions): a slice, and the data, which each action may set (an extension
