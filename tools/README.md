@@ -69,6 +69,12 @@ the axioms of the theorem, or `NOT PROVED` with every path where the invariant i
 kind of transaction, the code position (cell, bit, instruction), the exit code, the path condition
 and the goal left. `--only runs_ext,...` checks some kinds of transaction only, `--cut N` sets
 how often a path is cut into auxiliary theorems.
+Paths that meet share the theorem of the rest of their run: a cut states the run with what the rest
+does not need written out as variables (the gas, the loaded cells, the steps run, the libraries
+loaded, the actions written once shown safe, the fuel outside a loop's induction), paths are also
+cut where an earlier path was cut or ran from, and a cut whose statement an earlier cut proved is
+closed by that theorem (`check_paths`, TvmLean/Proofs/Check/Tactic.lean; the options
+`check.reuse`, `check.joinVisited`, `check.cutClean` and `check.cutFuel` turn the parts off).
 The runs of a message are stated for an ordinary message cell (`msg.special = false`, which the
 `CTOS` of the message needs): `Ran` records it of every compute phase of a transaction of the
 model, as in C++ (TvmLean/Proofs/Tx/InMsg.lean); `reachable` is the same theorem.
