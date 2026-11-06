@@ -24,6 +24,10 @@ change is known: the stack, the gas, the cells and libraries loaded, and the lib
   nothing, or goes on from the state after the instruction (`after`) with any stack satisfying
   `Ok`, any gas, any loaded cells and libraries, whatever the runs of the step again for refused
   libraries did (`stepRefusing_good`).
+* `FrameX`, `FrameC c`, `ExecFramedC c`, `afterC`, `runWith_framedC`: the same with a frame that
+  also lets the counters of the cheap `GETEXTRABALANCE` calls change (`getExtraBalanceCounter`,
+  `freeGasConsumed`; `c = true`, TvmLean/Proofs/Exec/FramedExtraBalance.lean); `c = false` is
+  `Frame`, and `runWith_framed` is `runWith_framedC` with the counters kept (`CountersOk`).
 * `ctos_framed`, `runWith_ctos` and the tactic `vm_ctos_any`: `CTOS` of any cell (`VM.loadCellSlice`
   changes only what a load changes, `loadCellSlice_frame`, and fails only with out of gas or
   cell_und, `libraryResolveLoadsAux_error`).
@@ -101,6 +105,37 @@ def Frame (st st' : VmState) : Prop :=
   st' = { st with stack := st'.stack, gas := st'.gas, loadedCells := st'.loadedCells,
                   loadedLibraries := st'.loadedLibraries, librariesMissed := st'.librariesMissed }
 
+/-- `Frame` and the counters of the cheap `GETEXTRABALANCE` calls (`getExtraBalanceCounter`,
+`freeGasConsumed`, C++ `register_get_extra_balance_call`, `consume_free_gas`). -/
+def FrameX (st st' : VmState) : Prop :=
+  st' = { st with stack := st'.stack, gas := st'.gas, loadedCells := st'.loadedCells,
+                  loadedLibraries := st'.loadedLibraries, librariesMissed := st'.librariesMissed,
+                  getExtraBalanceCounter := st'.getExtraBalanceCounter, freeGasConsumed := st'.freeGasConsumed }
+
+/-- The frame of a framed instruction that leaves the counters (`c = false`: `Frame`) or may change
+them (`c = true`: `FrameX`). -/
+def FrameC : Bool → VmState → VmState → Prop
+  | false => Frame
+  | true => FrameX
+
+theorem Frame.x {st st' : VmState} (h : Frame st st') : FrameX st st' := by
+  have hec : st'.getExtraBalanceCounter = st.getExtraBalanceCounter := by rw [h]
+  have hfg : st'.freeGasConsumed = st.freeGasConsumed := by rw [h]
+  unfold FrameX
+  rw [hec, hfg]
+  exact h
+
+theorem FrameC.x {c : Bool} {st st' : VmState} (h : FrameC c st st') : FrameX st st' := by
+  cases c
+  · exact Frame.x h
+  · exact h
+
+/-- What a framed instruction leaves of the counters: with `c = false`, those before. -/
+theorem FrameC.counters {st st' : VmState} (h : FrameC false st st') :
+    st'.getExtraBalanceCounter = st.getExtraBalanceCounter ∧ st'.freeGasConsumed = st.freeGasConsumed := by
+  have h' : Frame st st' := h
+  exact ⟨by rw [h'], by rw [h']⟩
+
 /-- The run of the instruction `i` from `st` changes only what `Frame` allows, leaves a stack
 satisfying `Ok` when it succeeds, raises an exception of code at least 2 when it fails, and notes
 no refused library without `max_library_loads`. -/
@@ -110,12 +145,34 @@ structure ExecFramed (i : Instr) (Ok : Stack → Prop) (st : VmState) : Prop whe
   err : ∀ e, (ExceptT.run (execInstr i) st).1 = .error e → 2 ≤ e.toInt
   none : st.maxLibraryLoads = none → (ExceptT.run (execInstr i) st).2.librariesMissed = st.librariesMissed
 
+/-- `ExecFramed` with the frame `FrameC c` (`c = true`: the counters of `GETEXTRABALANCE` may
+change). -/
+structure ExecFramedC (c : Bool) (i : Instr) (Ok : Stack → Prop) (st : VmState) : Prop where
+  frame : FrameC c st (ExceptT.run (execInstr i) st).2
+  ok : (ExceptT.run (execInstr i) st).1 = .ok () → Ok (ExceptT.run (execInstr i) st).2.stack
+  err : ∀ e, (ExceptT.run (execInstr i) st).1 = .error e → 2 ≤ e.toInt
+  none : st.maxLibraryLoads = none → (ExceptT.run (execInstr i) st).2.librariesMissed = st.librariesMissed
+
+theorem ExecFramed.c {i : Instr} {Ok : Stack → Prop} {st : VmState} (h : ExecFramed i Ok st) :
+    ExecFramedC false i Ok st :=
+  ⟨h.frame, h.ok, h.err, h.none⟩
+
 /-- The state after a framed instruction run from `st` (the code after it `rest`): `st` with the
 stack `s'`, the gas `g`, the loaded cells and libraries `lc ll`, the step counted. -/
 def after (st : VmState) (rest : Slice) (s' : Stack) (g : GasLimits) (lc : Array (Array UInt8))
     (ll : Array BitString) : VmState :=
   { st with stack := s', cc := .plain rest, gas := g, loadedCells := lc, loadedLibraries := ll,
             chainJumps := 0, steps := st.steps + 1 }
+
+/-- `after` with the counters of the cheap `GETEXTRABALANCE` calls `ec fg`. -/
+def afterC (st : VmState) (rest : Slice) (s' : Stack) (g : GasLimits) (lc : Array (Array UInt8))
+    (ll : Array BitString) (ec : Nat) (fg : Int) : VmState :=
+  { st with stack := s', cc := .plain rest, gas := g, loadedCells := lc, loadedLibraries := ll,
+            getExtraBalanceCounter := ec, freeGasConsumed := fg, chainJumps := 0, steps := st.steps + 1 }
+
+theorem afterC_self (st : VmState) (rest : Slice) (s' : Stack) (g : GasLimits) (lc : Array (Array UInt8))
+    (ll : Array BitString) :
+    afterC st rest s' g lc ll st.getExtraBalanceCounter st.freeGasConsumed = after st rest s' g lc ll := rfl
 
 /-- The libraries of a step cleared (`VmState.stepRefusingWith`, `VmState.stepWith`). -/
 abbrev clearLibs (st : VmState) : VmState := { st with librariesRefused := #[], librariesMissed := #[] }
@@ -135,14 +192,35 @@ structure At (i : Instr) (Ok : Stack → Prop) (st : VmState) (code rest : Slice
   com : st.cstate.committed = false
   exec : ∀ st0 : VmState, st0.stack = st.stack → st0.regs = st.regs → ExecFramed i Ok st0
 
+/-- `At` with `ExecFramedC c`. -/
+structure AtC (c : Bool) (i : Instr) (Ok : Stack → Prop) (st : VmState) (code rest : Slice) : Prop where
+  cc : st.cc = .plain code
+  cp : st.cp = 0
+  bits : code.bitsRemaining ≠ 0
+  ver : cp0RequiredVersion code.opcode24 ≤ st.globalVersion
+  dec : ∃ n, decodeCp0WithBits code = .ok (i, n, rest)
+  chain : st.chainJumps < freeNestedContJump
+  c2 : st.regs.c2 = .excQuit
+  com : st.cstate.committed = false
+  exec : ∀ st0 : VmState, st0.stack = st.stack → st0.regs = st.regs → ExecFramedC c i Ok st0
+
+theorem At.c {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice} (h : At i Ok st code rest) :
+    AtC false i Ok st code rest :=
+  ⟨h.cc, h.cp, h.bits, h.ver, h.dec, h.chain, h.c2, h.com, fun st0 h1 h2 => (h.exec st0 h1 h2).c⟩
+
 theorem outOfGasHalt_dead {st : VmState} (h : st.cstate.committed = false) :
     Dead (st.outOfGasHalt.mapState clearLibs) :=
   dead_halt (by decide) (by decide) h
 
+/-- What the counters after a framed instruction are: with `c = false`, those of `st`. -/
+def CountersOk (c : Bool) (st : VmState) (ec : Nat) (fg : Int) : Prop :=
+  c = false → ec = st.getExtraBalanceCounter ∧ fg = st.freeGasConsumed
+
 /-- What one run of the step of a framed instruction gives, the libraries `R` refused. -/
-def Good1 (st : VmState) (rest : Slice) (Ok : Stack → Prop) (R : Array BitString) (r : StepResult) : Prop :=
-  (∃ s' g lc ll lm, Ok s' ∧
-      r = .continue { after st rest s' g lc ll with librariesRefused := R, librariesMissed := lm } ∧
+def Good1 (c : Bool) (st : VmState) (rest : Slice) (Ok : Stack → Prop) (R : Array BitString) (r : StepResult) :
+    Prop :=
+  (∃ s' g lc ll ec fg lm, Ok s' ∧ CountersOk c st ec fg ∧
+      r = .continue { afterC st rest s' g lc ll ec fg with librariesRefused := R, librariesMissed := lm } ∧
       (st.maxLibraryLoads = none → lm = #[])) ∨
   (Dead (r.mapState clearLibs) ∧ r.state.librariesRefused = R ∧
     (st.maxLibraryLoads = none → r.state.librariesMissed = #[]))
@@ -193,21 +271,28 @@ theorem dead_stepFinish_raiseDead (S st : VmState) (x : Int) (hc2 : st.regs.c2 =
     exact hd
 
 /-- How the step of a framed instruction ends once it ran (`VmState.instrEnd`). -/
-theorem instrEnd_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {rest : Slice} {R : Array BitString}
-    (hc2 : st.regs.c2 = .excQuit) (hcom : st.cstate.committed = false) (st1 : VmState)
-    (hF : ExecFramed i Ok st1)
-    (h1 : st1 = { after st rest st.stack st1.gas st.loadedCells st.loadedLibraries with
-                  librariesRefused := R, librariesMissed := #[] }) :
-    Good1 st rest Ok R (VmState.instrEnd (ExceptT.run (execInstr i) st1)) := by
+theorem instrEnd_good {c : Bool} {i : Instr} {Ok : Stack → Prop} {st : VmState} {rest : Slice}
+    {R : Array BitString} (hc2 : st.regs.c2 = .excQuit) (hcom : st.cstate.committed = false) (st1 : VmState)
+    (hF : ExecFramedC c i Ok st1)
+    (h1 : st1 = { afterC st rest st.stack st1.gas st.loadedCells st.loadedLibraries st.getExtraBalanceCounter
+                    st.freeGasConsumed with librariesRefused := R, librariesMissed := #[] }) :
+    Good1 c st rest Ok R (VmState.instrEnd (ExceptT.run (execInstr i) st1)) := by
   obtain ⟨hfr, hok, herr, hnone⟩ := hF
   generalize hX : ExceptT.run (execInstr i) st1 = X at hfr hok herr hnone
   obtain ⟨res, st2⟩ := X
   simp only at hfr hok herr hnone
-  have e2 : st2 = { after st rest st2.stack st2.gas st2.loadedCells st2.loadedLibraries with
-      librariesRefused := R, librariesMissed := st2.librariesMissed } := by
-    conv => lhs; rw [hfr]
+  have e2 : st2 = { afterC st rest st2.stack st2.gas st2.loadedCells st2.loadedLibraries
+      st2.getExtraBalanceCounter st2.freeGasConsumed with
+        librariesRefused := R, librariesMissed := st2.librariesMissed } := by
+    conv => lhs; rw [hfr.x]
     rw [h1]
     rfl
+  have hcnt : CountersOk c st st2.getExtraBalanceCounter st2.freeGasConsumed := by
+    intro hc
+    subst hc
+    obtain ⟨h3, h4⟩ := hfr.counters
+    rw [h3, h4, h1]
+    exact ⟨rfl, rfl⟩
   have hc2' : st2.regs.c2 = .excQuit := by rw [e2]; exact hc2
   have hcom' : st2.cstate.committed = false := by rw [e2]; exact hcom
   have hR : st2.librariesRefused = R := by rw [e2]
@@ -220,8 +305,8 @@ theorem instrEnd_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {rest : S
     simp only [VmState.instrEnd]
     split
     · exact Or.inr ⟨outOfGasHalt_dead hcom', hR, hml⟩
-    · exact Or.inl ⟨st2.stack, st2.gas, st2.loadedCells, st2.loadedLibraries, st2.librariesMissed, hok rfl,
-        by rw [← e2], hml⟩
+    · exact Or.inl ⟨st2.stack, st2.gas, st2.loadedCells, st2.loadedLibraries, st2.getExtraBalanceCounter,
+        st2.freeGasConsumed, st2.librariesMissed, hok rfl, hcnt, by rw [← e2], hml⟩
   | error e =>
     have he := herr e rfl
     simp only [VmState.instrEnd]
@@ -235,9 +320,10 @@ end TvmLean.Framed
 namespace TvmLean.Framed
 
 /-- One run of the step of a framed instruction, the libraries `R` refused. -/
-theorem stepOnce_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice}
-    (h : At i Ok st code rest) (R : Array BitString) :
-    Good1 st rest Ok R (VmState.stepOnceWith execInstr { st with librariesRefused := R, librariesMissed := #[] }) := by
+theorem stepOnce_good {c : Bool} {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice}
+    (h : AtC c i Ok st code rest) (R : Array BitString) :
+    Good1 c st rest Ok R
+      (VmState.stepOnceWith execInstr { st with librariesRefused := R, librariesMissed := #[] }) := by
   obtain ⟨hcc, hcp, hbits, hver, ⟨n, hdec⟩, hchain, hc2, hcom, hexec⟩ := h
   rw [VmState.stepOnceWith_instr' execInstr { st with librariesRefused := R, librariesMissed := #[] } code rest (.quit 0) OrdCregs.empty i n _ _ hcc hcp rfl hbits rfl
     hver hdec]
@@ -250,34 +336,36 @@ theorem stepOnce_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {code res
     · exact Or.inr ⟨outOfGasHalt_dead hcom, rfl, fun _ => rfl⟩
     · exact instrEnd_good hc2 hcom _ (hexec _ rfl rfl) rfl
 
-/-- The state after a framed instruction with the step's libraries cleared is `after` (the state
+/-- The state after a framed instruction with the step's libraries cleared is `afterC` (the state
 before had none). -/
 theorem after_clear {st : VmState} (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[])
     (rest : Slice) (s' : Stack) (g : GasLimits) (lc : Array (Array UInt8)) (ll : Array BitString)
-    (R lm : Array BitString) :
-    clearLibs { after st rest s' g lc ll with librariesRefused := R, librariesMissed := lm } =
-      after st rest s' g lc ll := by
+    (ec : Nat) (fg : Int) (R lm : Array BitString) :
+    clearLibs { afterC st rest s' g lc ll ec fg with librariesRefused := R, librariesMissed := lm } =
+      afterC st rest s' g lc ll ec fg := by
   obtain ⟨⟩ := st
   simp only at hr hm
   subst hr hm
   rfl
 
 /-- What the step of a framed instruction gives: the state after it, or a dead result. -/
-def Good (st : VmState) (rest : Slice) (Ok : Stack → Prop) (r : StepResult) : Prop :=
-  (∃ s' g lc ll, Ok s' ∧ r = .continue (after st rest s' g lc ll)) ∨ Dead r
+def Good (c : Bool) (st : VmState) (rest : Slice) (Ok : Stack → Prop) (r : StepResult) : Prop :=
+  (∃ s' g lc ll ec fg, Ok s' ∧ CountersOk c st ec fg ∧ r = .continue (afterC st rest s' g lc ll ec fg)) ∨
+    Dead r
 
 /-- A run of the step with the libraries cleared after it gives `Good`. -/
-theorem good_of_good1 {Ok : Stack → Prop} {st : VmState} {rest : Slice}
+theorem good_of_good1 {c : Bool} {Ok : Stack → Prop} {st : VmState} {rest : Slice}
     (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[])
-    {R : Array BitString} {r : StepResult} (h1 : Good1 st rest Ok R r) : Good st rest Ok (r.mapState clearLibs) := by
-  rcases h1 with ⟨s', g, lc, ll, lm, hok, rfl, -⟩ | ⟨hd, -, -⟩
-  · exact Or.inl ⟨s', g, lc, ll, hok, by rw [StepResult.mapState_continue, after_clear hr hm]⟩
+    {R : Array BitString} {r : StepResult} (h1 : Good1 c st rest Ok R r) :
+    Good c st rest Ok (r.mapState clearLibs) := by
+  rcases h1 with ⟨s', g, lc, ll, ec, fg, lm, hok, hcnt, rfl, -⟩ | ⟨hd, -, -⟩
+  · exact Or.inl ⟨s', g, lc, ll, ec, fg, hok, hcnt, by rw [StepResult.mapState_continue, after_clear hr hm]⟩
   · exact Or.inr hd
 
 /-- The runs of the step again for refused libraries (`VmState.stepRefusingWith`). -/
-theorem stepRefusing_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice}
-    (h : At i Ok st code rest) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[]) :
-    ∀ (k : Nat) (R : Array BitString), Good st rest Ok (st.stepRefusingWith execInstr R k) := by
+theorem stepRefusing_good {c : Bool} {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice}
+    (h : AtC c i Ok st code rest) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[]) :
+    ∀ (k : Nat) (R : Array BitString), Good c st rest Ok (st.stepRefusingWith execInstr R k) := by
   intro k
   induction k with
   | zero => intro R; exact good_of_good1 hr hm (stepOnce_good h R)
@@ -290,9 +378,9 @@ theorem stepRefusing_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {code
     · exact ih _
 
 /-- **The step of a framed instruction** (`VmState.stepWith`, whatever `max_library_loads` is). -/
-theorem stepWith_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice}
-    (h : At i Ok st code rest) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[]) :
-    Good st rest Ok (st.stepWith execInstr) := by
+theorem stepWith_good {c : Bool} {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice}
+    (h : AtC c i Ok st code rest) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[]) :
+    Good c st rest Ok (st.stepWith execInstr) := by
   unfold VmState.stepWith
   split
   · rename_i hn
@@ -301,9 +389,9 @@ theorem stepWith_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {code res
       obtain ⟨⟩ := st; simp only at hr hm; subst hr hm; rfl
     have h1 := stepOnce_good h #[]
     rw [← e] at h1
-    rcases h1 with ⟨s', g, lc, ll, lm, hok, he, hlm⟩ | ⟨hd, hR, hM⟩
-    · refine Or.inl ⟨s', g, lc, ll, hok, ?_⟩
-      rw [he, hlm hn', ← after_clear hr hm rest s' g lc ll #[] #[]]
+    rcases h1 with ⟨s', g, lc, ll, ec, fg, lm, hok, hcnt, he, hlm⟩ | ⟨hd, hR, hM⟩
+    · refine Or.inl ⟨s', g, lc, ll, ec, fg, hok, hcnt, ?_⟩
+      rw [he, hlm hn', ← after_clear hr hm rest s' g lc ll ec fg #[] #[]]
     · refine Or.inr ?_
       have : (st.stepOnceWith execInstr).mapState clearLibs = st.stepOnceWith execInstr := by
         apply StepResult.mapState_self
@@ -314,6 +402,25 @@ theorem stepWith_good {i : Instr} {Ok : Stack → Prop} {st : VmState} {code res
       rwa [this] at hd
   · exact stepRefusing_good h hr hm _ _
 
+/-- **A run from a state about to run a framed instruction that may change the counters of
+`GETEXTRABALANCE`** (`AtC c`): if `P` holds of every result that commits nothing and of every run
+from the state after the instruction (any stack satisfying `Ok`, gas, loaded cells and libraries,
+and counters `ec fg`, those before if `c = false`), it holds of the run. -/
+theorem runWith_framedC {c : Bool} {i : Instr} {Ok : Stack → Prop} {st : VmState} {code rest : Slice}
+    (h : AtC c i Ok st code rest) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[])
+    (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r) (fuel : Nat)
+    (hok : ∀ s' g lc ll ec fg n, n < fuel → Ok s' → CountersOk c st ec fg →
+      P (VmState.runWith execInstr n (afterC st rest s' g lc ll ec fg))) :
+    P (VmState.runWith execInstr fuel st) := by
+  cases fuel with
+  | zero => exact hP _ h.com
+  | succ n =>
+    rw [VmState.runWith_succ']
+    rcases stepWith_good h hr hm with ⟨s', g, lc, ll, ec, fg, hs, hcnt, he⟩ | hd
+    · rw [he, VmState.runCont_continue]
+      exact hok s' g lc ll ec fg n (Nat.lt_succ_self n) hs hcnt
+    · exact hP _ (hd n)
+
 /-- **A run from a state about to run a framed instruction**: if `P` holds of every result that
 commits nothing and of every run from the state after the instruction (any stack satisfying `Ok`,
 gas, loaded cells and libraries), it holds of the run. -/
@@ -321,15 +428,10 @@ theorem runWith_framed {i : Instr} {Ok : Stack → Prop} {st : VmState} {code re
     (h : At i Ok st code rest) (hr : st.librariesRefused = #[]) (hm : st.librariesMissed = #[])
     (P : StepResult → Prop) (hP : ∀ r : StepResult, r.state.cstate.committed = false → P r) (fuel : Nat)
     (hok : ∀ s' g lc ll n, n < fuel → Ok s' → P (VmState.runWith execInstr n (after st rest s' g lc ll))) :
-    P (VmState.runWith execInstr fuel st) := by
-  cases fuel with
-  | zero => exact hP _ h.com
-  | succ n =>
-    rw [VmState.runWith_succ']
-    rcases stepWith_good h hr hm with ⟨s', g, lc, ll, hs, he⟩ | hd
-    · rw [he, VmState.runCont_continue]
-      exact hok s' g lc ll n (Nat.lt_succ_self n) hs
-    · exact hP _ (hd n)
+    P (VmState.runWith execInstr fuel st) :=
+  runWith_framedC h.c hr hm P hP fuel (fun s' g lc ll ec fg n hn hs hc => by
+    obtain ⟨rfl, rfl⟩ := hc rfl
+    exact hok s' g lc ll n hn hs)
 
 end TvmLean.Framed
 
@@ -529,9 +631,30 @@ def applyRest (f : Expr) (k : Nat) (last : Array Expr) : MetaM (Expr × Array MV
     e := mkApp e m
   return (mkAppN e last, goals)
 
+/-- A proof of `k ≤ gv` for the global version `gv` of a state (`gvE`): by `decide` when it is
+written out, else by `omega` from the hypotheses of the context on it (`omegaFrom?`: a version the
+run split on). -/
+def versionLe? (k : Nat) (gvE : Expr) : MetaM (Option Expr) := do
+  if k = 0 then return some (← mkAppM ``Nat.zero_le #[gvE])
+  let gvW ← whnfCore (← whnfR gvE)
+  let p ← mkAppM ``LE.le #[mkNatLit k, gvW]
+  if let some pf ← observing? (decideProof p) then return some pf
+  omegaFrom? gvW p
+
+/-- The global version the instruction at the current continuation of `S` needs
+(`cp0RequiredVersion` of its opcode; the code a closed slice), and the global version of `S`. -/
+def framedVersion (S : Expr) : MetaM (Nat × Expr) := do
+  let cc ← whnfCore (← whnfR (← mkAppM ``VmState.cc #[S]))
+  unless cc.isAppOfArity ``Continuation.ordinary 4 do throwError "framed: not an ordinary continuation"
+  let code := cc.getArg! 0
+  unless isClosed code do throwError "framed: the code is not closed"
+  let sv ← evalSlice code
+  return (cp0RequiredVersion sv.opcode24, ← mkAppM ``VmState.globalVersion #[S])
+
 /-- The facts of the code at the current continuation of `S` (an ordinary continuation on a closed
 code slice): the code, the decoded instruction, the code after it, and the proofs of the
-hypotheses `bits`, `ver` (for the global version of `S`), `dec` of a framed run lemma. -/
+hypotheses `bits`, `ver` (for the global version of `S`: `versionLe?`), `dec` of a framed run
+lemma. -/
 def framedFacts (S : Expr) : MetaM (Expr × Expr × Expr × Expr × Expr × Expr) := do
   let cc ← whnfCore (← whnfR (← mkAppM ``VmState.cc #[S]))
   unless cc.isAppOfArity ``Continuation.ordinary 4 do throwError "framed: not an ordinary continuation"
@@ -555,8 +678,7 @@ def framedFacts (S : Expr) : MetaM (Expr × Expr × Expr × Expr × Expr × Expr
   let k := cp0RequiredVersion sv.opcode24
   let hver ← kernelEq (← mkAppM ``cp0RequiredVersion #[← mkAppM ``Slice.opcode24 #[code]]) (mkNatLit k)
   let gvE ← mkAppM ``VmState.globalVersion #[S]
-  let hk ← if k = 0 then mkAppM ``Nat.zero_le #[gvE] else
-    decideProof (← mkAppM ``LE.le #[mkNatLit k, ← whnfCore (← whnfR gvE)])
+  let some hk ← versionLe? k gvE | throwError "framed: the run's global version is not known to reach {k}"
   let hverLe ← mkAppM ``Framed.le_of_eq_le #[hver, hk]
   return (code, iE, restE, hbitsNe, hverLe, hdecEx)
 
