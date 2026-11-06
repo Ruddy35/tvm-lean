@@ -673,7 +673,8 @@ PATTERNS: list[dict] = [
      "forms": ["EXECUTE", "JMPX", "IF", "IFNOT", "IFJMP", "IFNOTJMP", "IFELSE", "RET", "IFRET", "IFNOTRET"],
      "probes": ["callx", "jmpx", "ifelse-unknown"],
      "how": "Spec.execute, Spec.jmpx, Spec.if_, Spec.ifnot, Spec.ifjmp, Spec.ifnotjmp, Spec.ifelse, "
-            "Spec.ret, Spec.ifret (Exec/Spec/Flow.lean); VM.run_jump_ordinary, VM.run_call_plain (Exec/VM.lean)"},
+            "Spec.ret, Spec.ifret (Exec/Spec/Flow.lean), Spec.ifnotret, Spec.retBool (Exec/Spec/FlowFlag.lean); "
+            "VM.run_jump_ordinary, VM.run_call_plain (Exec/VM.lean)"},
     {"id": "closure", "title": "jump/call of a continuation with closure data or nargs (SETCONTARGS, BLESSARGS, "
      "then EXECUTE/JMPX)",
      "forms": ["SETCONTARGS", "SETCONTVARARGS", "SETNUMVARARGS", "BLESSARGS", "BLESSVARARGS", "BLESS"],
@@ -693,8 +694,8 @@ PATTERNS: list[dict] = [
      "how": "the handler unfolded (VM.extractCc); Spec.callccVarArgs (Exec/Spec/CallArgs.lean)"},
     {"id": "retalt", "title": "RETALT / c1 (the alternative return)", "forms": ["RETALT", "IFRETALT", "IFNOTRETALT"],
      "probes": ["retalt", "samealtsave-retalt"],
-     "how": "Spec.retAlt, Spec.retAlt_envelope, Spec.retAlt_quit (Exec/Spec/ContSave.lean); IFRETALT, "
-            "IFNOTRETALT by the handler"},
+     "how": "Spec.retAlt, Spec.retAlt_envelope, Spec.retAlt_quit (Exec/Spec/ContSave.lean); Spec.ifretAlt, "
+            "Spec.ifnotretAlt (Exec/Spec/FlowFlag.lean): RETALT on the stack under the flag"},
     {"id": "loops-const", "title": "REPEAT / UNTIL with a known count", "forms": [],
      "probes": ["repeat-const", "until-const"],
      "how": "Spec.repeat_, Spec.until_ (Exec/Spec/Loop.lean); the loop rule (vm_loop_c5)"},
@@ -771,8 +772,8 @@ PATTERNS: list[dict] = [
     {"id": "regs", "title": "c4 / c5 / c7 updates (POP c4, POP c5, POP c7, SETGLOB)",
      "forms": ["POPCTR", "POPCTRX", "SETGLOB", "SETGLOBVAR", "POPSAVE", "SETRAND", "ADDRAND"],
      "probes": ["c4-update", "c5-update", "c7-update", "setglob", "getglob", "setrand", "addrand"],
-     "how": "Spec.popRoot (c4); Spec.setGlob, Spec.getGlob (Exec/Spec/Globals.lean), Spec.setRand "
-            "(Exec/Spec/Rand.lean); the handler for c5, c7"},
+     "how": "Spec.popRoot (c4); Spec.setGlob, Spec.getGlob, Spec.setGlobVar (Exec/Spec/Globals.lean), "
+            "Spec.setRand (Exec/Spec/Rand.lean); the handler for c5, c7"},
     {"id": "rand", "title": "RANDU256 / RAND (a random number from the seed in c7)", "forms": ["RANDU256", "RAND"],
      "probes": ["randu256", "rand"],
      "how": "Spec.randu256, Spec.rand (Exec/Spec/Rand.lean): the SHA-512 of the seed a term (HashExt.digest 1)"},
@@ -805,7 +806,8 @@ PATTERNS: list[dict] = [
             "(Exec/FramedDictNear.lean)"},
     {"id": "config", "title": "configuration reads (CONFIGPARAM, CONFIGOPTPARAM)",
      "forms": ["CONFIGPARAM", "CONFIGOPTPARAM", "CONFIGDICT", "CONFIGROOT"], "probes": ["configparam", "configoptparam"],
-     "how": "the handler unfolded"},
+     "how": "the handler unfolded; CONFIGDICT, CONFIGROOT: Spec.configDict, Spec.configRoot (Exec/Spec/TonEnv.lean) "
+            "with c7[0]! = .tuple params as a hypothesis"},
     {"id": "c7-params", "title": "c7 parameters (NOW, BALANCE, MYADDR, GETPARAM) with c7 unknown",
      "forms": ["NOW", "BALANCE", "MYADDR", "GETPARAM", "BLOCKLT", "LTIME", "RANDSEED", "MYCODE", "INCOMINGVALUE"],
      "probes": ["now"], "how": "Spec.getParam and aliases need c7[0]! = .tuple params as a hypothesis; else the handler"},
@@ -828,8 +830,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'переход/вызов обычного продолжения без замыкания (`EXECUTE`/`CALLX`, `JMPX`, `IF`, `IFNOT`, '
         '`IFJMP`, `IFNOTJMP`, `IFELSE`, `RET`, `IFRET`)',
         '`Spec.execute`, `Spec.jmpx`, `Spec.if_`, `Spec.ifnot`, `Spec.ifjmp`, `Spec.ifnotjmp`, '
-        '`Spec.ifelse`, `Spec.ret`, `Spec.ifret` (`Exec/Spec/Flow.lean`); `VM.run_jump_ordinary`, '
-        '`VM.run_call_plain`'),
+        '`Spec.ifelse`, `Spec.ret`, `Spec.ifret` (`Exec/Spec/Flow.lean`), `Spec.ifnotret`, `Spec.retBool` '
+        '(`Exec/Spec/FlowFlag.lean`); `VM.run_jump_ordinary`, `VM.run_call_plain`'),
     'closure': (
         'переход/вызов продолжения с замыканием или `nargs` (`SETCONTARGS`, `BLESSARGS`, затем '
         '`EXECUTE`/`JMPX`)',
@@ -846,8 +848,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'обработчик (`VM.extractCc`); `Spec.callccVarArgs` (`Exec/Spec/CallArgs.lean`)'),
     'retalt': (
         '`RETALT` / `c1` (альтернативный возврат)',
-        '`Spec.retAlt`, `Spec.retAlt_envelope`, `Spec.retAlt_quit` (`Exec/Spec/ContSave.lean`); `IFRETALT`, '
-        '`IFNOTRETALT` — обработчиком'),
+        '`Spec.retAlt`, `Spec.retAlt_envelope`, `Spec.retAlt_quit` (`Exec/Spec/ContSave.lean`); '
+        '`Spec.ifretAlt`, `Spec.ifnotretAlt` (`Exec/Spec/FlowFlag.lean`): `RETALT` на стеке под флагом'),
     'loops-const': (
         '`REPEAT` / `UNTIL` с известным числом итераций',
         '`Spec.repeat_`, `Spec.until_` (`Exec/Spec/Loop.lean`); правило цикла (`vm_loop_c5`)'),
@@ -913,8 +915,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '(`Tx/Acts.lean`) закрывает `acts_close`; строка `code K` у contract-check (`Tx/Upgrade.lean`)'),
     'regs': (
         'изменение `c4` / `c5` / `c7` (`POP c4`, `POP c5`, `POP c7`, `SETGLOB`)',
-        '`Spec.popRoot` (`c4`); `Spec.setGlob`, `Spec.getGlob` (`Exec/Spec/Globals.lean`), `Spec.setRand` '
-        '(`Exec/Spec/Rand.lean`); `c5`, `c7` — обработчиком'),
+        '`Spec.popRoot` (`c4`); `Spec.setGlob`, `Spec.getGlob`, `Spec.setGlobVar` (`Exec/Spec/Globals.lean`), '
+        '`Spec.setRand` (`Exec/Spec/Rand.lean`); `c5`, `c7` — обработчиком'),
     'rand': (
         '`RANDU256` / `RAND` (случайное число из зерна в `c7`)',
         '`Spec.randu256`, `Spec.rand` (`Exec/Spec/Rand.lean`): SHA-512 зерна — терм (`HashExt.digest 1`)'),
@@ -940,7 +942,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '(`Exec/FramedDictNear.lean`)'),
     'config': (
         'чтение конфигурации (`CONFIGPARAM`, `CONFIGOPTPARAM`)',
-        'обработчик'),
+        'обработчик; `CONFIGDICT`, `CONFIGROOT`: `Spec.configDict`, `Spec.configRoot` (`Exec/Spec/TonEnv.lean`) '
+        'с гипотезой `c7[0]! = .tuple params`'),
     'c7-params': (
         'параметры `c7` (`NOW`, `BALANCE`, `MYADDR`, `GETPARAM`) при неизвестном `c7`',
         '`Spec.getParam` и синонимы требуют гипотезы `c7[0]! = .tuple params`; иначе обработчик'),
