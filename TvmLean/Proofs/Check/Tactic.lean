@@ -41,6 +41,7 @@ import TvmLean.Proofs.Exec.Spec.Globals
 import TvmLean.Proofs.Exec.Spec.Rand
 import TvmLean.Proofs.Exec.Spec.Fees
 import TvmLean.Proofs.Exec.Spec.CallArgs
+import TvmLean.Proofs.Exec.Spec.FlowFlag
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`

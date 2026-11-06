@@ -190,6 +190,7 @@ import TvmLean.Proofs.Exec.Spec.Globals
 import TvmLean.Proofs.Exec.Spec.Rand
 import TvmLean.Proofs.Exec.Spec.Fees
 import TvmLean.Proofs.Exec.Spec.CallArgs
+import TvmLean.Proofs.Exec.Spec.FlowFlag
 
 /-!
 # All proof modules together
