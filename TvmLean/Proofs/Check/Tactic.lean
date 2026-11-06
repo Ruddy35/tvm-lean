@@ -1544,8 +1544,12 @@ def explore (memo : CutMemo) (step : TSyntax `tactic) (args : Array Syntax) (cut
       work := work.pop
       if ← g.isAssigned then continue
       if progress then
-        progressLine s!"{(← IO.monoMsNow) - t0} ms, step {i}, depth {depth}, {work.size + 1} open: \
-          {← describePos (← g.getTag)}"
+        -- (a goal no step has noted the code position of: where its run stands, as in a report)
+        let mut pos ← describePos (← g.getTag)
+        if pos == "(unknown)" then
+          if let some s' ← g.withContext (do stuckAt (← instantiateMVars (← g.getType))) then
+            pos := s!"(unknown) {s'}"
+        progressLine s!"{(← IO.monoMsNow) - t0} ms, step {i}, depth {depth}, {work.size + 1} open: {pos}"
       -- a cut every `cut` steps, and at a join point: where an earlier path was cut (after a step),
       -- or where an earlier path ran from (after `cut / 4` steps, so that the path that goes on
       -- from there is not cut at each of its steps), not at `root`: the paths that meet there may
