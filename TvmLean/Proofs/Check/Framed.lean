@@ -200,8 +200,10 @@ variable is split first, as `check_one_step` does before a step (the framed lemm
 the run out of fuel is left as it is. Whether it did (nothing kept if not). `REWRITESTDADDR` on a
 slice that the run reads, as one `LDMSGADDR` split by its kind, is so run exactly: the framed lemma
 would give any address for every kind, also for those whose rewrite throws, and every one of those
-runs would go on. -/
-def exactStep? : TacticM Bool := do
+runs would go on. So is the deletion of `DICT*REMMIN`/`MAX` (`dictMinMaxAny`), with `left`: a goal
+may keep the instruction, as the run of the step again with the libraries `max_library_loads`
+refuses (`VmState.stepRefusingWith`, which the next steps reduce). -/
+def exactStep? (left : Bool := false) : TacticM Bool := do
   let s ← saveState
   try
     evalTactic (← `(tactic| check_mark_pos))
@@ -221,10 +223,11 @@ def exactStep? : TacticM Bool := do
       stepped := true
       out := out ++ (← getGoals)
     unless stepped do throwError "check_framed: no step"
-    for g in out do
-      let t ← instantiateMVars (← g.getType)
-      if (t.find? (·.isAppOfArity ``execInstr 1)).isSome then
-        throwError "check_framed: the step left the instruction"
+    unless left do
+      for g in out do
+        let t ← instantiateMVars (← g.getType)
+        if (t.find? (·.isAppOfArity ``execInstr 1)).isSome then
+          throwError "check_framed: the step left the instruction"
     setGoals out
     return true
   catch _ =>
@@ -270,12 +273,17 @@ def rewriteStdAddrAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext d
 
 /-- `DICT*MIN`/`MAX` (`i`, any form) from the state `S` on a dictionary the run does not know: by
 `vm_dict_minmax_any`, the runs with the minimum or maximum found (any value and key, and for `REM`
-any new root, null or a cell) and with none. -/
+any new root, null or a cell) and with none. A `REM` form runs by its own step where that step runs
+it through (`exactStep?`): the new root is then the root the deletion computes
+(`dictDeleteWithLoads`), of which an invariant of the dictionary can be shown (`Dict.WF.delete`,
+`Dict.value_deleteAny`), not any root. -/
 def dictMinMaxAny (i : Instr) (S : Expr) : TacticM Unit := withMainContext do
   let .dictGetMinMax args5 := i | throwError "check_framed: not DICT*MIN/MAX"
   let some root ← stackEntry? S 1 | throwError "check_framed: the stack"
   unless root.isAppOfArity ``Value.cell 1 do throwError "check_framed: no cell"
   if Exec.isClosed root.appArg! then throwError "check_framed: a dictionary the run knows"
+  if args5 &&& 16 == 16 then
+    if ← exactStep? (left := true) then return
   evalTactic (← `(tactic| vm_dict_minmax_any))
   evalTactic (← `(tactic| (· intro r h; first
     | exact keeps_of_not_committed r h | exact keepsActs_of_not_committed r h)))
