@@ -732,7 +732,7 @@ namespace TvmLean
 open Lean Meta Elab Tactic in
 /-- `vm_clear_unused`: clears the hypotheses (propositions) that mention a variable the goal does not
 (after a framed instruction, the conditions on the gas and loaded cells before it), then the
-variables nothing mentions; keeps the context of a run small for `omega`. -/
+variables nothing mentions but those with a value; keeps the context of a run small for `omega`. -/
 elab "vm_clear_unused" : tactic => withMainContext do
   let g ← getMainGoal
   let t ← instantiateMVars (← g.getType)
@@ -765,6 +765,9 @@ elab "vm_clear_unused" : tactic => withMainContext do
     for d in ← getLCtx do
       if d.isImplementationDetail then continue
       if ← isProp (← instantiateMVars d.type) then continue
+      -- a variable with a value stays: a later step may name it (`loopInv0`, the loop invariant of
+      -- the user that `ran_case` binds and `check_loop_any` takes by its name)
+      if d.isLet then continue
       unless used.contains d.fvarId do unused := unused.push d.fvarId
     g.tryClearMany unused
   replaceMainGoal [g]
