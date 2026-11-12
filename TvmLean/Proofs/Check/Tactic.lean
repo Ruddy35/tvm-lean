@@ -57,6 +57,7 @@ import TvmLean.Proofs.Exec.Spec.LoopEnd
 import TvmLean.Proofs.Exec.Spec.DictSkip
 import TvmLean.Proofs.Exec.Spec.StdAddr
 import TvmLean.Proofs.Exec.Spec.GlobalId
+import TvmLean.Proofs.Exec.Spec.CryptoBls
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`

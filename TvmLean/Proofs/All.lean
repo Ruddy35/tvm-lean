@@ -209,6 +209,7 @@ import TvmLean.Proofs.Exec.Spec.LoopEnd
 import TvmLean.Proofs.Exec.Spec.DictSkip
 import TvmLean.Proofs.Exec.Spec.StdAddr
 import TvmLean.Proofs.Exec.Spec.GlobalId
+import TvmLean.Proofs.Exec.Spec.CryptoBls
 
 /-!
 # All proof modules together
