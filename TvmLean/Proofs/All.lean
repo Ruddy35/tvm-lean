@@ -202,6 +202,7 @@ import TvmLean.Proofs.Exec.Spec.TupleIdx
 import TvmLean.Proofs.Exec.Spec.CellRest
 import TvmLean.Proofs.Exec.Spec.CellLe
 import TvmLean.Proofs.Exec.Spec.ContCc
+import TvmLean.Proofs.Exec.Spec.ContData
 
 /-!
 # All proof modules together
