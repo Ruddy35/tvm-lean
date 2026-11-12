@@ -201,6 +201,7 @@ import TvmLean.Proofs.Exec.Spec.FlowExt
 import TvmLean.Proofs.Exec.Spec.TupleIdx
 import TvmLean.Proofs.Exec.Spec.CellRest
 import TvmLean.Proofs.Exec.Spec.CellLe
+import TvmLean.Proofs.Exec.Spec.ContCc
 
 /-!
 # All proof modules together
