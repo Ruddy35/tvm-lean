@@ -680,7 +680,8 @@ PATTERNS: list[dict] = [
      "forms": ["SETCONTARGS", "SETCONTVARARGS", "SETNUMVARARGS", "BLESSARGS", "BLESSVARARGS", "BLESS"],
      "probes": ["closure-call", "closure-jump", "setcontvarargs", "blessvarargs"],
      "how": "Spec.setContArgs_ord, VM.run_jump_ordinary_cdata, VM.run_call_ordinary_cdata (Exec/Closure.lean); "
-            "Spec.setContVarArgs_ord (Exec/Spec/SetContVarArgs.lean), Spec.blessVarArgs (Exec/Spec/VarArgs.lean)"},
+            "Spec.setContVarArgs_ord (Exec/Spec/SetContVarArgs.lean), Spec.blessVarArgs (Exec/Spec/VarArgs.lean), "
+            "Spec.blessArgs (Exec/Spec/ContCc.lean), Spec.setNumVarArgs (Exec/Spec/ContData.lean)"},
     {"id": "xargs", "title": "CALLXARGS / JMPXARGS / RETARGS (arguments and return values counted)",
      "forms": ["CALLXARGS", "CALLXARGS_1", "JMPXARGS", "RETARGS", "CALLXVARARGS", "JMPXVARARGS", "RETVARARGS",
                "RETURNARGS", "RETURNVARARGS"],
@@ -688,10 +689,11 @@ PATTERNS: list[dict] = [
                 "returnargs-top", "returnvarargs-top"],
      "how": "Spec.callxArgs, Spec.jmpxArgs, Spec.retArgs (Exec/Spec/CallArgs.lean); VM.call/VM.jump with "
             "passArgs; Spec.callxVarArgs, Spec.retVarArgs, Spec.returnArgs_ord/_quit, Spec.returnVarArgs_ord/_quit "
-            "(Exec/Spec/VarArgs.lean)"},
+            "(Exec/Spec/VarArgs.lean); Spec.jmpxVarArgs (Exec/Spec/ContData.lean)"},
     {"id": "callcc", "title": "CALLCC and variants (the current continuation as a value)",
      "forms": ["CALLCC", "CALLCCARGS", "CALLCCVARARGS"], "probes": ["callcc", "callccargs", "callccvarargs"],
-     "how": "the handler unfolded (VM.extractCc); Spec.callccVarArgs (Exec/Spec/CallArgs.lean)"},
+     "how": "Spec.callcc, Spec.callccArgs (Exec/Spec/ContCc.lean, VM.run_extractCc_3); Spec.callccVarArgs "
+            "(Exec/Spec/CallArgs.lean)"},
     {"id": "retalt", "title": "RETALT / c1 (the alternative return)", "forms": ["RETALT", "IFRETALT", "IFNOTRETALT"],
      "probes": ["retalt", "samealtsave-retalt"],
      "how": "Spec.retAlt, Spec.retAlt_envelope, Spec.retAlt_quit (Exec/Spec/ContSave.lean); Spec.ifretAlt, "
@@ -707,18 +709,20 @@ PATTERNS: list[dict] = [
     {"id": "loops-end", "title": "REPEATEND / UNTILEND / WHILEEND / AGAINEND (the rest of the code as the body)",
      "forms": ["REPEATEND", "UNTILEND", "WHILEEND", "AGAINEND"],
      "probes": ["repeatend", "untilend", "whileend", "againend"],
-     "how": "Spec.untilEnd, Spec.whileEnd, Spec.againEnd; REPEATEND by the handler"},
+     "how": "Spec.untilEnd, Spec.whileEnd, Spec.againEnd; Spec.repeatEnd (Exec/Spec/LoopEnd.lean)"},
     {"id": "loops-brk", "title": "the BRK loops (c1 = the exit; RETALT leaves the loop)",
      "forms": ["REPEATBRK", "UNTILBRK", "WHILEBRK", "AGAINBRK", "REPEATENDBRK", "UNTILENDBRK", "WHILEENDBRK",
                "AGAINENDBRK"],
-     "probes": ["againbrk", "repeatbrk", "untilbrk", "whilebrk"], "how": "the handlers unfolded"},
+     "probes": ["againbrk", "repeatbrk", "untilbrk", "whilebrk"],
+     "how": "Spec.againBrk (Exec/Spec/LoopBrk.lean); Spec.repeatBrk, Spec.repeatEndBrk, Spec.untilBrk, "
+            "Spec.untilEndBrk, Spec.whileBrk, Spec.whileEndBrk, Spec.againEndBrk (Exec/Spec/LoopEnd.lean)"},
     {"id": "again", "title": "AGAIN without an exit (ends by running out of gas)", "forms": ["AGAIN"],
      "probes": ["again"], "how": "Spec.again and the loop rule"},
     {"id": "loop-in-loop", "title": "a loop inside a loop", "forms": [], "probes": ["loop-in-loop"],
      "how": "nested loop rules (check_loop_close takes the latest ih)"},
     {"id": "try", "title": "TRY / TRYARGS: an exception caught by a handler (c2)", "forms": ["TRY", "TRYARGS"],
      "probes": ["try-throw", "try-nothrow", "tryargs"],
-     "how": "Spec.try_ (Exec/Spec/FlowExt.lean); TRYARGS: the handler unfolded; VM.run_throwToHandler"},
+     "how": "Spec.try_ (Exec/Spec/FlowExt.lean), Spec.tryArgs (Exec/Spec/ContCc.lean); VM.run_throwToHandler"},
     {"id": "throw", "title": "THROW* to the default handler (the run halts with the exit code)",
      "forms": ["THROW", "THROW_SHORT", "THROWIF", "THROWIF_SHORT", "THROWIFNOT", "THROWIFNOT_SHORT", "THROWARG",
                "THROWANY", "THROWARGANY", "THROWANYIF", "THROWANYIFNOT", "THROWARGANYIF", "THROWARGANYIFNOT"],
@@ -733,7 +737,9 @@ PATTERNS: list[dict] = [
     {"id": "refconts", "title": "CALLREF / JMPREF / IF*REF (continuations in references)",
      "forms": ["CALLREF", "JMPREF", "JMPREFDATA", "IFREF", "IFNOTREF", "IFJMPREF", "IFNOTJMPREF", "IFREFELSE",
                "IFELSEREF", "IFREFELSEREF"],
-     "probes": ["callref", "jmpref", "ifjmpref"], "how": "the handlers unfolded (the reference loaded as a cell)"},
+     "probes": ["callref", "jmpref", "ifjmpref"],
+     "how": "the handlers unfolded (the reference loaded as a cell); JMPREFDATA: Spec.jmpRefData "
+            "(Exec/Spec/ContData.lean)"},
     {"id": "dispatch", "title": "the method dispatch: SETCP0, DICTPUSHCONST, DICTIGETJMPZ on the code's dictionary",
      "forms": ["DICTPUSHCONST", "DICTIGETJMPZ", "DICTIGETJMP", "DICTUGETJMP", "DICTUGETJMPZ", "DICTIGETEXEC",
                "DICTUGETEXEC", "DICTIGETEXECZ", "DICTUGETEXECZ"],
@@ -758,7 +764,8 @@ PATTERNS: list[dict] = [
      "probes": ["setcontctrmany", "setcontctrmanyx", "savectr", "savectr4", "samealtsave-retalt"],
      "how": "Spec.setContCtrMany, Spec.setContCtrManyX (Exec/Spec/ContMany.lean): the loop over the registers "
             "computed (setContCtrManyLoop); VM.run_call_ordinary_cdata (a call to a continuation that saves c0 "
-            "is a jump); Spec.saveCtr0..saveCtr7, Spec.sameAltSave (Exec/Spec/ContSave.lean)"},
+            "is a jump); Spec.saveCtr0..saveCtr7, Spec.sameAltSave (Exec/Spec/ContSave.lean); Spec.setContCtr, "
+            "Spec.saveAltCtr, Spec.saveBothCtr (Exec/Spec/ContCtr.lean), Spec.setContCtrX (Exec/Spec/ContReg.lean)"},
     {"id": "setcp", "title": "SETCP with a codepage other than 0, SETCPX", "forms": ["SETCP", "SETCPX", "SETCP_SHORT"],
      "probes": ["setcp1", "setcpx"],
      "how": "Spec.setcp_ne, Spec.setcpX (Exec/Spec/FlowExt.lean); stepCode needs cp = 0, else the step unfolded"},
@@ -847,15 +854,18 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '`EXECUTE`/`JMPX`)',
         '`Spec.setContArgs_ord`, `VM.run_jump_ordinary_cdata`, `VM.run_call_ordinary_cdata` '
         '(`Exec/Closure.lean`); `Spec.setContVarArgs_ord` (`Exec/Spec/SetContVarArgs.lean`), '
-        '`Spec.blessVarArgs` (`Exec/Spec/VarArgs.lean`)'),
+        '`Spec.blessVarArgs` (`Exec/Spec/VarArgs.lean`), `Spec.blessArgs` (`Exec/Spec/ContCc.lean`), '
+        '`Spec.setNumVarArgs` (`Exec/Spec/ContData.lean`)'),
     'xargs': (
         '`CALLXARGS` / `JMPXARGS` / `RETARGS` (число аргументов и результатов)',
         '`Spec.callxArgs`, `Spec.jmpxArgs`, `Spec.retArgs` (`Exec/Spec/CallArgs.lean`); `VM.call`/`VM.jump` с '
         '`passArgs`; `Spec.callxVarArgs`, `Spec.retVarArgs`, `Spec.returnArgs_ord`/`_quit`, '
-        '`Spec.returnVarArgs_ord`/`_quit` (`Exec/Spec/VarArgs.lean`)'),
+        '`Spec.returnVarArgs_ord`/`_quit` (`Exec/Spec/VarArgs.lean`); `Spec.jmpxVarArgs` '
+        '(`Exec/Spec/ContData.lean`)'),
     'callcc': (
         '`CALLCC` и варианты (текущее продолжение как значение)',
-        'обработчик (`VM.extractCc`); `Spec.callccVarArgs` (`Exec/Spec/CallArgs.lean`)'),
+        '`Spec.callcc`, `Spec.callccArgs` (`Exec/Spec/ContCc.lean`, `VM.run_extractCc_3`); '
+        '`Spec.callccVarArgs` (`Exec/Spec/CallArgs.lean`)'),
     'retalt': (
         '`RETALT` / `c1` (альтернативный возврат)',
         '`Spec.retAlt`, `Spec.retAlt_envelope`, `Spec.retAlt_quit` (`Exec/Spec/ContSave.lean`); '
@@ -869,10 +879,11 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '`Contracts/Wallet3Run/Tactic.lean`): полезная нагрузка вершины стека обобщена, `c5` — `SafeActs`'),
     'loops-end': (
         '`REPEATEND` / `UNTILEND` / `WHILEEND` / `AGAINEND` (тело — остаток кода)',
-        '`Spec.untilEnd`, `Spec.whileEnd`, `Spec.againEnd`; `REPEATEND` — обработчиком'),
+        '`Spec.untilEnd`, `Spec.whileEnd`, `Spec.againEnd`; `Spec.repeatEnd` (`Exec/Spec/LoopEnd.lean`)'),
     'loops-brk': (
         'циклы `BRK` (`c1` — выход; `RETALT` выходит из цикла)',
-        'обработчики'),
+        '`Spec.againBrk` (`Exec/Spec/LoopBrk.lean`); `Spec.repeatBrk`, `Spec.repeatEndBrk`, `Spec.untilBrk`, '
+        '`Spec.untilEndBrk`, `Spec.whileBrk`, `Spec.whileEndBrk`, `Spec.againEndBrk` (`Exec/Spec/LoopEnd.lean`)'),
     'again': (
         '`AGAIN` без выхода (кончается нехваткой газа)',
         '`Spec.again` и правило цикла'),
@@ -881,7 +892,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'вложенные правила цикла (`check_loop_close` берёт последний `ih`)'),
     'try': (
         '`TRY` / `TRYARGS`: исключение ловит обработчик (`c2`)',
-        '`Spec.try_` (`Exec/Spec/FlowExt.lean`); `TRYARGS` — обработчиком; `VM.run_throwToHandler`'),
+        '`Spec.try_` (`Exec/Spec/FlowExt.lean`), `Spec.tryArgs` (`Exec/Spec/ContCc.lean`); '
+        '`VM.run_throwToHandler`'),
     'throw': (
         '`THROW*` в обработчик по умолчанию (прогон останавливается с кодом выхода)',
         '`Spec.throw`, `Spec.throwIf`, `Spec.throwIfNot`, `Spec.throwArg`, `Spec.throwAny`, `Spec.throwArgAny`, '
@@ -892,7 +904,8 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         "`stepCode`: `VmState.stepOnceWith_implicitRet'`, `VmState.stepOnceWith_implicitJmpRef'`"),
     'refconts': (
         '`CALLREF` / `JMPREF` / `IF*REF` (продолжения в ссылках)',
-        'обработчики (ссылка загружается как ячейка)'),
+        'обработчики (ссылка загружается как ячейка); `JMPREFDATA` — `Spec.jmpRefData` '
+        '(`Exec/Spec/ContData.lean`)'),
     'dispatch': (
         'диспетчер методов: `SETCP0`, `DICTPUSHCONST`, `DICTIGETJMPZ` по словарю кода',
         '`Spec.setcp0`, `Spec.dictPushConst`, `Spec.dictGetExec_*` (`Exec/Spec/Dispatch.lean`): поиск — '
@@ -911,7 +924,9 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'продолжение с сохранёнными регистрами (`SETCONTCTR`, `SETCONTCTRMANY`), затем `EXECUTE`/`JMPX`',
         '`Spec.setContCtrMany`, `Spec.setContCtrManyX` (`Exec/Spec/ContMany.lean`): цикл по регистрам '
         'считается (`setContCtrManyLoop`); `VM.run_call_ordinary_cdata` (вызов продолжения, сохранившего '
-        '`c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`)'),
+        '`c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`); '
+        '`Spec.setContCtr`, `Spec.saveAltCtr`, `Spec.saveBothCtr` (`Exec/Spec/ContCtr.lean`), `Spec.setContCtrX` '
+        '(`Exec/Spec/ContReg.lean`)'),
     'setcp': (
         '`SETCP` с кодовой страницей не 0, `SETCPX`',
         '`Spec.setcp_ne`, `Spec.setcpX` (`Exec/Spec/FlowExt.lean`); `stepCode` требует `cp = 0`'),
