@@ -211,6 +211,7 @@ import TvmLean.Proofs.Exec.Spec.StdAddr
 import TvmLean.Proofs.Exec.Spec.GlobalId
 import TvmLean.Proofs.Exec.Spec.CryptoBls
 import TvmLean.Proofs.Exec.Spec.CellLoad
+import TvmLean.Proofs.Exec.Spec.CryptoCheck
 
 /-!
 # All proof modules together
