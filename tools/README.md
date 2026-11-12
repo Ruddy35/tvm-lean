@@ -140,7 +140,10 @@ body by the framed rules (any slice, any value, or an exception), `LDMSGADDR` of
 data the run wrote (ordinary by definition), an exception that ends the run closed at once (kept as
 `VmState.raiseDead`), `c7` after `RAND` made a variable again (TvmLean/Proofs/Check/Forget.lean);
 its Inv file tags with `check_close` (TvmLean/Proofs/Check/Attr.lean) what the ends of the paths
-unfold (`Data.encode` written out, compared with the cell the code built). Its two runs of internal
+unfold (`Data.encode` written out, compared with the cell the code built); they are written out in
+the goal, not in the hypotheses, so a bound of the invariant on such a definition is best written
+out too (the jetton minter's `(natLenBits d.supply + 7) / 8 < 16`, not `coinsLen d.supply < 16`:
+else a closer may not match the goal with the hypothesis). Its two runs of internal
 messages take nearly all the time; `--split` checks the six runs at once, in processes of their own
 (in one module Lean checks them one after another).
 

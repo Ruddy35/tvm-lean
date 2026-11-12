@@ -41,7 +41,7 @@ theorem Data.readBits_encode (d : Data) (p r n : Nat) :
     Slice.readBits ⟨d.encode, p, r⟩ n = d.bits.extract p (p + n) := rfl
 
 /-- The length of the supply (`LDGRAMS`, its first 4 bits). -/
-theorem Data.read_len (d : Data) (h : coinsLen d.supply < 16) {p r n : Nat} (hp : p = 0) (hn : n = 4) :
+theorem Data.read_len (d : Data) (h : (natLenBits d.supply + 7) / 8 < 16) {p r n : Nat} (hp : p = 0) (hn : n = 4) :
     bitsToNat (Slice.readBits ⟨d.encode, p, r⟩ n) = coinsLen d.supply := by
   subst hp hn
   rw [Data.readBits_encode]
@@ -66,14 +66,16 @@ theorem Data.read_supply (d : Data) {p r n : Nat} (hp : p = 4) (hn : n = coinsLe
   exact bitsToNat_coins _
 
 /-- The first read of the data (`LDGRAMS` on `Slice.ofCell`): the length of the supply. -/
-theorem Data.read_len0 (d : Data) (h : coinsLen d.supply < 16) :
+theorem Data.read_len0 (d : Data) (h : (natLenBits d.supply + 7) / 8 < 16) :
     bitsToNat (Slice.readBits (Slice.ofCell d.encode) 4) = coinsLen d.supply :=
   Data.read_len d h (p := 0) (r := 0) rfl rfl
 
 /-- The data is `encode` of a supply below 2^120 (`Coins`, as `store_coins` stores it) with the
-wallet code `wcode`. -/
+wallet code `wcode`. The bound is `coinsLen d.supply < 16` written out, as the closers write the
+goal (`coinsLen` is among `check_close`), so that the hypothesis is the goal where the supply is
+kept. -/
 def Inv (wcode : Cell) (data : Option Cell) : Prop :=
-  ∃ d : Data, data = some d.encode ∧ coinsLen d.supply < 16 ∧ d.walletCode = wcode
+  ∃ d : Data, data = some d.encode ∧ (natLenBits d.supply + 7) / 8 < 16 ∧ d.walletCode = wcode
 
 -- the data as the cell the code writes, for the ends of the paths: `encode` written out
 attribute [check_close] Data.encode Data.bits coinsBits coinsLen
