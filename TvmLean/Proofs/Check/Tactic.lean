@@ -52,6 +52,7 @@ import TvmLean.Proofs.Exec.Spec.CellLe
 import TvmLean.Proofs.Exec.Spec.ContCc
 import TvmLean.Proofs.Exec.Spec.ContData
 import TvmLean.Proofs.Exec.Spec.ContReg
+import TvmLean.Proofs.Exec.Spec.ContCtr
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`
