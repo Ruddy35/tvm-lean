@@ -207,6 +207,7 @@ import TvmLean.Proofs.Exec.Spec.ContReg
 import TvmLean.Proofs.Exec.Spec.ContCtr
 import TvmLean.Proofs.Exec.Spec.LoopEnd
 import TvmLean.Proofs.Exec.Spec.DictSkip
+import TvmLean.Proofs.Exec.Spec.StdAddr
 
 /-!
 # All proof modules together
