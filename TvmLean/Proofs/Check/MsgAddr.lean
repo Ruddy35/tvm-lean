@@ -13,7 +13,10 @@ address, a hypothesis `Slice.skipMessageAddr s gv = .ok t` with the rest `t` a v
 reads after the address are then reads of `s`'s cell, the references of a data cell among them
 (`LDREF` after `LDMSGADDR`, as the jetton minter and the NFT collection read their data), and the
 address the instruction pushes, stored back (`STSLICE`), is the bits read and no reference
-(`ofCell_prefixCell_toCellRemaining`).
+(`ofCell_prefixCell_toCellRemaining`). An address read first from a whole cell (the owner, the first
+field of the NFT collection's data) is a cell of the first bits and no reference
+(`prefixCell_ofCell`): a value a loop invariant can name (`∃ b, x = .slice (Slice.ofCell
+(Cell.mkOrdinary b #[]))`).
 -/
 
 namespace TvmLean
@@ -48,6 +51,13 @@ written out), as a store reads it (`STSLICE`): the bits read, no references. -/
   rw [Array.extract_eq_empty_of_le (Nat.min_le_left _ _)]
   generalize c.bits.extract p q = b
   simp [Slice.toCellRemaining, Slice.ofCell, Cell.mkOrdinary]
+
+/-- The address `LDMSGADDR` pushes when it reads the first bits of a cell (`Slice.ofCell c`, its rest
+`⟨c, q, 0⟩` written out): the cell of those bits, with no reference. -/
+@[check_run_simp, check_close] theorem prefixCell_ofCell (c : Cell) (q : Nat) :
+    Slice.prefixCell (Slice.ofCell c) ⟨c, q, 0⟩ = Cell.mkOrdinary (c.bits.extract 0 q) #[] := by
+  show Cell.mkOrdinary (c.bits.extract 0 q) (c.refs.extract 0 0) = _
+  rw [Array.extract_eq_empty_of_le (Nat.min_le_left _ _)]
 
 open Lean Meta Elab Tactic
 
