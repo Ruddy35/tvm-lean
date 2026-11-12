@@ -60,6 +60,7 @@ import TvmLean.Proofs.Exec.Spec.GlobalId
 import TvmLean.Proofs.Exec.Spec.CryptoBls
 import TvmLean.Proofs.Exec.Spec.CellLoad
 import TvmLean.Proofs.Exec.Spec.CryptoCheck
+import TvmLean.Proofs.Exec.Spec.CryptoSecp
 
 /-!
 # Checking an invariant of a contract over all transactions: `ran_preserves`
