@@ -885,6 +885,18 @@ elab "vm_loop_close" : tactic => Lean.Elab.Tactic.withMainContext do
     else rest := rest.push g'
   Lean.Elab.Tactic.replaceMainGoal rest.toList
 
+/-- `Int.toNat_natCast` with a proof that is not `rfl` (no `@[defeq]`): `simp` rewrites with it by
+a proof. As a `dsimp` rewrite the value a step stores (`STU n` of `↑(bitsToNat (s.readBits k))`:
+`natToBits x.toNat n`, TvmLean/Proofs/Exec/Spec/Cell.lean) changes in a branch of an `if` without a
+proof, and `ite_congr` then compares the branch before and after by unfolding: `bitsToNat` of the
+bits read first (lazy delta), its `Array.extract` at the position of the read and the `Nat`
+arithmetic of the position one unit at a time (wallet v4r2's `query_id`, `64 STU` after `LDGRAMS`:
+tens of millions of `Nat.add`/`Nat.sub` unfoldings, no end within 2·10⁹ heartbeats). -/
+theorem Exec.toNat_natCast_eq (n : Nat) : (n : Int).toNat = n := by omega
+
+/-- `Int.toNat_natCast_add_one` with a proof that is not `rfl` (`Exec.toNat_natCast_eq`). -/
+theorem Exec.toNat_natCast_add_one_eq (n : Nat) : ((n : Int) + 1).toNat = n + 1 := by omega
+
 /-- The simp lemmas of a step (`Proofs/Exec/Tactic.lean`), with those of `vm_simp`. An `if` whose
 condition simp decides is reduced before its branches are rewritten (`↓ reduceIte`, `↓ reduceDIte`;
 by name in a `simp only` list they would run after them): simp rewrites the branches of an `if` it has
@@ -921,14 +933,14 @@ macro_rules
       ne_eq, Nat.add_sub_cancel, Nat.sub_self, Nat.add_one_sub_one, Nat.sub_zero, and_true, true_and,
       decide_eq_true_eq, decide_eq_false_iff_not, decide_not, Bool.not_not, Bool.not_true,
       Bool.not_false, Decidable.not_not, Bool.not_eq_true', Bool.not_eq_false', beq_iff_eq,
-      Int.ofNat_eq_coe, Int.toNat_natCast, Bool.and_eq_true, Bool.or_eq_true, Bool.eq_false_iff, ite_not,
+      Int.ofNat_eq_coe, TvmLean.Exec.toNat_natCast_eq, Bool.and_eq_true, Bool.or_eq_true, Bool.eq_false_iff, ite_not,
       Bool.true_and, Bool.and_true, Bool.false_and, Bool.and_false, ge_iff_le, gt_iff_lt, ↓ reduceIte, ↓ reduceDIte,
       Nat.reduceAdd, Nat.reduceSub, Nat.reduceMul, Nat.reducePow, Nat.reduceLT, Nat.reduceGT,
       Nat.reduceLeDiff, Nat.reduceSubDiff, Nat.reduceEqDiff, Nat.reduceBEq, Nat.reduceBNe, Int.reduceAdd, Int.reduceSub, Int.reduceMul, Int.reduceNeg,
       Int.reducePow, Int.reduceLT, Int.reduceLE, Int.reduceGT, Int.reduceGE, Int.reduceEq, Int.reduceNe,
       Int.reduceNatCast, Int.reduceNatCast', Int.reduceOfNat, Int.reduceToNat, GasLimits.ofLimits,
       GasLimits.ofLimit, reduceCtorEq, Excno.toInt, Array.size_empty, Nat.zero_lt_succ, Nat.succ_ne_zero,
-      Nat.add_one_ne_zero, Nat.zero_add, Int.toNat_natCast, or_false, false_or, or_self, and_self,
+      Nat.add_one_ne_zero, Nat.zero_add, TvmLean.Exec.toNat_natCast_eq, or_false, false_or, or_self, and_self,
       true_or, or_true, false_and, and_false, not_false_eq_true, not_true_eq_false, $args,*])
 
 open Lean Meta Exec in
