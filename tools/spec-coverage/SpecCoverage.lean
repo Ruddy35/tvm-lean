@@ -151,11 +151,11 @@ structure SpecLemma where
   conds : Array String
 
 /-- The kind of a condition of a specification: an equation of the stack or of another part of the
-state (`stack`, `regs.c0`, ...), a closed fact of the code (`closed: dictLookupLoads`), or another
-condition (printed). -/
+state (`stack`, `regs.c0`, ...), a closed fact of the code (`closed: dictLookupLoads`,
+`pfxLookupLoads`), or another condition (printed). -/
 def condKind (st : Expr) (t : Expr) : MetaM String := do
   let t ← instantiateMVars t
-  for f in [``dictLookupLoads, ``dictKeyBits?] do
+  for f in [``dictLookupLoads, ``dictKeyBits?, ``pfxLookupLoads] do
     if (t.find? (·.isConstOf f)).isSome then return s!"closed:{f}"
   if let some (_, a, _) := t.eq? then
     -- a projection chain of the state: `st.stack`, `st.regs.c0`, ...

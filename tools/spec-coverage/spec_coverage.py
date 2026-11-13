@@ -807,7 +807,17 @@ PATTERNS: list[dict] = [
                 "pfxdictadd-unknown", "pfxdictdel-unknown", "subdictget-unknown", "subdictrpget-unknown",
                 "subdicturpget-unknown", "subdictiget-unknown"],
      "how": "framed: PFXDICTGETQ, PFXDICTGET, PFXDICTSET/REPLACE/ADD, PFXDICTDEL (Exec/FramedDictPfx.lean), "
-            "SUBDICT*GET (Exec/FramedDictSubdict.lean); PFXDICTGETJMP/EXEC, PFXDICTSWITCH by the handler"},
+            "SUBDICT*GET (Exec/FramedDictSubdict.lean); PFXDICTGETJMP/EXEC, PFXDICTSWITCH by the handler (the value "
+            "found is code the run does not know; a dictionary it knows: the next pattern)"},
+    {"id": "dict-pfx-jump", "title": "PFXDICTSWITCH (the dictionary in the code), PFXDICTGETJMP / PFXDICTGETEXEC on a "
+     "dictionary and a key the run knows",
+     "forms": ["PFXDICTSWITCH", "PFXDICTGETJMP", "PFXDICTGETEXEC"],
+     "probes": ["pfxdictswitch-const", "pfxdictswitch-const-found", "pfxdictgetjmp-const", "pfxdictgetexec-const",
+                "pfxdictgetexec-const-notfound"],
+     "how": "Spec.pfxSwitch_found/_notFound, Spec.pfxGetJmp_found/_notFound/_null, Spec.pfxGetExec_found/_notFound/_null "
+            "(Exec/Spec/DictPfx.lean): the lookup a closed fact (pfxLookupLoads: the walk with a fuel, "
+            "pfxLookupGoF, decided by the kernel), then the jump or call; a key or a dictionary the run does not "
+            "know: the handler (tools/spec-coverage/probes-gaps.fif)"},
     {"id": "dict-iter", "title": "dictionary iteration on an unknown dictionary (GETNEXT/PREV/MIN/MAX)",
      "forms": [], "regex": r"^DICT[IU]?(GETNEXT|GETPREV|MIN|MAX|REMMIN|REMMAX)",
      "probes": ["dictgetnext-unknown", "dictmin-unknown", "dicturemmin-unknown", "dictimaxref-unknown",
@@ -961,7 +971,15 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         '`PFXDICT*` и `SUBDICT*GET` по словарю, которого прогон не знает',
         'обрамлённые шаги: `PFXDICTGETQ`, `PFXDICTGET`, `PFXDICTSET`/`REPLACE`/`ADD`, `PFXDICTDEL` '
         '(`Exec/FramedDictPfx.lean`), `SUBDICT*GET` (`Exec/FramedDictSubdict.lean`); `PFXDICTGETJMP`/`EXEC`, '
-        '`PFXDICTSWITCH` — обработчиком'),
+        '`PFXDICTSWITCH` — обработчиком (найденное значение — код, которого прогон не знает; известный словарь — '
+        'следующий шаблон)'),
+    'dict-pfx-jump': (
+        '`PFXDICTSWITCH` (словарь в коде), `PFXDICTGETJMP` / `PFXDICTGETEXEC` по словарю и ключу, которые прогон '
+        'знает',
+        '`Spec.pfxSwitch_found`/`_notFound`, `Spec.pfxGetJmp_found`/`_notFound`/`_null`, '
+        '`Spec.pfxGetExec_found`/`_notFound`/`_null` (`Exec/Spec/DictPfx.lean`): поиск — замкнутый факт '
+        '(`pfxLookupLoads`: обход с запасом шагов `pfxLookupGoF`, решает ядро), затем переход или вызов; ключ или '
+        'словарь, которых прогон не знает, — обработчиком (`tools/spec-coverage/probes-gaps.fif`)'),
     'dict-iter': (
         'перебор неизвестного словаря (`GETNEXT`/`PREV`/`MIN`/`MAX`)',
         'обрамлённые шаги: `MIN`/`MAX` и их формы `REM`/`REF` (`Exec/FramedDictMinMax.lean`), `GETNEXT`/`PREV` '
@@ -991,20 +1009,11 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
 
 # What a pattern lacks, from the probes' failures (English for precheck, Russian for the document).
 # The forms that still run only by unfolding their handlers, and why no lemma or framed step covers
-# them (docs/audit/spec-coverage.md, section «Что не покрыто»). The probes that show it are kept out
-# of probes.fif, in tools/spec-coverage/probes-gaps.fif.
-UNFOLD_WHY: dict[str, str] = {
-    "PFXDICTSWITCH": "поиск в словаре-константе кода останавливается на закрытой "
-                     "`DictExt.pfxLookupPrefixWithCells` (проба `pfxdictswitch-const`)",
-    "PFXDICTGETJMP": "на неизвестном словаре нужен обрамлённый поиск, затем обычный шаг перехода "
-                     "(проба `pfxdictgetjmp-unknown`)",
-    "PFXDICTGETEXEC": "на неизвестном словаре нужен обрамлённый поиск, затем обычный шаг вызова "
-                      "(проба `pfxdictgetexec-unknown`)",
-    "RIST255_MUL": "`match` обработчика на `.num 0` (нулевой скаляр `n mod l`, нулевая точка) не сводится "
-                   "для символьного значения",
-    "RIST255_QMUL": "`match` обработчика на `.num 0` (нулевой скаляр `n mod l`, нулевая точка) не сводится "
-                    "для символьного значения",
-}
+# them (docs/audit/spec-coverage.md, section «Что не покрыто»). None since wave 9d (RIST255_MUL and
+# RIST255_QMUL: Exec/Spec/CryptoRistMul.lean; PFXDICTSWITCH, PFXDICTGETJMP, PFXDICTGETEXEC on a known
+# dictionary: Exec/Spec/DictPfx.lean); what the handlers still do is in the patterns (`dict-ext`,
+# `dict-pfx-jump`), the probes that show it in tools/spec-coverage/probes-gaps.fif.
+UNFOLD_WHY: dict[str, str] = {}
 
 
 PATTERN_GAPS: dict[str, tuple[str, str]] = {
@@ -1484,6 +1493,10 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
             f"`{c['name']}`" + (f" ({md_escape(why_missing(c))})" if why_missing(c) else "") for c in miss) + ".")
         L.append("")
     unf = [c for c in classified if c["status"] == "unfold"]
+    if not unf:
+        L.append("Только развёрткой обработчика не исполняется ни одна форма: у каждой есть лемма `vm_spec` "
+                 "(с условием или без) или обрамлённый шаг.")
+        L.append("")
     if unf:
         L.append(f"Только развёрткой обработчика исполняются {len(unf)} форм (лемм `vm_spec` и обрамлённого "
                  "шага для них нет):")
