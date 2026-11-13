@@ -1,0 +1,14 @@
+// Probes of the forms that still run only by unfolding their handlers (spec_coverage.py UNFOLD_WHY):
+// they fail, so they are kept out of probes.fif. To run them, append them to probes.fif and run
+//   spec_coverage.py patterns --regen --only pfxdictswitch-const,pfxdictswitch-unknown-key,...
+"Asm.fif" include
+
+{ type space 0 boc+>B B>base64 type cr } : put   // ( cell name -- )
+
+// a prefix dictionary in the code (PFXDICTSWITCH) on a known and an unknown key
+<{ 2DROP }>s b{01} null 8 pfxdict! drop constant pfxSwitchD
+<{ x{01} PUSHSLICE pfxSwitchD 8 PFXDICTSWITCH }>c "pfxdictswitch-const" put
+<{ DROP 8 LDSLICE DROP pfxSwitchD 8 PFXDICTSWITCH DROP }>c "pfxdictswitch-unknown-key" put
+// the jumps of PFXDICTGETJMP, PFXDICTGETEXEC on a dictionary the run does not know
+<{ DROP LDDICT DROP x{01} PUSHSLICE SWAP 8 INT PFXDICTGETJMP DROP }>c "pfxdictgetjmp-unknown" put
+<{ DROP LDDICT DROP x{01} PUSHSLICE SWAP 8 INT PFXDICTGETEXEC DROP }>c "pfxdictgetexec-unknown" put

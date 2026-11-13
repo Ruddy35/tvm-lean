@@ -990,6 +990,23 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
 }
 
 # What a pattern lacks, from the probes' failures (English for precheck, Russian for the document).
+# The forms that still run only by unfolding their handlers, and why no lemma or framed step covers
+# them (docs/audit/spec-coverage.md, section «Что не покрыто»). The probes that show it are kept out
+# of probes.fif, in tools/spec-coverage/probes-gaps.fif.
+UNFOLD_WHY: dict[str, str] = {
+    "PFXDICTSWITCH": "поиск в словаре-константе кода останавливается на закрытой "
+                     "`DictExt.pfxLookupPrefixWithCells` (проба `pfxdictswitch-const`)",
+    "PFXDICTGETJMP": "на неизвестном словаре нужен обрамлённый поиск, затем обычный шаг перехода "
+                     "(проба `pfxdictgetjmp-unknown`)",
+    "PFXDICTGETEXEC": "на неизвестном словаре нужен обрамлённый поиск, затем обычный шаг вызова "
+                      "(проба `pfxdictgetexec-unknown`)",
+    "RIST255_MUL": "`match` обработчика на `.num 0` (нулевой скаляр `n mod l`, нулевая точка) не сводится "
+                   "для символьного значения",
+    "RIST255_QMUL": "`match` обработчика на `.num 0` (нулевой скаляр `n mod l`, нулевая точка) не сводится "
+                    "для символьного значения",
+}
+
+
 PATTERN_GAPS: dict[str, tuple[str, str]] = {
     'xargs': (
         'VM.call/VM.jump with a number of arguments or results (passArgs, retArgs) have no vm_run lemma',
@@ -1465,6 +1482,15 @@ def render_md(classified: list[dict], raw: dict, results: dict, commit: str) -> 
             continue
         L.append(f"**{f}** ({len(miss)}): " + "; ".join(
             f"`{c['name']}`" + (f" ({md_escape(why_missing(c))})" if why_missing(c) else "") for c in miss) + ".")
+        L.append("")
+    unf = [c for c in classified if c["status"] == "unfold"]
+    if unf:
+        L.append(f"Только развёрткой обработчика исполняются {len(unf)} форм (лемм `vm_spec` и обрамлённого "
+                 "шага для них нет):")
+        L.append("")
+        for c in unf:
+            why = UNFOLD_WHY.get(c["name"], "")
+            L.append(f"- `{c['name']}`" + (f": {why}." if why else "."))
         L.append("")
     lib_bad = [c for c in classified if c["status"] == "spec-lib" and not c["handler_ok"]]
     if lib_bad:
