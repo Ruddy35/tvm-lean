@@ -22,14 +22,32 @@ def debugLine (t0 : Nat) (s : String) : CoreM Unit := do
   if check.debug.get (← getOptions) then
     progressLine s!"  {s} ({(← IO.monoMsNow) - t0} ms)"
 
+/-- A hypothesis of a hint with its builders written as the runs write them: `Builder.empty` and
+`b.storeBits bs` as the structure instances of `builderEmpty_mk` and `storeBits_mk`
+(TvmLean/Proofs/Check/BuilderNorm.lean, steps of every run, both `rfl`); the same type up to
+definitions. Unchanged where those theorems are not in the environment. -/
+def builderForm (e : Expr) : MetaM Expr := do
+  let some _ := (← getEnv).find? `TvmLean.Check.builderEmpty_mk | return e
+  Meta.transform e (post := fun x => do
+    if x.isConstOf ``Builder.empty then
+      if let some (_, _, rhs) := (← inferType (mkConst `TvmLean.Check.builderEmpty_mk)).eq? then
+        return .done rhs
+    if x.isAppOfArity ``Builder.storeBits 2 then
+      if let some (_, _, rhs) :=
+          (← inferType (mkAppN (mkConst `TvmLean.Check.storeBits_mk) x.getAppArgs)).eq? then
+        return .done rhs
+    return .continue)
+
 /-- `g` by the theorem `thm` (a hint: `Queries.set`), its hypotheses from the context: the equations
 of results (`f … = .ok …`) first, by `assumption` (they fix the theorem's arguments), then the
 others by `assumption`, the size of a key of an integer (`dictKeyBits?_size`), the first case of a
 disjunction by `rfl`, `omega`, a pair of facts of the context (`Queries q`, which the context holds
 taken apart); the hypotheses by `assumption` at reducible transparency (at the
 default one, a hypothesis `dictDeleteWithLoads … = .ok …` against the goal `Dict.setSetRes ?r ?k …
-= .ok …` unfolds the walks), all within a budget of heartbeats. Whether it closes `g` (nothing kept
-if not). -/
+= .ok …` unfolds the walks), all within a budget of heartbeats. A hypothesis of the hint is first
+written with its builders as the runs write them (`builderForm`): a hint may say `Builder.empty`
+where the context has `{ bits := #[], refs := #[] }`. Whether it closes `g` (nothing kept if
+not). -/
 def closeByHint (g : MVarId) (thm : Name) : TacticM Bool := do
   let s ← saveState
   tryCatchRuntimeEx (withCurrHeartbeats <|
@@ -40,8 +58,11 @@ def closeByHint (g : MVarId) (thm : Name) : TacticM Bool := do
       return rhs.isAppOf ``Except.ok
     let first ← gs.filterM isResultEq
     let rest ← gs.filterM fun h => return !(← isResultEq h)
-    for h in first ++ rest do
-      if ← h.isAssigned then continue
+    for h0 in first ++ rest do
+      if ← h0.isAssigned then continue
+      let ty ← instantiateMVars (← h0.getType)
+      let ty' ← builderForm ty
+      let h ← if ty' == ty then pure h0 else h0.replaceTargetDefEq ty'
       let byHyp ← (do withReducible h.assumption; pure true) <|> pure false
       unless byHyp do
         -- each closer within a budget of its own (a run of `omega` over a large context may use
