@@ -41,13 +41,14 @@ def builderForm (e : Expr) : MetaM Expr := do
 /-- `g` by the theorem `thm` (a hint: `Queries.set`), its hypotheses from the context: the equations
 of results (`f … = .ok …`) first, by `assumption` (they fix the theorem's arguments), then the
 others by `assumption`, the size of a key of an integer (`dictKeyBits?_size`), the first case of a
-disjunction by `rfl`, `omega`, a pair of facts of the context (`Queries q`, which the context holds
-taken apart); the hypotheses by `assumption` at reducible transparency (at the
-default one, a hypothesis `dictDeleteWithLoads … = .ok …` against the goal `Dict.setSetRes ?r ?k …
-= .ok …` unfolds the walks), all within a budget of heartbeats. A hypothesis of the hint is first
-written with its builders as the runs write them (`builderForm`): a hint may say `Builder.empty`
-where the context has `{ bits := #[], refs := #[] }`. Whether it closes `g` (nothing kept if
-not). -/
+disjunction by `rfl` (`root = none`), its second case (`∃ q, root = some q ∧ P q`) by `rfl` and a
+fact of the context or a pair of them (`Queries q` of the dictionary before a set, which the
+context holds taken apart), `omega`, a pair of facts of the context (`Queries q`); the hypotheses by
+`assumption` at reducible transparency (at the default one, a hypothesis `dictDeleteWithLoads … =
+.ok …` against the goal `Dict.setSetRes ?r ?k … = .ok …` unfolds the walks), all within a budget of
+heartbeats. A hypothesis of the hint is first written with its builders as the runs write them
+(`builderForm`): a hint may say `Builder.empty` where the context has
+`{ bits := #[], refs := #[] }`. Whether it closes `g` (nothing kept if not). -/
 def closeByHint (g : MVarId) (thm : Name) : TacticM Bool := do
   let s ← saveState
   tryCatchRuntimeEx (withCurrHeartbeats <|
@@ -69,7 +70,8 @@ def closeByHint (g : MVarId) (thm : Name) : TacticM Bool := do
         -- up a budget the others would need)
         let closers : Array (TSyntax `tactic) := #[← `(tactic| exact ⟨‹_›, ‹_›⟩),
           ← `(tactic| exact dictKeyBits?_size (by assumption)), ← `(tactic| (left; rfl)),
-          ← `(tactic| omega)]
+          ← `(tactic| (right; exact ⟨_, rfl, ‹_›⟩)),
+          ← `(tactic| (right; exact ⟨_, rfl, ‹_›, ‹_›⟩)), ← `(tactic| omega)]
         let mut shown := false
         for c in closers do
           if shown then break
@@ -92,8 +94,8 @@ def closeByHint (g : MVarId) (thm : Name) : TacticM Bool := do
 /-- A fact of a loop invariant of the user (`check_loop_user`) where a path comes back to the loop
 head, or at the loop's entry: its witnesses by unification (`checkExists`), the rest by `rfl`,
 `assumption`, `omega`, `decide`, `simp only` with the hints, the theorems among the hints with their
-hypotheses from the context (`closeByHint`: `Queries.set` from the set it is about and the size of
-its key), each within a budget of heartbeats. -/
+hypotheses from the context (`closeByHint`: `Queries.set` from the set it is about, `Queries` of
+the dictionary before it and the size of its key), each within a budget of heartbeats. -/
 def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
   -- the hints with their separators (`args` are the elements only, `getSepArgs`), as a list of
   -- `simp` arguments holds them
