@@ -288,6 +288,37 @@ theorem readBits_ofCell_mkOrdinary (b : BitString) (r : Array Cell) (n : Nat) :
     Slice.readBits (Slice.ofCell (Cell.mkOrdinary b r)) n = b.extract 0 n := by
   simp [Slice.readBits, Slice.ofCell, Cell.mkOrdinary]
 
+/-! A builder made of a slice of a cell written out (`STSLICER` of the rest of the data) holds the
+bits and references the slice leaves (`Slice.toCellRemaining`). The steps (`check_step`,
+`check_step_simp`) write them as the cell's own (`toCellRemaining_*` below, none proved by `rfl`, so
+`simp` rewrites with them by a proof): two forms of such a builder, as the branches of an `if` before
+and after a step, are otherwise unified by unfolding `toCellRemaining`, and with it the bits of the
+cell (`natToBits` of its fields written out as an array; wallet v5r1's `STDICT` after `STSLICER` of
+its data did not end within 5·10⁹ heartbeats). -/
+
+/-- The bits a slice of a cell written out leaves (`STSLICER` of the rest of the data, as wallet v5
+writes `data_tail`): those after its position. -/
+theorem toCellRemaining_bits_mkOrdinary (b : BitString) (r : Array Cell) (p q : Nat) :
+    (Slice.toCellRemaining { cell := Cell.mkOrdinary b r, bitPos := p, refPos := q }).bits =
+      b.extract p b.size :=
+  -- `id rfl`, not `rfl`: no `@[defeq]`, so `simp` rewrites with it by a proof (`check_step`)
+  id rfl
+
+/-- The references such a slice leaves when it has read none: all of them. -/
+theorem toCellRemaining_refs_mkOrdinary (b : BitString) (r : Array Cell) (p : Nat) :
+    (Slice.toCellRemaining { cell := Cell.mkOrdinary b r, bitPos := p, refPos := 0 }).refs = r := by
+  simp [Slice.toCellRemaining, Cell.mkOrdinary]
+
+/-- The bits and the references of a whole cell written out, as a slice (`STSLICER` of
+`first_bits` of the data, as wallet v4 writes the fields before its plugins). -/
+theorem toCellRemaining_bits_ofCell_mkOrdinary (b : BitString) (r : Array Cell) :
+    (Slice.ofCell (Cell.mkOrdinary b r)).toCellRemaining.bits = b := by
+  simp [Slice.toCellRemaining, Slice.ofCell, Cell.mkOrdinary]
+
+theorem toCellRemaining_refs_ofCell_mkOrdinary (b : BitString) (r : Array Cell) :
+    (Slice.ofCell (Cell.mkOrdinary b r)).toCellRemaining.refs = r := by
+  simp [Slice.toCellRemaining, Slice.ofCell, Cell.mkOrdinary]
+
 /-- `CTOS` of a cell written as `Cell.mkOrdinary` (ordinary by definition). -/
 @[vm_spec] theorem ctos_mkOrdinary (st : VmState) (s : Stack) (b : BitString) (r : Array Cell)
     (hs : st.stack = s.push (.cell (Cell.mkOrdinary b r))) :
@@ -564,6 +595,8 @@ macro_rules
       GasLimits.changeLimit_infty_min, TvmLean.Exec.iteFreshInst, TvmLean.Exec.diteFreshInst,
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
+      toCellRemaining_bits_mkOrdinary, toCellRemaining_refs_mkOrdinary,
+      toCellRemaining_bits_ofCell_mkOrdinary, toCellRemaining_refs_ofCell_mkOrdinary,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Exec.toNat_natCast_add_one_eq,
       Option.getD_some, Option.getD_none, VmState.retCont, havocLoads, havocCellLoads,
       havocLoadsM, havocLoadListM, Havoc.run_loadsM, havocStop,
@@ -585,6 +618,8 @@ macro_rules
       GasLimits.changeLimit_infty_min, TvmLean.Exec.iteFreshInst, TvmLean.Exec.diteFreshInst,
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
+      toCellRemaining_bits_mkOrdinary, toCellRemaining_refs_mkOrdinary,
+      toCellRemaining_bits_ofCell_mkOrdinary, toCellRemaining_refs_ofCell_mkOrdinary,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Exec.toNat_natCast_add_one_eq,
       Option.getD_some, Option.getD_none, VmState.retCont, havocLoads, havocCellLoads,
       havocLoadsM, havocLoadListM, Havoc.run_loadsM, havocStop,
