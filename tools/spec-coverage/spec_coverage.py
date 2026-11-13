@@ -760,12 +760,13 @@ PATTERNS: list[dict] = [
     {"id": "cont-regs", "title": "a continuation with saved registers (SETCONTCTR, SETCONTCTRMANY), then "
      "EXECUTE/JMPX",
      "forms": ["SETCONTCTR", "SETCONTCTRX", "SETCONTCTRMANY", "SETCONTCTRMANYX", "SAVECTR", "SAVEALTCTR",
-               "SAVEBOTHCTR", "SAMEALTSAVE"],
-     "probes": ["setcontctrmany", "setcontctrmanyx", "savectr", "savectr4", "samealtsave-retalt"],
+               "SAVEBOTHCTR", "SAMEALTSAVE", "POPSAVE"],
+     "probes": ["setcontctrmany", "setcontctrmanyx", "savectr", "savectr4", "samealtsave-retalt", "popsave"],
      "how": "Spec.setContCtrMany, Spec.setContCtrManyX (Exec/Spec/ContMany.lean): the loop over the registers "
             "computed (setContCtrManyLoop); VM.run_call_ordinary_cdata (a call to a continuation that saves c0 "
             "is a jump); Spec.saveCtr0..saveCtr7, Spec.sameAltSave (Exec/Spec/ContSave.lean); Spec.setContCtr, "
-            "Spec.saveAltCtr, Spec.saveBothCtr (Exec/Spec/ContCtr.lean), Spec.setContCtrX (Exec/Spec/ContReg.lean)"},
+            "Spec.saveAltCtr, Spec.saveBothCtr (Exec/Spec/ContCtr.lean), Spec.setContCtrX (Exec/Spec/ContReg.lean); "
+            "Spec.popSave_c0 .. Spec.popSave_c7 (Exec/Spec/PopSave.lean)"},
     {"id": "setcp", "title": "SETCP with a codepage other than 0, SETCPX", "forms": ["SETCP", "SETCPX", "SETCP_SHORT"],
      "probes": ["setcp1", "setcpx"],
      "how": "Spec.setcp_ne, Spec.setcpX (Exec/Spec/FlowExt.lean); stepCode needs cp = 0, else the step unfolded"},
@@ -926,7 +927,7 @@ PATTERNS_RU: dict[str, tuple[str, str]] = {
         'считается (`setContCtrManyLoop`); `VM.run_call_ordinary_cdata` (вызов продолжения, сохранившего '
         '`c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`); '
         '`Spec.setContCtr`, `Spec.saveAltCtr`, `Spec.saveBothCtr` (`Exec/Spec/ContCtr.lean`), `Spec.setContCtrX` '
-        '(`Exec/Spec/ContReg.lean`)'),
+        '(`Exec/Spec/ContReg.lean`); `Spec.popSave_c0` .. `Spec.popSave_c7` (`Exec/Spec/PopSave.lean`)'),
     'setcp': (
         '`SETCP` с кодовой страницей не 0, `SETCPX`',
         '`Spec.setcp_ne`, `Spec.setcpX` (`Exec/Spec/FlowExt.lean`); `stepCode` требует `cp = 0`'),

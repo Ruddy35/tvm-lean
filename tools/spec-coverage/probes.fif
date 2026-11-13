@@ -215,3 +215,6 @@ PROGRAM{
 <{ DROP 32 PLDU BLS_G2_MULTIEXP DROP }>c "bls-g2-multiexp-unknown" put
 <{ DROP 32 PLDU BLS_PAIRING DROP }>c "bls-pairing-unknown" put
 <{ DROP 3 INT BLS_G1_MULTIEXP DROP }>c "bls-g1-multiexp-const" put
+
+// wave 9, item 2: POPSAVE
+<{ <{ NOP }> PUSHCONT c2 POPSAVE }>c "popsave" put
