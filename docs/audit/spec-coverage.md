@@ -1,6 +1,6 @@
 # Покрытие инструкций символьным исполнением
 
-Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `e7b6273`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
+Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `3d01f35`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
 
 ```sh
 export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут
@@ -42,16 +42,16 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | cont/flow | 85 | 79 | 6 | 0 | 0 (0) | 0 | 0 | 85 / 0 / 0 |
 | loops | 16 | 16 | 0 | 0 | 0 (0) | 0 | 0 | 16 / 0 / 0 |
 | exceptions | 17 | 17 | 0 | 0 | 0 (0) | 0 | 0 | 17 / 0 / 0 |
-| dict | 143 | 9 | 74 | 57 | 0 (0) | 3 | 0 | 140 / 3 / 0 |
+| dict | 143 | 9 | 77 | 57 | 0 (0) | 0 | 0 | 143 / 0 / 0 |
 | tuple | 34 | 32 | 2 | 0 | 0 (0) | 0 | 0 | 34 / 0 / 0 |
 | msg/actions | 13 | 2 | 7 | 4 | 0 (0) | 0 | 0 | 13 / 0 / 0 |
 | tonenv/c7 | 55 | 18 | 34 | 3 | 0 (0) | 0 | 0 | 55 / 0 / 0 |
-| crypto | 50 | 33 | 9 | 6 | 0 (0) | 2 | 0 | 48 / 2 / 0 |
+| crypto | 50 | 33 | 11 | 6 | 0 (0) | 0 | 0 | 50 / 0 / 0 |
 | debug | 7 | 7 | 0 | 0 | 0 (0) | 0 | 0 | 7 / 0 / 0 |
 | misc | 4 | 4 | 0 | 0 | 0 (0) | 0 | 0 | 4 / 0 / 0 |
-| **всего** | **919** | **692** | **152** | **70** | **0** **(0)** | **5** | **0** | **914 / 5 / 0** |
+| **всего** | **919** | **692** | **157** | **70** | **0** **(0)** | **0** | **0** | **919 / 0 / 0** |
 
-Лемм `vm_spec`: 698, из них в импортах contract-check 698; вне их: нет.
+Лемм `vm_spec`: 710, из них в импортах contract-check 710; вне их: нет.
 
 ## Шаблоны управления
 
@@ -86,7 +86,8 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `COMMIT` | исполняется | `Spec.commit`; `keeps_haltResult` проверяет зафиксированное состояние | `commit` | — | — |
 | `ACCEPT` / `SETGASLIMIT` | исполняется | `Spec.accept`, `GasLimits.changeLimit_infty_min`; `Spec.setGasLimit` (`Exec/Spec/Globals.lean`) | `accept`, `setgaslimit` | — | — |
 | `DICTGET` / `DICTSET` по словарю, которого прогон не знает | исполняется | `Spec.dictGetInt_*` требуют фактов `dictLookupLoads`: замкнутых или гипотезы; `Exec/FramedDict.lean` — для обрамлённых ячеек; записи в словарь без `Dict.WF` — обрамлённые (`Exec/FramedDictSet.lean`); `GETOPTREF`, `SETGETOPTREF` — обрамлённые (`Exec/FramedDictOptRef.lean`) | `dictget-unknown`, `dictset-unknown`, `dictusetb-unknown`, `dictiadd-unknown`, `dictusetref-unknown`, `dictureplaceb-unknown`, `dictireplaceb-unknown`, `dictugetoptref-unknown`, `dictigetoptref-unknown`, `dictgetoptref-unknown`, `dictusetgetoptref-unknown`, `dictusetgetoptref-del-unknown`, `dictisetgetoptref-unknown`, `dictsetgetoptref-unknown` | — | — |
-| `PFXDICT*` и `SUBDICT*GET` по словарю, которого прогон не знает | исполняется | обрамлённые шаги: `PFXDICTGETQ`, `PFXDICTGET`, `PFXDICTSET`/`REPLACE`/`ADD`, `PFXDICTDEL` (`Exec/FramedDictPfx.lean`), `SUBDICT*GET` (`Exec/FramedDictSubdict.lean`); `PFXDICTGETJMP`/`EXEC`, `PFXDICTSWITCH` — обработчиком | `pfxdictgetq-unknown`, `pfxdictget-unknown`, `pfxdictset-unknown`, `pfxdictreplace-unknown`, `pfxdictadd-unknown`, `pfxdictdel-unknown`, `subdictget-unknown`, `subdictrpget-unknown`, `subdicturpget-unknown`, `subdictiget-unknown` | — | — |
+| `PFXDICT*` и `SUBDICT*GET` по словарю, которого прогон не знает | исполняется | обрамлённые шаги: `PFXDICTGETQ`, `PFXDICTGET`, `PFXDICTSET`/`REPLACE`/`ADD`, `PFXDICTDEL` (`Exec/FramedDictPfx.lean`), `SUBDICT*GET` (`Exec/FramedDictSubdict.lean`); `PFXDICTGETJMP`/`EXEC`, `PFXDICTSWITCH` — обработчиком (найденное значение — код, которого прогон не знает; известный словарь — следующий шаблон) | `pfxdictgetq-unknown`, `pfxdictget-unknown`, `pfxdictset-unknown`, `pfxdictreplace-unknown`, `pfxdictadd-unknown`, `pfxdictdel-unknown`, `subdictget-unknown`, `subdictrpget-unknown`, `subdicturpget-unknown`, `subdictiget-unknown` | — | — |
+| `PFXDICTSWITCH` (словарь в коде), `PFXDICTGETJMP` / `PFXDICTGETEXEC` по словарю и ключу, которые прогон знает | исполняется | `Spec.pfxSwitch_found`/`_notFound`, `Spec.pfxGetJmp_found`/`_notFound`/`_null`, `Spec.pfxGetExec_found`/`_notFound`/`_null` (`Exec/Spec/DictPfx.lean`): поиск — замкнутый факт (`pfxLookupLoads`: обход с запасом шагов `pfxLookupGoF`, решает ядро), затем переход или вызов; ключ или словарь, которых прогон не знает, — обработчиком (`tools/spec-coverage/probes-gaps.fif`) | `pfxdictswitch-const`, `pfxdictswitch-const-found`, `pfxdictgetjmp-const`, `pfxdictgetexec-const`, `pfxdictgetexec-const-notfound` | — | — |
 | перебор неизвестного словаря (`GETNEXT`/`PREV`/`MIN`/`MAX`) | исполняется | обрамлённые шаги: `MIN`/`MAX` и их формы `REM`/`REF` (`Exec/FramedDictMinMax.lean`), `GETNEXT`/`PREV` (`Exec/FramedDictNear.lean`) | `dictgetnext-unknown`, `dictmin-unknown`, `dicturemmin-unknown`, `dictimaxref-unknown`, `dictremmax-unknown`, `dictigetpreveq-unknown`, `dictgetnext-slice-unknown` | — | — |
 | чтение конфигурации (`CONFIGPARAM`, `CONFIGOPTPARAM`) | исполняется | обработчик; `CONFIGDICT`, `CONFIGROOT`: `Spec.configDict`, `Spec.configRoot` (`Exec/Spec/TonEnv.lean`) с гипотезой `c7[0]! = .tuple params` | `configparam`, `configoptparam` | — | — |
 | параметры `c7` (`NOW`, `BALANCE`, `MYADDR`, `GETPARAM`) при неизвестном `c7` | исполняется | `Spec.getParam` и синонимы требуют гипотезы `c7[0]! = .tuple params`; иначе обработчик | `now` | — | — |
@@ -129,13 +130,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 
 ## Что не покрыто
 
-Только развёрткой обработчика исполняются 5 форм (лемм `vm_spec` и обрамлённого шага для них нет):
-
-- `PFXDICTGETJMP`: на неизвестном словаре нужен обрамлённый поиск, затем обычный шаг перехода (проба `pfxdictgetjmp-unknown`).
-- `PFXDICTGETEXEC`: на неизвестном словаре нужен обрамлённый поиск, затем обычный шаг вызова (проба `pfxdictgetexec-unknown`).
-- `RIST255_MUL`: `match` обработчика на `.num 0` (нулевой скаляр `n mod l`, нулевая точка) не сводится для символьного значения.
-- `RIST255_QMUL`: `match` обработчика на `.num 0` (нулевой скаляр `n mod l`, нулевая точка) не сводится для символьного значения.
-- `PFXDICTSWITCH`: поиск в словаре-константе кода останавливается на закрытой `DictExt.pfxLookupPrefixWithCells` (проба `pfxdictswitch-const`).
+Только развёрткой обработчика не исполняется ни одна форма: у каждой есть лемма `vm_spec` (с условием или без) или обрамлённый шаг.
 
 ## Все формы
 
@@ -800,8 +795,8 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `PFXDICTDEL` | обрамлённый шаг | обрамлённый шаг `pfxDelAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `PFXDICTGETQ` | обрамлённый шаг | обрамлённый шаг `pfxGetQAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `PFXDICTGET` | обрамлённый шаг | обрамлённый шаг `pfxGetAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `PFXDICTGETJMP` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
-| `PFXDICTGETEXEC` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `PFXDICTGETJMP` | лемма с условием | pfxGetJmp_found, pfxGetJmp_notFound, pfxGetJmp_null | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `PFXDICTGETEXEC` | лемма с условием | pfxGetExec_found, pfxGetExec_notFound, pfxGetExec_null | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTIGETJMP` | лемма с условием | dictGetExec_empty, dictGetExec_found, dictGetExec_noKey, dictGetExec_notFound | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUGETJMP` | лемма с условием | dictGetExec_empty, dictGetExec_found, dictGetExec_noKey, dictGetExec_notFound | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTIGETEXEC` | лемма с условием | dictGetExec_empty, dictGetExec_found, dictGetExec_noKey, dictGetExec_notFound | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
@@ -928,7 +923,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `DICTUGETPREV` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUGETPREVEQ` | обрамлённый шаг | обрамлённый шаг `dictNearAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTPUSHCONST` | лемма | dictPushConst | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
-| `PFXDICTSWITCH` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PFXDICTSWITCH` | лемма с условием | pfxSwitch_found, pfxSwitch_notFound (только словарь-константа) | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 
 ### tuple
 
@@ -1064,13 +1059,13 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `RIST255_VALIDATE` v4 | лемма | rist255Validate | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_ADD` v4 | лемма с условием | rist255Add | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_SUB` v4 | лемма с условием | rist255Sub | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `RIST255_MUL` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `RIST255_MUL` v4 | лемма с условием | rist255Mul_ne, rist255Mul_zero | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_MULBASE` v4 | лемма | rist255MulBase | развёртка | лемма срабатывает; предел heartbeats |
 | `RIST255_PUSHL` v4 | лемма | rist255PushL | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `RIST255_QVALIDATE` v4 | лемма | rist255Qvalidate | развёртка | лемма срабатывает; посчитан, ветвлений 16 |
 | `RIST255_QADD` v4 | лемма с условием | rist255Qadd | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_QSUB` v4 | лемма с условием | rist255Qsub | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `RIST255_QMUL` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `RIST255_QMUL` v4 | лемма с условием | rist255Qmul_ne, rist255Qmul_zero | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_QMULBASE` v4 | лемма | rist255QmulBase | развёртка | лемма срабатывает; предел heartbeats |
 | `BLS_VERIFY` v4 | лемма | blsVerify | развёртка | лемма срабатывает; посчитан, ветвлений 33 |
 | `BLS_AGGREGATE` v4 | обрамлённый шаг | обрамлённый шаг `blsAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |

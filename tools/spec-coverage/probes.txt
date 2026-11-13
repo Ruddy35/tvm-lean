@@ -162,3 +162,12 @@ bls-g2-multiexp-unknown te6ccgEBAQEACgAAEDDXCx/5MCQw
 bls-pairing-unknown te6ccgEBAQEACgAAEDDXCx/5MDAw
 bls-g1-multiexp-const te6ccgEBAQEACAAADDBz+TAUMA==
 popsave te6ccgEBAQEABgAACJEA7ZI=
+rist255-mul te6ccgEBAQEACgAAEDDXC/93+SQw
+rist255-mul-zero te6ccgEBAQEACgAAEDDXC/9w+SQw
+rist255-qmul te6ccgEBAQEACwAAEjDXC/93t/kkMA==
+rist255-qmul-zero te6ccgEBAQEACwAAEjDXC/9wt/kkMA==
+pfxdictswitch-const te6ccgEBAgEADQABDIsQGPSsCAEAA2S3
+pfxdictswitch-const-found te6ccgEBAgEADQABDIsX+PSsCAEAA2S3
+pfxdictgetjmp-const te6ccgEBAgEADgABDosX+Ih49KoBAANktw==
+pfxdictgetexec-const te6ccgEBAgEADgABDosX+Ih49KsBAANktw==
+pfxdictgetexec-const-notfound te6ccgEBAgEADgABDosQGIh49KsBAANktw==
