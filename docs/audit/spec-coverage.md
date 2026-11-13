@@ -1,6 +1,6 @@
 # Покрытие инструкций символьным исполнением
 
-Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `9bb2111`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
+Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `e7b6273`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
 
 ```sh
 export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут
@@ -39,7 +39,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | stack | 50 | 50 | 0 | 0 | 0 (0) | 0 | 0 | 50 / 0 / 0 |
 | arith | 246 | 231 | 15 | 0 | 0 (0) | 0 | 0 | 246 / 0 / 0 |
 | cell | 199 | 194 | 5 | 0 | 0 (0) | 0 | 0 | 199 / 0 / 0 |
-| cont/flow | 85 | 79 | 5 | 0 | 0 (0) | 1 | 0 | 84 / 1 / 0 |
+| cont/flow | 85 | 79 | 6 | 0 | 0 (0) | 0 | 0 | 85 / 0 / 0 |
 | loops | 16 | 16 | 0 | 0 | 0 (0) | 0 | 0 | 16 / 0 / 0 |
 | exceptions | 17 | 17 | 0 | 0 | 0 (0) | 0 | 0 | 17 / 0 / 0 |
 | dict | 143 | 9 | 74 | 57 | 0 (0) | 3 | 0 | 140 / 3 / 0 |
@@ -49,9 +49,9 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | crypto | 50 | 33 | 9 | 6 | 0 (0) | 2 | 0 | 48 / 2 / 0 |
 | debug | 7 | 7 | 0 | 0 | 0 (0) | 0 | 0 | 7 / 0 / 0 |
 | misc | 4 | 4 | 0 | 0 | 0 (0) | 0 | 0 | 4 / 0 / 0 |
-| **всего** | **919** | **692** | **151** | **70** | **0** **(0)** | **6** | **0** | **913 / 6 / 0** |
+| **всего** | **919** | **692** | **152** | **70** | **0** **(0)** | **5** | **0** | **914 / 5 / 0** |
 
-Лемм `vm_spec`: 691, из них в импортах contract-check 691; вне их: нет.
+Лемм `vm_spec`: 698, из них в импортах contract-check 698; вне их: нет.
 
 ## Шаблоны управления
 
@@ -77,7 +77,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | диспетчер методов: `SETCP0`, `DICTPUSHCONST`, `DICTIGETJMPZ` по словарю кода | исполняется | `Spec.setcp0`, `Spec.dictPushConst`, `Spec.dictGetExec_*` (`Exec/Spec/Dispatch.lean`): поиск — замкнутый факт кода (`dictLookupLoads`, решает ядро) | `calldict` | — | — |
 | `CALLDICT` / `JMPDICT` / `PREPAREDICT` (процедуры через `c3`) | исполняется | `Spec.callDict`, `Spec.jmpDict`, `Spec.prepareDict` | `calldict`, `jmpdict`, `preparedict` | — | — |
 | `RUNVM` / `RUNVMX` (дочерняя VM) | исполняется | `Spec.runvm` (`Exec/Spec/Runvm.lean`) для режимов без аргументов сверх кода и значений: прогон дочерней VM — терм (`childRun` от `Runvm.child`), стек и газ родителя выписаны (`Runvm.run`); `Spec.runvm_*` (`Exec/Spec/RunvmArgs.lean`) для режимов, снимающих данные, пределы газа, `c7` или число возвращаемых значений (`Runvm.runArgs`); `Spec.runvmx` (`Exec/Spec/RunvmX.lean`) в простых режимах, `Spec.runvmx_*` (`Exec/Spec/RunvmArgs.lean`, `Runvm.runxArgs`) в остальных | `runvm`, `runvmx`, `runvm-data`, `runvm-c7`, `runvm-gas`, `runvm-gasmax`, `runvm-retvals`, `runvmx-data`, `runvmx-c7`, `runvmx-gas`, `runvmx-retvals` | — | — |
-| продолжение с сохранёнными регистрами (`SETCONTCTR`, `SETCONTCTRMANY`), затем `EXECUTE`/`JMPX` | исполняется | `Spec.setContCtrMany`, `Spec.setContCtrManyX` (`Exec/Spec/ContMany.lean`): цикл по регистрам считается (`setContCtrManyLoop`); `VM.run_call_ordinary_cdata` (вызов продолжения, сохранившего `c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`); `Spec.setContCtr`, `Spec.saveAltCtr`, `Spec.saveBothCtr` (`Exec/Spec/ContCtr.lean`), `Spec.setContCtrX` (`Exec/Spec/ContReg.lean`) | `setcontctrmany`, `setcontctrmanyx`, `savectr`, `savectr4`, `samealtsave-retalt` | — | — |
+| продолжение с сохранёнными регистрами (`SETCONTCTR`, `SETCONTCTRMANY`), затем `EXECUTE`/`JMPX` | исполняется | `Spec.setContCtrMany`, `Spec.setContCtrManyX` (`Exec/Spec/ContMany.lean`): цикл по регистрам считается (`setContCtrManyLoop`); `VM.run_call_ordinary_cdata` (вызов продолжения, сохранившего `c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`); `Spec.setContCtr`, `Spec.saveAltCtr`, `Spec.saveBothCtr` (`Exec/Spec/ContCtr.lean`), `Spec.setContCtrX` (`Exec/Spec/ContReg.lean`); `Spec.popSave_c0` .. `Spec.popSave_c7` (`Exec/Spec/PopSave.lean`) | `setcontctrmany`, `setcontctrmanyx`, `savectr`, `savectr4`, `samealtsave-retalt`, `popsave` | — | — |
 | `SETCP` с кодовой страницей не 0, `SETCPX` | исполняется | `Spec.setcp_ne`, `Spec.setcpX` (`Exec/Spec/FlowExt.lean`); `stepCode` требует `cp = 0` | `setcp1`, `setcpx` | — | — |
 | действия `SENDRAWMSG` / `RAWRESERVE` (`c5`) | исполняется | `Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` (или `Acts`) закрывает `c5` (`Check/Tactic.lean`) | `sendrawmsg`, `rawreserve` | — | — |
 | действия `SETCODE` / `SETLIBCODE` / `CHANGELIB` / `SENDMSG` / `RAWRESERVEX` | исполняется | `Spec.setCode`, `Spec.setLibCode`, `Spec.changeLib`, `Spec.rawReserveX_null`/`_cell` (`Exec/Spec/Actions.lean`), `Spec.sendMsg` (`Exec/Spec/SendMsg.lean`); списки действий `Acts K` (`Tx/Acts.lean`) закрывает `acts_close`; строка `code K` у contract-check (`Tx/Upgrade.lean`) | `setcode`, `setlibcode`, `changelib`, `sendmsg` | — | — |
@@ -128,6 +128,14 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `nft2.item` | 257 | 73 | 256 | 0 | 1 | 0 | 0 | 0 | — |
 
 ## Что не покрыто
+
+Только развёрткой обработчика исполняются 5 форм (лемм `vm_spec` и обрамлённого шага для них нет):
+
+- `PFXDICTGETJMP`: на неизвестном словаре нужен обрамлённый поиск, затем обычный шаг перехода (проба `pfxdictgetjmp-unknown`).
+- `PFXDICTGETEXEC`: на неизвестном словаре нужен обрамлённый поиск, затем обычный шаг вызова (проба `pfxdictgetexec-unknown`).
+- `RIST255_MUL`: `match` обработчика на `.num 0` (нулевой скаляр `n mod l`, нулевая точка) не сводится для символьного значения.
+- `RIST255_QMUL`: `match` обработчика на `.num 0` (нулевой скаляр `n mod l`, нулевая точка) не сводится для символьного значения.
+- `PFXDICTSWITCH`: поиск в словаре-константе кода останавливается на закрытой `DictExt.pfxLookupPrefixWithCells` (проба `pfxdictswitch-const`).
 
 ## Все формы
 
@@ -716,7 +724,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `SETCONTCTR` | лемма | setContCtr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SETRETCTR` | лемма | setRetCtr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SETALTCTR` | лемма | setAltCtr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `POPSAVE` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `POPSAVE` | лемма с условием | popSave_c0, popSave_c1, popSave_c2, popSave_c3, popSave_c4, popSave_c5, popSave_c7 | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SAVECTR` | лемма | saveCtr0, saveCtr1, saveCtr2, saveCtr3, saveCtr4, saveCtr5, saveCtr7 | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SAVEALTCTR` | лемма | saveAltCtr | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `SAVEBOTHCTR` | лемма | saveBothCtr | развёртка | лемма срабатывает; посчитан, ветвлений 0 |

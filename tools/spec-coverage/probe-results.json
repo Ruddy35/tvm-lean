@@ -86,6 +86,7 @@
 {"name": "pfxdictgetq-unknown", "result": "proved", "where": []},
 {"name": "pfxdictreplace-unknown", "result": "proved", "where": []},
 {"name": "pfxdictset-unknown", "result": "proved", "where": []},
+{"name": "popsave", "result": "proved", "where": []},
 {"name": "preparedict", "result": "proved", "where": []},
 {"name": "rand", "result": "proved", "where": []},
 {"name": "randu256", "result": "proved", "where": []},
