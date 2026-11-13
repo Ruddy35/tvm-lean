@@ -1,6 +1,6 @@
 # Покрытие инструкций символьным исполнением
 
-Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `2e7a92f`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
+Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `9bb2111`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
 
 ```sh
 export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут
@@ -38,20 +38,20 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 |---|---:|---:|---:|---:|---:|---:|---:|---|
 | stack | 50 | 50 | 0 | 0 | 0 (0) | 0 | 0 | 50 / 0 / 0 |
 | arith | 246 | 231 | 15 | 0 | 0 (0) | 0 | 0 | 246 / 0 / 0 |
-| cell | 199 | 152 | 2 | 0 | 0 (0) | 45 | 0 | 154 / 45 / 0 |
-| cont/flow | 85 | 56 | 4 | 0 | 0 (0) | 25 | 0 | 60 / 25 / 0 |
-| loops | 16 | 8 | 0 | 0 | 0 (0) | 8 | 0 | 8 / 8 / 0 |
-| exceptions | 17 | 16 | 0 | 0 | 0 (0) | 1 | 0 | 16 / 1 / 0 |
-| dict | 143 | 4 | 74 | 57 | 0 (0) | 8 | 0 | 135 / 8 / 0 |
+| cell | 199 | 194 | 5 | 0 | 0 (0) | 0 | 0 | 199 / 0 / 0 |
+| cont/flow | 85 | 79 | 5 | 0 | 0 (0) | 1 | 0 | 84 / 1 / 0 |
+| loops | 16 | 16 | 0 | 0 | 0 (0) | 0 | 0 | 16 / 0 / 0 |
+| exceptions | 17 | 17 | 0 | 0 | 0 (0) | 0 | 0 | 17 / 0 / 0 |
+| dict | 143 | 9 | 74 | 57 | 0 (0) | 3 | 0 | 140 / 3 / 0 |
 | tuple | 34 | 32 | 2 | 0 | 0 (0) | 0 | 0 | 34 / 0 / 0 |
 | msg/actions | 13 | 2 | 7 | 4 | 0 (0) | 0 | 0 | 13 / 0 / 0 |
-| tonenv/c7 | 55 | 18 | 33 | 3 | 0 (0) | 1 | 0 | 54 / 1 / 0 |
-| crypto | 50 | 8 | 4 | 6 | 0 (0) | 32 | 0 | 18 / 32 / 0 |
+| tonenv/c7 | 55 | 18 | 34 | 3 | 0 (0) | 0 | 0 | 55 / 0 / 0 |
+| crypto | 50 | 33 | 9 | 6 | 0 (0) | 2 | 0 | 48 / 2 / 0 |
 | debug | 7 | 7 | 0 | 0 | 0 (0) | 0 | 0 | 7 / 0 / 0 |
 | misc | 4 | 4 | 0 | 0 | 0 (0) | 0 | 0 | 4 / 0 / 0 |
-| **всего** | **919** | **588** | **141** | **70** | **0** **(0)** | **120** | **0** | **799 / 120 / 0** |
+| **всего** | **919** | **692** | **151** | **70** | **0** **(0)** | **6** | **0** | **913 / 6 / 0** |
 
-Лемм `vm_spec`: 602, из них в импортах contract-check 602; вне их: нет.
+Лемм `vm_spec`: 691, из них в импортах contract-check 691; вне их: нет.
 
 ## Шаблоны управления
 
@@ -60,24 +60,24 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | Шаблон | Статус | Чем | Пробы | Где остановились пробы, которые не прошли | Чего не хватает |
 |---|---|---|---|---|---|
 | переход/вызов обычного продолжения без замыкания (`EXECUTE`/`CALLX`, `JMPX`, `IF`, `IFNOT`, `IFJMP`, `IFNOTJMP`, `IFELSE`, `RET`, `IFRET`) | исполняется | `Spec.execute`, `Spec.jmpx`, `Spec.if_`, `Spec.ifnot`, `Spec.ifjmp`, `Spec.ifnotjmp`, `Spec.ifelse`, `Spec.ret`, `Spec.ifret` (`Exec/Spec/Flow.lean`), `Spec.ifnotret`, `Spec.retBool` (`Exec/Spec/FlowFlag.lean`); `VM.run_jump_ordinary`, `VM.run_call_plain` | `callx`, `jmpx`, `ifelse-unknown` | — | — |
-| переход/вызов продолжения с замыканием или `nargs` (`SETCONTARGS`, `BLESSARGS`, затем `EXECUTE`/`JMPX`) | исполняется | `Spec.setContArgs_ord`, `VM.run_jump_ordinary_cdata`, `VM.run_call_ordinary_cdata` (`Exec/Closure.lean`); `Spec.setContVarArgs_ord` (`Exec/Spec/SetContVarArgs.lean`), `Spec.blessVarArgs` (`Exec/Spec/VarArgs.lean`) | `closure-call`, `closure-jump`, `setcontvarargs`, `blessvarargs` | — | — |
-| `CALLXARGS` / `JMPXARGS` / `RETARGS` (число аргументов и результатов) | исполняется | `Spec.callxArgs`, `Spec.jmpxArgs`, `Spec.retArgs` (`Exec/Spec/CallArgs.lean`); `VM.call`/`VM.jump` с `passArgs`; `Spec.callxVarArgs`, `Spec.retVarArgs`, `Spec.returnArgs_ord`/`_quit`, `Spec.returnVarArgs_ord`/`_quit` (`Exec/Spec/VarArgs.lean`) | `callxargs`, `jmpxargs`, `retargs`, `callxvarargs`, `retvarargs`, `returnargs`, `returnvarargs`, `returnargs-top`, `returnvarargs-top` | — | — |
-| `CALLCC` и варианты (текущее продолжение как значение) | исполняется | обработчик (`VM.extractCc`); `Spec.callccVarArgs` (`Exec/Spec/CallArgs.lean`) | `callcc`, `callccargs`, `callccvarargs` | — | — |
+| переход/вызов продолжения с замыканием или `nargs` (`SETCONTARGS`, `BLESSARGS`, затем `EXECUTE`/`JMPX`) | исполняется | `Spec.setContArgs_ord`, `VM.run_jump_ordinary_cdata`, `VM.run_call_ordinary_cdata` (`Exec/Closure.lean`); `Spec.setContVarArgs_ord` (`Exec/Spec/SetContVarArgs.lean`), `Spec.blessVarArgs` (`Exec/Spec/VarArgs.lean`), `Spec.blessArgs` (`Exec/Spec/ContCc.lean`), `Spec.setNumVarArgs` (`Exec/Spec/ContData.lean`) | `closure-call`, `closure-jump`, `setcontvarargs`, `blessvarargs` | — | — |
+| `CALLXARGS` / `JMPXARGS` / `RETARGS` (число аргументов и результатов) | исполняется | `Spec.callxArgs`, `Spec.jmpxArgs`, `Spec.retArgs` (`Exec/Spec/CallArgs.lean`); `VM.call`/`VM.jump` с `passArgs`; `Spec.callxVarArgs`, `Spec.retVarArgs`, `Spec.returnArgs_ord`/`_quit`, `Spec.returnVarArgs_ord`/`_quit` (`Exec/Spec/VarArgs.lean`); `Spec.jmpxVarArgs` (`Exec/Spec/ContData.lean`) | `callxargs`, `jmpxargs`, `retargs`, `callxvarargs`, `retvarargs`, `returnargs`, `returnvarargs`, `returnargs-top`, `returnvarargs-top` | — | — |
+| `CALLCC` и варианты (текущее продолжение как значение) | исполняется | `Spec.callcc`, `Spec.callccArgs` (`Exec/Spec/ContCc.lean`, `VM.run_extractCc_3`); `Spec.callccVarArgs` (`Exec/Spec/CallArgs.lean`) | `callcc`, `callccargs`, `callccvarargs` | — | — |
 | `RETALT` / `c1` (альтернативный возврат) | исполняется | `Spec.retAlt`, `Spec.retAlt_envelope`, `Spec.retAlt_quit` (`Exec/Spec/ContSave.lean`); `Spec.ifretAlt`, `Spec.ifnotretAlt` (`Exec/Spec/FlowFlag.lean`): `RETALT` на стеке под флагом | `retalt`, `samealtsave-retalt` | — | — |
 | `REPEAT` / `UNTIL` с известным числом итераций | исполняется | `Spec.repeat_`, `Spec.until_` (`Exec/Spec/Loop.lean`); правило цикла (`vm_loop_c5`) | `repeat-const`, `until-const` | — | — |
 | `REPEAT` / `UNTIL` / `WHILE` с неизвестным числом итераций, значение на стеке | исполняется | правило цикла `VmState.runWith_inv` в голове цикла (`vm_loop_c5`, `Contracts/Wallet3Run/Tactic.lean`): полезная нагрузка вершины стека обобщена, `c5` — `SafeActs` | `repeat-unknown`, `repeat-data`, `until-data`, `while-data` | — | — |
-| `REPEATEND` / `UNTILEND` / `WHILEEND` / `AGAINEND` (тело — остаток кода) | исполняется | `Spec.untilEnd`, `Spec.whileEnd`, `Spec.againEnd`; `REPEATEND` — обработчиком | `repeatend`, `untilend`, `whileend`, `againend` | — | — |
-| циклы `BRK` (`c1` — выход; `RETALT` выходит из цикла) | исполняется | обработчики | `againbrk`, `repeatbrk`, `untilbrk`, `whilebrk` | — | — |
+| `REPEATEND` / `UNTILEND` / `WHILEEND` / `AGAINEND` (тело — остаток кода) | исполняется | `Spec.untilEnd`, `Spec.whileEnd`, `Spec.againEnd`; `Spec.repeatEnd` (`Exec/Spec/LoopEnd.lean`) | `repeatend`, `untilend`, `whileend`, `againend` | — | — |
+| циклы `BRK` (`c1` — выход; `RETALT` выходит из цикла) | исполняется | `Spec.againBrk` (`Exec/Spec/LoopBrk.lean`); `Spec.repeatBrk`, `Spec.repeatEndBrk`, `Spec.untilBrk`, `Spec.untilEndBrk`, `Spec.whileBrk`, `Spec.whileEndBrk`, `Spec.againEndBrk` (`Exec/Spec/LoopEnd.lean`) | `againbrk`, `repeatbrk`, `untilbrk`, `whilebrk` | — | — |
 | `AGAIN` без выхода (кончается нехваткой газа) | исполняется | `Spec.again` и правило цикла | `again` | — | — |
 | цикл в цикле | исполняется | вложенные правила цикла (`check_loop_close` берёт последний `ih`) | `loop-in-loop` | — | — |
-| `TRY` / `TRYARGS`: исключение ловит обработчик (`c2`) | исполняется | `Spec.try_` (`Exec/Spec/FlowExt.lean`); `TRYARGS` — обработчиком; `VM.run_throwToHandler` | `try-throw`, `try-nothrow`, `tryargs` | — | — |
+| `TRY` / `TRYARGS`: исключение ловит обработчик (`c2`) | исполняется | `Spec.try_` (`Exec/Spec/FlowExt.lean`), `Spec.tryArgs` (`Exec/Spec/ContCc.lean`); `VM.run_throwToHandler` | `try-throw`, `try-nothrow`, `tryargs` | — | — |
 | `THROW*` в обработчик по умолчанию (прогон останавливается с кодом выхода) | исполняется | `Spec.throw`, `Spec.throwIf`, `Spec.throwIfNot`, `Spec.throwArg`, `Spec.throwAny`, `Spec.throwArgAny`, `Spec.throwAnyCond`, `Spec.throwArgAnyCond`; `VM.run_throwToHandler`, продолжение `excQuit` разворачивается | `throw`, `throwarg`, `throwif-unknown`, `throwifnot-unknown`, `throwany`, `throwanyif`, `throwanyifnot`, `throwargany`, `throwarganyif` | — | — |
 | неявный `RET` в конце ячейки, неявный `JMPREF` на следующую ссылку | исполняется | `stepCode`: `VmState.stepOnceWith_implicitRet'`, `VmState.stepOnceWith_implicitJmpRef'` | `implicit-jmpref`, `nop` | — | — |
-| `CALLREF` / `JMPREF` / `IF*REF` (продолжения в ссылках) | исполняется | обработчики (ссылка загружается как ячейка) | `callref`, `jmpref`, `ifjmpref` | — | — |
+| `CALLREF` / `JMPREF` / `IF*REF` (продолжения в ссылках) | исполняется | обработчики (ссылка загружается как ячейка); `JMPREFDATA` — `Spec.jmpRefData` (`Exec/Spec/ContData.lean`) | `callref`, `jmpref`, `ifjmpref` | — | — |
 | диспетчер методов: `SETCP0`, `DICTPUSHCONST`, `DICTIGETJMPZ` по словарю кода | исполняется | `Spec.setcp0`, `Spec.dictPushConst`, `Spec.dictGetExec_*` (`Exec/Spec/Dispatch.lean`): поиск — замкнутый факт кода (`dictLookupLoads`, решает ядро) | `calldict` | — | — |
 | `CALLDICT` / `JMPDICT` / `PREPAREDICT` (процедуры через `c3`) | исполняется | `Spec.callDict`, `Spec.jmpDict`, `Spec.prepareDict` | `calldict`, `jmpdict`, `preparedict` | — | — |
 | `RUNVM` / `RUNVMX` (дочерняя VM) | исполняется | `Spec.runvm` (`Exec/Spec/Runvm.lean`) для режимов без аргументов сверх кода и значений: прогон дочерней VM — терм (`childRun` от `Runvm.child`), стек и газ родителя выписаны (`Runvm.run`); `Spec.runvm_*` (`Exec/Spec/RunvmArgs.lean`) для режимов, снимающих данные, пределы газа, `c7` или число возвращаемых значений (`Runvm.runArgs`); `Spec.runvmx` (`Exec/Spec/RunvmX.lean`) в простых режимах, `Spec.runvmx_*` (`Exec/Spec/RunvmArgs.lean`, `Runvm.runxArgs`) в остальных | `runvm`, `runvmx`, `runvm-data`, `runvm-c7`, `runvm-gas`, `runvm-gasmax`, `runvm-retvals`, `runvmx-data`, `runvmx-c7`, `runvmx-gas`, `runvmx-retvals` | — | — |
-| продолжение с сохранёнными регистрами (`SETCONTCTR`, `SETCONTCTRMANY`), затем `EXECUTE`/`JMPX` | исполняется | `Spec.setContCtrMany`, `Spec.setContCtrManyX` (`Exec/Spec/ContMany.lean`): цикл по регистрам считается (`setContCtrManyLoop`); `VM.run_call_ordinary_cdata` (вызов продолжения, сохранившего `c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`) | `setcontctrmany`, `setcontctrmanyx`, `savectr`, `savectr4`, `samealtsave-retalt` | — | — |
+| продолжение с сохранёнными регистрами (`SETCONTCTR`, `SETCONTCTRMANY`), затем `EXECUTE`/`JMPX` | исполняется | `Spec.setContCtrMany`, `Spec.setContCtrManyX` (`Exec/Spec/ContMany.lean`): цикл по регистрам считается (`setContCtrManyLoop`); `VM.run_call_ordinary_cdata` (вызов продолжения, сохранившего `c0`, — переход); `Spec.saveCtr0`..`saveCtr7`, `Spec.sameAltSave` (`Exec/Spec/ContSave.lean`); `Spec.setContCtr`, `Spec.saveAltCtr`, `Spec.saveBothCtr` (`Exec/Spec/ContCtr.lean`), `Spec.setContCtrX` (`Exec/Spec/ContReg.lean`) | `setcontctrmany`, `setcontctrmanyx`, `savectr`, `savectr4`, `samealtsave-retalt` | — | — |
 | `SETCP` с кодовой страницей не 0, `SETCPX` | исполняется | `Spec.setcp_ne`, `Spec.setcpX` (`Exec/Spec/FlowExt.lean`); `stepCode` требует `cp = 0` | `setcp1`, `setcpx` | — | — |
 | действия `SENDRAWMSG` / `RAWRESERVE` (`c5`) | исполняется | `Spec.sendRawMsg`, `Spec.rawReserve`; `SafeActs` (или `Acts`) закрывает `c5` (`Check/Tactic.lean`) | `sendrawmsg`, `rawreserve` | — | — |
 | действия `SETCODE` / `SETLIBCODE` / `CHANGELIB` / `SENDMSG` / `RAWRESERVEX` | исполняется | `Spec.setCode`, `Spec.setLibCode`, `Spec.changeLib`, `Spec.rawReserveX_null`/`_cell` (`Exec/Spec/Actions.lean`), `Spec.sendMsg` (`Exec/Spec/SendMsg.lean`); списки действий `Acts K` (`Tx/Acts.lean`) закрывает `acts_close`; строка `code K` у contract-check (`Tx/Upgrade.lean`) | `setcode`, `setlibcode`, `changelib`, `sendmsg` | — | — |
@@ -445,7 +445,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `SDEMPTY` | лемма | sdempty | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `SREMPTY` | лемма | srempty | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `SDFIRST` | лемма | sdFirst | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 6 |
-| `SDLEXCMP` | развёртка обработчика | — | развёртка | посчитан, ветвлений 28 |
+| `SDLEXCMP` | лемма | sdLexCmp | развёртка | лемма срабатывает; посчитан, ветвлений 28 |
 | `SDEQ` | лемма | sdEq | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `SDPFX` | лемма | sdPfx | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `SDPFXREV` | лемма | sdPfxRev | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
@@ -461,7 +461,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `SDCNTTRAIL1` | лемма | sdCntTrail1 | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 6 |
 | `NEWC` | лемма | newc | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `ENDC` | лемма | endc | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `ENDCST` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
+| `ENDCST` | лемма | endcst | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
 | `STBREF` | лемма | stbRef | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
 | `STB` | лемма | stb | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `STREFR` | лемма | strefR | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 6 |
@@ -476,7 +476,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `STBREFRQ` | лемма | stbRef_rev | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
 | `STSLICERQ` | лемма | stSlice_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STBRQ` | лемма | stb_rev | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `ENDXC` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `ENDXC` | лемма | endxc | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `BDEPTH` | лемма | bdepth | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; стоит на ForIn.forIn |
 | `BBITS` | лемма | bbits | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `BREFS` | лемма | brefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 0 |
@@ -494,29 +494,29 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `CTOS` | лемма с условием | ctos_mkOrdinary, ctos; обрамлённый шаг `ctosAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `ENDS` | лемма | ends | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `LDREF` | лемма | ldref | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `LDREFRTOS` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `LDREFRTOS` | лемма с условием | ldrefRtos | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `SDCUTFIRST` | лемма | sdcutfirst | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
 | `SDSKIPFIRST` | лемма | sdskipfirst | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
 | `SDCUTLAST` | лемма | sdcutlast | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
 | `SDSKIPLAST` | лемма | sdskiplast | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
-| `SDSUBSTR` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 23 |
+| `SDSUBSTR` | лемма | sdSubstr | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `SCUTFIRST` | лемма | scutfirst | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `SSKIPFIRST` | лемма | sskipfirst | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `SCUTLAST` | лемма | scutlast | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `SSKIPLAST` | лемма | sskiplast | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `SUBSLICE` | лемма | subslice | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; предел heartbeats |
-| `SPLIT` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 23 |
-| `SPLITQ` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 23 |
+| `SPLIT` | лемма | splitSlice | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
+| `SPLITQ` | лемма | splitSlice | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `XCTOS` | лемма | xctos | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
-| `XLOAD` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `XLOADQ` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `XLOAD` | лемма с условием | xload | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `XLOADQ` | лемма с условием | xload | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SCHKBITS` | лемма | schkBits | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 15 |
 | `SCHKREFS` | лемма | schkRefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 15 |
 | `SCHKBITREFS` | лемма | schkBitRefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
 | `SCHKBITSQ` | лемма | schkBits | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 15 |
 | `SCHKREFSQ` | лемма | schkRefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 15 |
 | `SCHKBITREFSQ` | лемма | schkBitRefs | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 23 |
-| `PLDREFVAR` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 15 |
+| `PLDREFVAR` | лемма | pldRefVar | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 15 |
 | `SBITS` | лемма | sbits | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `SREFS` | лемма | srefs | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `SBITREFS` | лемма | sbitrefs | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
@@ -525,10 +525,10 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `LDSAME` | лемма | ldSame | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 15 |
 | `SDEPTH` | лемма | sdepth | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 0 |
 | `CDEPTH` | лемма | cdepth, cdepth_null | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
-| `CLEVEL` v6 | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 0 |
-| `CLEVELMASK` v6 | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан, ветвлений 0 |
-| `CHASHIX` v6 | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: Cell.computeLevelInfo? |
-| `CDEPTHIX` v6 | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: Cell.computeLevelInfo? |
+| `CLEVEL` v6 | лемма | clevel | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 0 |
+| `CLEVELMASK` v6 | лемма | clevelMask | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан, ветвлений 0 |
+| `CHASHIX` v6 | лемма | chashIX | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: Cell.computeLevelInfo? |
+| `CDEPTHIX` v6 | лемма | cdepthIX | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: Cell.computeLevelInfo? |
 | `LDGRAMS` | лемма | ldGrams | развёртка | лемма срабатывает; стоит на liftM |
 | `LDVARINT16` | лемма | ldVarInt | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STGRAMS` | лемма | stGrams | развёртка | лемма срабатывает; посчитан, ветвлений 14 |
@@ -547,10 +547,10 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `STUXQ` | лемма | stIntVar | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STIXRQ` | лемма | stIntVar_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STUXRQ` | лемма | stIntVar_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
-| `STILE4` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `STULE4` | развёртка обработчика | — | развёртка | посчитан, ветвлений 10 |
-| `STILE8` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `STULE8` | развёртка обработчика | — | развёртка | посчитан, ветвлений 10 |
+| `STILE4` | лемма | stLeInt | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `STULE4` | лемма | stLeInt | развёртка | лемма срабатывает; посчитан, ветвлений 10 |
+| `STILE8` | лемма | stLeInt | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `STULE8` | лемма | stLeInt | развёртка | лемма срабатывает; посчитан, ветвлений 10 |
 | `LDIX` | лемма | loadIntVar | развёртка | лемма срабатывает; посчитан, ветвлений 19 |
 | `LDUX` | лемма | loadIntVar | развёртка | лемма срабатывает; посчитан, ветвлений 19 |
 | `PLDIX` | лемма | loadIntVar | развёртка | лемма срабатывает; посчитан, ветвлений 19 |
@@ -563,25 +563,25 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `PLDSLICEX` | лемма | loadSliceX | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
 | `LDSLICEXQ` | лемма | loadSliceX | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
 | `PLDSLICEXQ` | лемма | loadSliceX | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
-| `LDILE4` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDULE4` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDILE8` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDULE8` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `PLDILE4` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `PLDULE4` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `PLDILE8` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `PLDULE8` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDILE4Q` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDULE4Q` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDILE8Q` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDULE8Q` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `PLDILE4Q` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `PLDULE4Q` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `PLDILE8Q` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `PLDULE8Q` | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDILE4` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDULE4` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDILE8` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDULE8` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PLDILE4` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PLDULE4` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PLDILE8` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PLDULE8` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDILE4Q` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDULE4Q` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDILE8Q` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDULE8Q` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PLDILE4Q` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PLDULE4Q` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PLDILE8Q` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PLDULE8Q` | лемма | loadLeInt | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `PLDREFIDX` | лемма | pldRefIdx | развёртка | лемма срабатывает; посчитан, ветвлений 10 |
-| `CHASHI` v6 | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: Cell.computeLevelInfo? |
-| `CDEPTHI` v6 | развёртка обработчика | — | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: Cell.computeLevelInfo? |
+| `CHASHI` v6 | лемма | chashI | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: Cell.computeLevelInfo? |
+| `CDEPTHI` v6 | лемма | cdepthI | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: Cell.computeLevelInfo? |
 | `STIR` | лемма | stIntFixed_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STUR` | лемма | stIntFixed_rev | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `STIQ` | лемма | stIntFixed | развёртка | лемма срабатывает; предел глубины рекурсии simp |
@@ -594,7 +594,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `LDUQ` | лемма | loadIntQ | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `PLDIQ` | лемма | loadIntQ | развёртка | лемма срабатывает; предел глубины рекурсии simp |
 | `PLDUQ` | лемма | loadIntQ | развёртка | лемма срабатывает; предел глубины рекурсии simp |
-| `PLDUZ` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `PLDUZ` | лемма | plduz | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `PLDSLICE` | лемма | loadSliceFixed, loadSliceFixed_any | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `LDSLICEQ` | лемма | loadSliceFixed_any | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `PLDSLICEQ` | лемма | loadSliceFixed_any | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
@@ -632,14 +632,14 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `PUSHCONT_SHORT` | лемма | pushCont | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `STSLICECONST` | лемма | stSliceConst | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `BTOS` v12 | лемма | btos | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `LDSTDADDR` v12 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDSTDADDRQ` v12 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDOPTSTDADDR` v12 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `LDOPTSTDADDRQ` v12 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `STSTDADDR` v12 | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
-| `STSTDADDRQ` v12 | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
-| `STOPTSTDADDR` v12 | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
-| `STOPTSTDADDRQ` v12 | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
+| `LDSTDADDR` v12 | лемма | ldStdAddr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDSTDADDRQ` v12 | лемма | ldStdAddr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDOPTSTDADDR` v12 | лемма | ldOptStdAddr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `LDOPTSTDADDRQ` v12 | лемма | ldOptStdAddr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `STSTDADDR` v12 | лемма | stStdAddr | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
+| `STSTDADDRQ` v12 | лемма | stStdAddr | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
+| `STOPTSTDADDR` v12 | лемма | stOptStdAddr_null, stOptStdAddr_slice | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
+| `STOPTSTDADDRQ` v12 | лемма | stOptStdAddr_null, stOptStdAddr_slice | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 
 ### cont/flow
 
@@ -650,13 +650,13 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `RET` | лемма | ret, ret_quit | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `RETALT` | лемма | retAlt, retAlt_envelope, retAlt_quit | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `RETBOOL` | лемма | retBool | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `CALLCC` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `JMPXDATA` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `CALLCC` | лемма | callcc | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `JMPXDATA` | лемма | jmpxData | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `CALLXVARARGS` | лемма | callxVarArgs | развёртка | лемма срабатывает; стоит на VM.call; остаются термами: VM.call |
 | `RETVARARGS` | лемма | retVarArgs | развёртка | лемма срабатывает; стоит на VM.jump; остаются термами: VM.jump |
-| `JMPXVARARGS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 16 |
+| `JMPXVARARGS` | лемма с условием | jmpxVarArgs | развёртка | посчитан, ветвлений 16 |
 | `CALLCCVARARGS` | лемма | callccVarArgs | развёртка | лемма срабатывает; предел heartbeats |
-| `RETDATA` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `RETDATA` | лемма | retData | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `RUNVMX` v4 | лемма с условием | runvmx, runvmx_c, runvmx_cd, runvmx_cdl, runvmx_cdlm, runvmx_cdlmr, runvmx_cdlr, runvmx_cdm, runvmx_cdmr, runvmx_cdr, runvmx_cl, runvmx_clm, runvmx_clmr, runvmx_clr, runvmx_cm, runvmx_cmr, runvmx_cr, runvmx_d, runvmx_dl, runvmx_dlm, runvmx_dlmr, runvmx_dlr, runvmx_dm, runvmx_dmr, runvmx_dr, runvmx_l, runvmx_lm, runvmx_lmr, runvmx_lr, runvmx_m, runvmx_mr, runvmx_r | развёртка | предел глубины рекурсии simp |
 | `IFRET` | лемма | ifret | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `IFNOTRET` | лемма | ifnotret | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
@@ -671,39 +671,39 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `IFNOTRETALT` | лемма | ifnotretAlt | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `RETURNVARARGS` | лемма | returnVarArgs_ord, returnVarArgs_quit | развёртка | лемма срабатывает; предел heartbeats |
 | `SETCONTVARARGS` | лемма | setContVarArgs_ord | развёртка | лемма срабатывает; предел heartbeats |
-| `SETNUMVARARGS` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `SETNUMVARARGS` | лемма | setNumVarArgs | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `BLESS` | лемма | bless | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `BLESSVARARGS` | лемма | blessVarArgs | развёртка | лемма срабатывает; предел heartbeats |
-| `PUSHCTRX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `POPCTRX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `SETCONTCTRX` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `PUSHCTRX` | лемма | pushCtrX | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `POPCTRX` | лемма | popCtrX | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `SETCONTCTRX` | лемма | setContCtrX | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SETCONTCTRMANYX` v9 | лемма | setContCtrManyX | развёртка | лемма срабатывает; стоит на ForIn.forIn |
 | `BOOLAND` | лемма | boolAnd | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `BOOLOR` | лемма | boolOr | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `COMPOSBOTH` | лемма | composBoth | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
-| `ATEXIT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `ATEXITALT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `SETEXITALT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `THENRET` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `THENRETALT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `INVERT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `BOOLEVAL` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `SAMEALT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `ATEXIT` | лемма | atexit | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `ATEXITALT` | лемма | atexitAlt | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `SETEXITALT` | лемма | setExitAlt | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `THENRET` | лемма | thenret | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `THENRETALT` | лемма | thenretAlt | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `INVERT` | лемма | invert | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `BOOLEVAL` | лемма | booleval | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `SAMEALT` | лемма | sameAlt | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `SAMEALTSAVE` | лемма | sameAltSave | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `SETCONTCTRMANY` v9 | лемма | setContCtrMany | блок: ForIn.forIn (вне модели, нет леммы vm_run) | лемма срабатывает; стоит на ForIn.forIn |
-| `CALLCCARGS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `CALLCCARGS` | лемма | callccArgs | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `JMPDICT` | лемма | jmpDict | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `PREPAREDICT` | лемма | prepareDict | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `JMPXARGS` | лемма | jmpxArgs | развёртка | лемма срабатывает; стоит на VM.jump; остаются термами: VM.jump |
 | `RETARGS` | лемма | retArgs | развёртка | лемма срабатывает; стоит на VM.jump; остаются термами: VM.jump |
 | `RETURNARGS` | лемма | returnArgs_ord, returnArgs_quit | развёртка | лемма срабатывает; предел heartbeats |
 | `SETCONTARGS` | лемма с условием | setContArgs_ord | развёртка | предел глубины рекурсии simp |
-| `BLESSARGS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `BLESSARGS` | лемма | blessArgs | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `IFBITJMP` | лемма | ifbitjmp | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `IFNBITJMP` | лемма | ifnbitjmp | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `CALLREF` | лемма | callRef | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `JMPREF` | лемма | jmpRef | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `JMPREFDATA` | развёртка обработчика | — | развёртка | посчитан, ветвлений 6 |
+| `JMPREFDATA` | лемма | jmpRefData | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `IFREF` | лемма | ifref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
 | `IFNOTREF` | лемма | ifnotref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
 | `IFJMPREF` | лемма | ifjmpref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
@@ -713,13 +713,13 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `IFREFELSEREF` | лемма | ifrefElseRef | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads, VM.call |
 | `IFBITJMPREF` | лемма | ifbitjmpref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
 | `IFNBITJMPREF` | лемма | ifnbitjmpref | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
-| `SETCONTCTR` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `SETRETCTR` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `SETALTCTR` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `SETCONTCTR` | лемма | setContCtr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `SETRETCTR` | лемма | setRetCtr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `SETALTCTR` | лемма | setAltCtr | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `POPSAVE` | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SAVECTR` | лемма | saveCtr0, saveCtr1, saveCtr2, saveCtr3, saveCtr4, saveCtr5, saveCtr7 | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `SAVEALTCTR` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `SAVEBOTHCTR` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `SAVEALTCTR` | лемма | saveAltCtr | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `SAVEBOTHCTR` | лемма | saveBothCtr | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `RUNVM` v4 | лемма с условием | runvm, runvm_c, runvm_cd, runvm_cdl, runvm_cdlm, runvm_cdlmr, runvm_cdlr, runvm_cdm, runvm_cdmr, runvm_cdr, runvm_cl, runvm_clm, runvm_clmr, runvm_clr, runvm_cm, runvm_cmr, runvm_cr, runvm_d, runvm_dl, runvm_dlm, runvm_dlmr, runvm_dlr, runvm_dm, runvm_dmr, runvm_dr, runvm_l, runvm_lm, runvm_lmr, runvm_lr, runvm_m, runvm_mr, runvm_r | развёртка | предел глубины рекурсии simp |
 | `CALLDICT` | лемма | callDict | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `CALLDICT_LONG` | лемма | callDict | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
@@ -736,21 +736,21 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | Форма | Статус | Леммы | Обработчик | Прогон |
 |---|---|---|---|---|
 | `REPEAT` | лемма | repeat_ | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
-| `REPEATEND` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
+| `REPEATEND` | лемма | repeatEnd | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
 | `UNTIL` | лемма | until_ | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `UNTILEND` | лемма | untilEnd | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `WHILE` | лемма | while_ | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `WHILEEND` | лемма | whileEnd | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `AGAIN` | лемма | again | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `AGAINEND` | лемма | againEnd | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
-| `REPEATBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
-| `REPEATENDBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 11 |
-| `UNTILBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `UNTILENDBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `WHILEBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `WHILEENDBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `REPEATBRK` | лемма | repeatBrk | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
+| `REPEATENDBRK` | лемма | repeatEndBrk | развёртка | лемма срабатывает; посчитан, ветвлений 11 |
+| `UNTILBRK` | лемма | untilBrk | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `UNTILENDBRK` | лемма | untilEndBrk | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `WHILEBRK` | лемма | whileBrk | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `WHILEENDBRK` | лемма | whileEndBrk | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `AGAINBRK` | лемма | againBrk | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
-| `AGAINENDBRK` | развёртка обработчика | — | развёртка | посчитан, ветвлений 5 |
+| `AGAINENDBRK` | лемма | againEndBrk | развёртка | лемма срабатывает; посчитан, ветвлений 5 |
 
 ### exceptions
 
@@ -761,7 +761,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `THROWARGANY` | лемма | throwArgAny | развёртка | лемма срабатывает; посчитан, ветвлений 18 |
 | `THROWANYIFNOT` | лемма | throwAnyCond | развёртка | лемма срабатывает; посчитан, ветвлений 23 |
 | `THROWARGANYIFNOT` | лемма | throwArgAnyCond | развёртка | лемма срабатывает; посчитан, ветвлений 23 |
-| `TRYARGS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `TRYARGS` | лемма | tryArgs | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `THROWARG` | лемма | throwArg | развёртка | лемма срабатывает; посчитан, ветвлений 10 |
 | `THROWARGIF` | лемма | throwArgIf | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
 | `THROWARGIFNOT` | лемма | throwArgIfNot | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
@@ -779,13 +779,13 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | Форма | Статус | Леммы | Обработчик | Прогон |
 |---|---|---|---|---|
 | `STDICT` | лемма | stdict_cell, stdict_null | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
-| `SKIPDICT` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
-| `LDDICTS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
-| `PLDDICTS` | развёртка обработчика | — | развёртка | посчитан, ветвлений 15 |
+| `SKIPDICT` | лемма | skipdict | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
+| `LDDICTS` | лемма | lddicts | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
+| `PLDDICTS` | лемма | lddicts | развёртка | лемма срабатывает; посчитан, ветвлений 15 |
 | `LDDICT` | лемма | lddict | развёртка | лемма срабатывает; посчитан, ветвлений 20 |
 | `PLDDICT` | лемма | plddict | развёртка | лемма срабатывает; посчитан, ветвлений 20 |
-| `LDDICTQ` | развёртка обработчика | — | развёртка | посчитан, ветвлений 20 |
-| `PLDDICTQ` | развёртка обработчика | — | развёртка | посчитан, ветвлений 20 |
+| `LDDICTQ` | лемма | lddictQ | развёртка | лемма срабатывает; посчитан, ветвлений 20 |
+| `PLDDICTQ` | лемма | lddictQ | развёртка | лемма срабатывает; посчитан, ветвлений 20 |
 | `PFXDICTSET` | обрамлённый шаг | обрамлённый шаг `pfxSetAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `PFXDICTREPLACE` | обрамлённый шаг | обрамлённый шаг `pfxSetAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `PFXDICTADD` | обрамлённый шаг | обрамлённый шаг `pfxSetAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
@@ -1006,7 +1006,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `PREVMCBLOCKS` v4 | лемма с условием | prevMcBlocks | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `PREVKEYBLOCK` v4 | лемма с условием | prevKeyBlock | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `PREVMCBLOCKS_100` v9 | лемма с условием | prevMcBlocks100 | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `GLOBALID` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `GLOBALID` v4 | лемма с условием | globalId | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `GETGASFEE` v6 | лемма | getGasFee | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `GETSTORAGEFEE` v6 | лемма | getStorageFee | развёртка | лемма срабатывает; предел heartbeats |
 | `GETFORWARDFEE` v6 | лемма | getForwardFee | развёртка | лемма срабатывает; предел heartbeats |
@@ -1048,51 +1048,51 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `SHA256U` | лемма | sha256U | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `CHKSIGNU` | лемма | chkSignU | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `CHKSIGNS` | лемма | chkSignS | развёртка | лемма срабатывает; предел heartbeats |
-| `ECRECOVER` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `SECP256K1_XONLY_PUBKEY_TWEAK_ADD` v9 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `P256_CHKSIGNU` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `ECRECOVER` v4 | лемма | ecrecover | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `SECP256K1_XONLY_PUBKEY_TWEAK_ADD` v9 | лемма | secp256k1XonlyPubkeyTweakAdd | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `P256_CHKSIGNU` v4 | лемма с условием | p256ChkSignU | развёртка | посчитан, ветвлений 0 |
 | `P256_CHKSIGNS` v4 | лемма | p256ChkSignS | развёртка | лемма срабатывает; предел heartbeats |
-| `RIST255_FROMHASH` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `RIST255_VALIDATE` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `RIST255_ADD` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `RIST255_SUB` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `RIST255_FROMHASH` v4 | лемма | rist255FromHash | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `RIST255_VALIDATE` v4 | лемма | rist255Validate | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `RIST255_ADD` v4 | лемма с условием | rist255Add | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `RIST255_SUB` v4 | лемма с условием | rist255Sub | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_MUL` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_MULBASE` v4 | лемма | rist255MulBase | развёртка | лемма срабатывает; предел heartbeats |
-| `RIST255_PUSHL` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `RIST255_QVALIDATE` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 16 |
-| `RIST255_QADD` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `RIST255_QSUB` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `RIST255_PUSHL` v4 | лемма | rist255PushL | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `RIST255_QVALIDATE` v4 | лемма | rist255Qvalidate | развёртка | лемма срабатывает; посчитан, ветвлений 16 |
+| `RIST255_QADD` v4 | лемма с условием | rist255Qadd | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `RIST255_QSUB` v4 | лемма с условием | rist255Qsub | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_QMUL` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `RIST255_QMULBASE` v4 | лемма | rist255QmulBase | развёртка | лемма срабатывает; предел heartbeats |
-| `BLS_VERIFY` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 33 |
+| `BLS_VERIFY` v4 | лемма | blsVerify | развёртка | лемма срабатывает; посчитан, ветвлений 33 |
 | `BLS_AGGREGATE` v4 | обрамлённый шаг | обрамлённый шаг `blsAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |
 | `BLS_FASTAGGREGATEVERIFY` v4 | обрамлённый шаг | обрамлённый шаг `blsAny` | развёртка | стоит на ForIn.forIn |
 | `BLS_AGGREGATEVERIFY` v4 | обрамлённый шаг | обрамлённый шаг `blsAny` | развёртка | стоит на ForIn.forIn |
-| `BLS_G1_ADD` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 29 |
-| `BLS_G1_SUB` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 29 |
-| `BLS_G1_NEG` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 27 |
-| `BLS_G1_MUL` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 32 |
+| `BLS_G1_ADD` v4 | лемма | blsG1Add | развёртка | лемма срабатывает; посчитан, ветвлений 29 |
+| `BLS_G1_SUB` v4 | лемма | blsG1Sub | развёртка | лемма срабатывает; посчитан, ветвлений 29 |
+| `BLS_G1_NEG` v4 | лемма | blsG1Neg | развёртка | лемма срабатывает; посчитан, ветвлений 27 |
+| `BLS_G1_MUL` v4 | лемма | blsG1Mul | развёртка | лемма срабатывает; посчитан, ветвлений 32 |
 | `BLS_G1_MULTIEXP` v4 | обрамлённый шаг | обрамлённый шаг `blsAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |
-| `BLS_G1_ZERO` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `BLS_MAP_TO_G1` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 22 |
-| `BLS_G1_INGROUP` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 27 |
-| `BLS_G1_ISZERO` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `BLS_G2_ADD` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 29 |
-| `BLS_G2_SUB` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 29 |
-| `BLS_G2_NEG` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 27 |
-| `BLS_G2_MUL` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 32 |
+| `BLS_G1_ZERO` v4 | лемма | blsG1Zero | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `BLS_MAP_TO_G1` v4 | лемма | blsMapToG1 | развёртка | лемма срабатывает; посчитан, ветвлений 22 |
+| `BLS_G1_INGROUP` v4 | лемма | blsG1InGroup | развёртка | лемма срабатывает; посчитан, ветвлений 27 |
+| `BLS_G1_ISZERO` v4 | лемма | blsG1IsZero | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `BLS_G2_ADD` v4 | лемма | blsG2Add | развёртка | лемма срабатывает; посчитан, ветвлений 29 |
+| `BLS_G2_SUB` v4 | лемма | blsG2Sub | развёртка | лемма срабатывает; посчитан, ветвлений 29 |
+| `BLS_G2_NEG` v4 | лемма | blsG2Neg | развёртка | лемма срабатывает; посчитан, ветвлений 27 |
+| `BLS_G2_MUL` v4 | лемма | blsG2Mul | развёртка | лемма срабатывает; посчитан, ветвлений 32 |
 | `BLS_G2_MULTIEXP` v4 | обрамлённый шаг | обрамлённый шаг `blsAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |
-| `BLS_G2_ZERO` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
-| `BLS_MAP_TO_G2` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 22 |
-| `BLS_G2_INGROUP` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 27 |
-| `BLS_G2_ISZERO` v4 | развёртка обработчика | — | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
+| `BLS_G2_ZERO` v4 | лемма | blsG2Zero | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
+| `BLS_MAP_TO_G2` v4 | лемма | blsMapToG2 | развёртка | лемма срабатывает; посчитан, ветвлений 22 |
+| `BLS_G2_INGROUP` v4 | лемма | blsG2InGroup | развёртка | лемма срабатывает; посчитан, ветвлений 27 |
+| `BLS_G2_ISZERO` v4 | лемма | blsG2IsZero | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `BLS_PAIRING` v4 | обрамлённый шаг | обрамлённый шаг `blsAny` | блок: ForIn.forIn (вне модели, нет леммы vm_run) | стоит на ForIn.forIn |
-| `BLS_PUSHR` v4 | развёртка обработчика | — | развёртка | посчитан, ветвлений 0 |
+| `BLS_PUSHR` v4 | лемма | blsPushR | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `HASHEXT` v4 | лемма с условием | hashExt_blake2b, hashExt_keccak256, hashExt_keccak512, hashExt_sha256, hashExt_sha512 (5/256 аргументов) | развёртка | лемма срабатывает; предел heartbeats |
 | `HASHEXTR` v4 | лемма с условием | hashExt_blake2b, hashExt_keccak256, hashExt_keccak512, hashExt_sha256, hashExt_sha512 (5/256 аргументов) | развёртка | лемма срабатывает; предел heartbeats |
 | `HASHEXTA` v4 | лемма с условием | hashExt_blake2b, hashExt_keccak256, hashExt_keccak512, hashExt_sha256, hashExt_sha512 (5/256 аргументов) | развёртка | лемма срабатывает; предел heartbeats |
 | `HASHEXTAR` v4 | лемма с условием | hashExt_blake2b, hashExt_keccak256, hashExt_keccak512, hashExt_sha256, hashExt_sha512 (5/256 аргументов) | развёртка | лемма срабатывает; предел heartbeats |
-| `HASHBU` v12 | развёртка обработчика | — | развёртка | посчитан, ветвлений 10 |
+| `HASHBU` v12 | лемма | hashbu | развёртка | лемма срабатывает; посчитан, ветвлений 10 |
 
 ### debug
 
