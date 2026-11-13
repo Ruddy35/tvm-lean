@@ -215,6 +215,7 @@ import TvmLean.Proofs.Exec.Spec.CryptoCheck
 import TvmLean.Proofs.Exec.Spec.CryptoSecp
 import TvmLean.Proofs.Exec.Spec.PopSave
 import TvmLean.Proofs.Exec.Spec.CryptoRistMul
+import TvmLean.Proofs.Exec.Spec.DictPfx
 
 /-!
 # All proof modules together

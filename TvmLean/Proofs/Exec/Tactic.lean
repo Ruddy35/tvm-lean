@@ -8,6 +8,7 @@ import TvmLean.Proofs.Exec.Spec.Flow
 import TvmLean.Proofs.Exec.Spec.Cell
 import TvmLean.Proofs.Exec.Spec.TonEnv
 import TvmLean.Proofs.Exec.Spec.Dispatch
+import TvmLean.Proofs.Exec.Spec.DictPfx
 import TvmLean.Proofs.Exec.Spec.Dict
 import TvmLean.Proofs.Exec.Spec.Crypto
 import TvmLean.Proofs.Exec.Spec.Msg
@@ -45,9 +46,10 @@ rewrites one step of the run, `vm_run` the whole run:
 Nothing about a cell's hash or a long read of bits is evaluated: those stay terms (a cell load's
 gas is the symbolic `cellLoadGas loaded c`, between 25 and 100, `Proofs/Exec/Load.lean`). The facts
 of the code that are closed (the bits of a method id as a dictionary key, `dictKeyBits?`; the lookup
-of a key in a dictionary of the code, `dictLookupLoads`) are evaluated natively and proved by the
-kernel (`closedDictFacts`, `evalClosed?`), as conditions of a specification and in the goal; the
-cells a lookup returns keep their terms in the code (`cellTermIn`).
+of a key in a dictionary of the code, `dictLookupLoads`; the lookup of a known key in a known prefix
+dictionary, `pfxLookupLoads`) are evaluated natively and proved by the kernel (`closedDictFacts`,
+`evalClosed?`), as conditions of a specification and in the goal; the cells a lookup returns keep
+their terms in the code (`cellTermIn`).
 
 A condition on the unknown values (a flag, a comparison, the length of a slice, the gas) stays an
 `if`: `vm_split` reduces it to its branch if linear arithmetic decides it from the context (with
@@ -287,13 +289,45 @@ def evalDictLookupLoads? (e : Expr) : MetaM (Option Expr) := do
     let pair ← mkAppM ``Prod.mk #[rE, cellsE]
     return some (mkApp3 (mkConst ``Except.ok [0, 0]) (mkConst ``Excno) resTy pair)
 
+/-- `pfxLookupLoads root cs n` (`PFXDICTSWITCH`, `PFXDICTGETJMP`, `PFXDICTGETEXEC`) for closed arguments:
+its value, with the cells found and loaded written as cells of `root`'s tree (`cellTermIn`) and the
+rest of the key on the cell of the key's term. -/
+def evalPfxLookupLoads? (e : Expr) : MetaM (Option Expr) := do
+  let_expr pfxLookupLoads rootE csE nE := e | return none
+  let root ← evalCell rootE
+  let cs ← evalSlice csE
+  let n ← evalNat nE
+  let sliceTy := mkConst ``Slice
+  let tripleTy ← mkAppM ``Prod #[sliceTy, ← mkAppM ``Prod #[sliceTy, sliceTy]]
+  let resTy ← mkAppM ``Prod #[mkApp (mkConst ``Option [0]) tripleTy, mkApp (mkConst ``List [0]) (mkConst ``Cell)]
+  match pfxLookupLoads root cs n with
+  | .error x => return some (mkApp3 (mkConst ``Except.error [0, 0]) (mkConst ``Excno) resTy (toExpr x))
+  | .ok (r, cells) =>
+    let rE ← match r with
+      | none => pure (mkApp (mkConst ``Option.none [0]) tripleTy)
+      | some (v, p, rest) =>
+        let vE := mkApp3 (mkConst ``Slice.mk) (← cellTerm rootE root v.cell) (mkNatLit v.bitPos) (mkNatLit v.refPos)
+        let csCell ← match ← sliceParts? csE with
+          | some (cellE, _, _) => pure cellE
+          | none => pure (toExpr cs.cell)
+        let restE := if rest.cell == cs.cell then
+            mkApp3 (mkConst ``Slice.mk) csCell (mkNatLit rest.bitPos) (mkNatLit rest.refPos)
+          else toExpr rest
+        pure (mkApp2 (mkConst ``Option.some [0]) tripleTy (← mkAppM ``Prod.mk #[vE, ← mkAppM ``Prod.mk #[toExpr p, restE]]))
+    let mut cellsE := mkApp (mkConst ``List.nil [0]) (mkConst ``Cell)
+    for c in cells.reverse do
+      cellsE := mkApp3 (mkConst ``List.cons [0]) (mkConst ``Cell) (← cellTerm rootE root c) cellsE
+    let pair ← mkAppM ``Prod.mk #[rE, cellsE]
+    return some (mkApp3 (mkConst ``Except.ok [0, 0]) (mkConst ``Excno) resTy pair)
+
 /-- The value of a closed term `e` of one of the functions symbolic execution evaluates on the
-code (`dictKeyBits?`, `dictLookupLoads`), computed natively: only to find the result, which is
-then proved (`closedEqProof`). -/
+code (`dictKeyBits?`, `dictLookupLoads`, `pfxLookupLoads`), computed natively: only to find the
+result, which is then proved (`closedEqProof`). -/
 def evalClosed? (e : Expr) : MetaM (Option Expr) := do
   unless isClosed e do return none
   if let some v ← evalDictKeyBits? e then return some v
   if let some v ← evalDictLookupLoads? e then return some v
+  if let some v ← evalPfxLookupLoads? e then return some v
   return none
 
 /-- A proof of `e = v` for the value `v` that `evalClosed?` found, by the kernel. -/

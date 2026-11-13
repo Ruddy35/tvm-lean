@@ -224,3 +224,12 @@ PROGRAM{
 <{ DROP 256 PLDU 0 INT RIST255_MUL DROP }>c "rist255-mul-zero" put
 <{ DROP 256 PLDU 7 INT RIST255_QMUL DROP }>c "rist255-qmul" put
 <{ DROP 256 PLDU 0 INT RIST255_QMUL DROP }>c "rist255-qmul-zero" put
+
+// wave 9d: PFXDICTSWITCH (the dictionary in the code), PFXDICTGETJMP, PFXDICTGETEXEC on a dictionary and a
+// key the run knows (x{01}: no prefix of the dictionary; x{7F}: the prefix b{01}, the value 2DROP)
+<{ 2DROP }>s b{01} null 8 pfxdict! drop constant pfxSwitchD
+<{ x{01} PUSHSLICE pfxSwitchD 8 PFXDICTSWITCH }>c "pfxdictswitch-const" put
+<{ x{7F} PUSHSLICE pfxSwitchD 8 PFXDICTSWITCH }>c "pfxdictswitch-const-found" put
+<{ x{7F} PUSHSLICE pfxSwitchD PUSHREF 8 INT PFXDICTGETJMP }>c "pfxdictgetjmp-const" put
+<{ x{7F} PUSHSLICE pfxSwitchD PUSHREF 8 INT PFXDICTGETEXEC }>c "pfxdictgetexec-const" put
+<{ x{01} PUSHSLICE pfxSwitchD PUSHREF 8 INT PFXDICTGETEXEC }>c "pfxdictgetexec-const-notfound" put
