@@ -26,8 +26,10 @@ run takes from lemmas among the hints (`examples/storage.lean`).
 
 A `loop k Q` line gives a loop invariant: at a loop head whose top `k` stack entries satisfy `Q`
 (a predicate on `k` values, the deepest first, in which the parameters may appear), the loop rule
-lets those entries change in any way that keeps `Q` (`check_loop_user`); without one (or where none
-holds at the head) a loop may change only its top entry, the action list and the counters.
+lets those entries change in any way that keeps `Q` (`check_loop_user`); a `Q` that also takes a
+cell after the values is a predicate on them and the data `c4`, which the loop may then change as
+well (a loop that sets the data, `examples/wallet5.lean`); without one (or where none holds at the
+head) a loop may change only its top entry, the action list and the counters.
 
 contract-check generates one Lean module (`--out`, default a temporary file) with
 

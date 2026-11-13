@@ -95,9 +95,13 @@ head, or at the loop's entry: its witnesses by unification (`checkExists`), the 
 hypotheses from the context (`closeByHint`: `Queries.set` from the set it is about and the size of
 its key), each within a budget of heartbeats. -/
 def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
+  -- the hints with their separators (`args` are the elements only, `getSepArgs`), as a list of
+  -- `simp` arguments holds them
+  let sepArgs := (Syntax.SepArray.ofElems (sep := ",") args).elemsAndSeps
   let sargs : Syntax.TSepArray [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
-    `Lean.Parser.Tactic.simpLemma] "," := ⟨args⟩
-  let sargs' : Syntax.TSepArray [`Lean.Parser.Tactic.simpErase, `Lean.Parser.Tactic.simpLemma] "," := ⟨args⟩
+    `Lean.Parser.Tactic.simpLemma] "," := ⟨sepArgs⟩
+  let sargs' : Syntax.TSepArray [`Lean.Parser.Tactic.simpErase, `Lean.Parser.Tactic.simpLemma] "," :=
+    ⟨sepArgs⟩
   let mut thms : Array Name := #[]
   for a in args do
     if let some id := a.find? (·.isIdent) then
@@ -109,10 +113,27 @@ def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
   let parts ← checkExists g
   debugLine t0 s!"closeUserFact: the witnesses, {parts.length} parts left"
   for g' in parts do
-    let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl), ← `(tactic| assumption),
+    -- an equation of two different constructors (`Value.int … = Value.cell ?c`: a loop invariant
+    -- of the user that does not hold at this head): no closer shows it
+    if let some (_, a, b) := (← instantiateMVars (← g'.getType)).eq? then
+      let fa := (← whnfR a).getAppFn
+      let fb := (← whnfR b).getAppFn
+      if let (.const ca _, .const cb _) := (fa, fb) then
+        let env ← getEnv
+        if ca != cb && env.isConstructor ca && env.isConstructor cb then
+          if check.debug.get (← getOptions) then
+            let f ← g'.withContext do ppExpr (← instantiateMVars (← g'.getType))
+            progressLine s!"  a fact of the loop invariant that does not hold: {(toString f).take 500}"
+          return false
+    -- the cheap closers first; `simp_all` and `assumption` at the default transparency last (over
+    -- the hypotheses of a long path, seconds each), after `closeData`
+    let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl),
+      ← `(tactic| with_reducible assumption),
       ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
-      ← `(tactic| (simp only [$sargs,*]; done)), ← `(tactic| (simp_all only [$sargs',*]; done)),
+      ← `(tactic| (simp only [$sargs,*]; done)),
       ← `(tactic| (dsimp only; simp only [$sargs,*]; omega))]
+    let lastClosers : Array (TSyntax `tactic) := #[← `(tactic| (simp_all only [$sargs',*]; done)),
+      ← `(tactic| assumption)]
     let mut closed := false
     for t in thms do
       if closed then break
@@ -120,6 +141,23 @@ def closeUserFact (g : MVarId) (args : Array Syntax) : TacticM Bool := do
       if ← closeByHint g' t then closed := true
       debugLine t0 s!"closeUserFact: the hint {t}: {closed}"
     for c in closers do
+      if closed then break
+      let t0 ← IO.monoMsNow
+      if let some [] ← tryTac g' c 50000 then closed := true
+      debugLine t0 s!"closeUserFact: {c.raw.prettyPrint}: {closed}"
+    -- a property of a definition of the data the iterations change (`P x₁ … xₖ c4`, a loop that
+    -- sets `c4`): unfolded and shown as the data at the end of a run is (`closeData`)
+    unless closed do
+      let ty ← instantiateMVars (← g'.getType)
+      if let .const n _ := ty.getAppFn then
+        if let some (.defnInfo _) := (← getEnv).find? n then
+          if let some ty' ← unfoldDefinition? ty then
+            let t0 ← IO.monoMsNow
+            let s ← saveState
+            let left ← closeData (← g'.replaceTargetDefEq ty'.headBeta) sepArgs
+            if left.isEmpty then closed := true else s.restore
+            debugLine t0 s!"closeUserFact: {n} unfolded, closeData: {closed}"
+    for c in lastClosers do
       if closed then break
       let t0 ← IO.monoMsNow
       if let some [] ← tryTac g' c 50000 then closed := true
@@ -213,9 +251,10 @@ invariant there by `solveInvUser`. -/
 
 /-- The holes of a loop head `S` for a loop invariant of the user: those of `loopHolesX` (the gas,
 the loaded cells and libraries, the counters of jumps and steps, `c5`), the top `k` stack entries
-as values (the deepest first), which the iterations may change in any way, and of a `REPEAT` loop
-the count of its iterations left (the last). -/
-def loopHolesV (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr) × Nat × Nat) := do
+as values (the deepest first), which the iterations may change in any way, with `data` the data
+`c4` (next), and of a `REPEAT` loop the count of its iterations left (the last). -/
+def loopHolesV (S : Expr) (k : Nat) (data : Bool := false) :
+    MetaM (Array Expr × (Array Expr → Expr) × Nat × Nat) := do
   unless S.isAppOfArity ``VmState.mk 20 do throwError "check_loop: the state is not written out"
   let fields := getStructureFields (← getEnv) ``VmState
   let idx (n : Name) : MetaM Nat := do
@@ -239,6 +278,8 @@ def loopHolesV (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr)
     stk := stk.getArg! 1
   let nPlain := plain.length
   vals := vals ++ top.reverse
+  let iData := vals.size
+  if data then vals := vals.push (regs.getArg! 4)
   -- a `REPEAT` loop: the count of the iterations left (`c0`), the last hole
   let c0 ← whnfR (regs.getArg! 0)
   let isRepeat := c0.isAppOfArity ``Continuation.repeatBody 3
@@ -249,6 +290,7 @@ def loopHolesV (S : Expr) (k : Nat) : MetaM (Array Expr × (Array Expr → Expr)
     let mut a := args
     for j in [0:nPlain] do a := a.set! plain[j]! xs[j]!
     let mut ra := regs.getAppArgs.set! 5 xs[nPlain]!
+    if data then ra := ra.set! 4 xs[iData]!
     if isRepeat then
       ra := ra.set! 0 (mkApp3 (mkConst ``Continuation.repeatBody) (c0.getArg! 0) (c0.getArg! 1) xs[iCount]!)
     a := a.set! iRegs (mkAppN regs.getAppFn ra)
@@ -274,24 +316,45 @@ def checkLoopUser (k : Nat) (p : Syntax) (args : Array Syntax) (names : Array Na
   let exec := r.getArg! 0
   let n := r.getArg! 1
   let S := r.getArg! 2
-  let (vals, fill, iChain, iC5) ← loopHolesV S k
-  let tys ← vals.mapM fun v => (inferType v : MetaM Expr)
-  let mut expected : Expr := mkSort levelZero
-  for _ in [0:k] do expected := mkForall `x .default (mkConst ``Value) expected
-  let P ← Term.elabTermEnsuringType p expected
+  let P ← Term.elabTerm p none
   Term.synthesizeSyntheticMVarsNoPostponing
   -- a loop invariant `ran_case` bound before the invariant was taken apart (`loopInv0`): its value,
   -- the parameters of the invariant as they are now
   let P ← zetaReduce (← instantiateMVars P)
+  -- `P` of the `k` values, or of the `k` values and the data `c4` (a loop that sets the data)
+  let mut expected : Expr := mkSort levelZero
+  let mut expectedD : Expr := mkForall `d .default (mkConst ``Cell) (mkSort levelZero)
+  for _ in [0:k] do
+    expected := mkForall `x .default (mkConst ``Value) expected
+    expectedD := mkForall `x .default (mkConst ``Value) expectedD
+  let pTy ← inferType P
+  let data ← if ← isDefEq pTy expected then pure false
+    else if ← isDefEq pTy expectedD then pure true
+    else throwError "check_loop: the loop invariant is not a predicate on {k} values (and the data)"
+  let (vals, fill, iChain, iC5) ← loopHolesV S k data
+  let tys ← vals.mapM fun v => (inferType v : MetaM Expr)
   let mut names := names
   if let .const c _ := P.getAppFn then names := names.push c
+  -- with the data: the predicates of the data in `P` (`Inv … (some d)`) unfolded too when its
+  -- hypotheses are taken apart, so that the run reads the data
+  if data then
+    let found ← forallTelescopeReducing pTy fun ys _ => do
+      let some e ← unfoldDefinition? (mkAppN P ys) | return #[]
+      let d := ys.back!.fvarId!
+      let r ← IO.mkRef (#[] : Array Name)
+      forEachExpr e.headBeta fun x => do
+        if let .const c _ := x.getAppFn then
+          if x.getAppArgs.any (·.containsFVar d) then
+            if let some (.defnInfo _) := (← getEnv).find? c then r.modify (·.push c)
+      r.get
+    names := names ++ found
   let stTy := mkConst ``VmState
   let inv ← withLocalDeclD `st stTy fun st => do
     let decls := (List.range vals.size).toArray.map fun i =>
       (Name.mkSimple s!"x{i}", fun (_ : Array Expr) => pure tys[i]!)
     let body ← withLocalDeclsD decls fun xs => do
       let bound ← mkAppM ``LT.lt #[xs[iChain]!, mkConst ``freeNestedContJump]
-      let user := (mkAppN P (xs.extract (iC5 + 1) (iC5 + 1 + k))).headBeta
+      let user := (mkAppN P (xs.extract (iC5 + 1) (iC5 + 1 + k + (if data then 1 else 0)))).headBeta
       let q ← mkAppM ``And #[mkApp (mkConst ``SafeActs) xs[iC5]!, user]
       let mut e ← mkAppM ``And #[← mkAppM ``And #[← mkEq st (fill xs), bound], q]
       for x in xs.reverse do
