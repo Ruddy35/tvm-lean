@@ -1037,17 +1037,60 @@ def closeChecked (g : MVarId) (tac : TSyntax `tactic) (hb : Nat) : TacticM Bool 
     s.restore
     return false
 
-/-- The goal `X → P (some c4) ∧ SafeActs c5` of a path that commits (`X` its exit or `COMMIT`): `c5`
-by `safe_acts_close`; `P` unfolded, normalized by `simp only` with the hints and the lemmas of
-builders and bits, its witnesses found by unification (`checkExists`), the rest by `rfl`,
-`assumption`, `omega` (first with the hypotheses that share a term with the goal only,
-`check_omega_rel`), `decide`, `simp only` with the hints, an implication by `intros` and `rfl`,
-`assumption` or `omega`, each within a budget of heartbeats and its proof checked by the kernel at
-once (`closeChecked`). The report if a part is left. -/
-def commitPath (g : MVarId) (args : Array Syntax) (what : String)
-    (ec : Option Expr) : TacticM (Option MessageData) := do
+/-- A property `gP` of data the run built (`P (some c4)`, its head definition unfolded): normalized
+by `simp only` with the hints and the lemmas of builders and bits, its witnesses found by
+unification (`checkExists`), the rest by `rfl`, `assumption`, `omega` (first with the hypotheses that
+share a term with the goal only, `check_omega_rel`), `decide`, `simp only` with the hints, an
+implication by `intros` and `rfl`, `assumption` or `omega`, each within a budget of heartbeats and
+its proof checked by the kernel at once (`closeChecked`). The parts left (none: shown). -/
+def closeData (gP : MVarId) (args : Array Syntax) : TacticM (List MVarId) := do
   let sargs : Syntax.TSepArray [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
     `Lean.Parser.Tactic.simpLemma] "," := ⟨args⟩
+  let simpTac ← `(tactic| simp only [Builder.finalize, Builder.storeBits, Builder.empty,
+    Array.empty_append, Array.append_empty, Array.append_assoc, Array.push_empty, Option.some.injEq,
+    Int.toNat_natCast_add_one, Int.toNat_natCast, bitsToNat_natToBits, natToBits_size,
+    Array.size_append, Array.extract_append, extract_natToBits_empty, extract_natToBits_past,
+    extract_natToBits_all, twosBits_size, extract_twosBits_all, readBits_mkOrdinary,
+    readBits_ofCell_mkOrdinary,
+    toCellRemaining_bits_mkOrdinary, toCellRemaining_refs_mkOrdinary,
+    toCellRemaining_bits_ofCell_mkOrdinary, toCellRemaining_refs_ofCell_mkOrdinary, Nat.reducePow,
+    Nat.reduceAdd, Nat.reduceSub, Nat.reduceMod, Nat.mod_eq_of_lt, List.size_toArray,
+    List.length_cons, List.length_nil, Nat.reduceLeDiff, Nat.reduceLT, check_close, $sargs,*])
+  let gs ← match ← tryTac gP simpTac 200000 with
+    | some gs => pure gs
+    | none => pure [gP]
+  let mut left : List MVarId := []
+  for g' in gs do
+    for g'' in ← checkExists g' do
+      -- a number read from `n` bits is below `2 ^ n` (a field of the data taken from the message)
+      -- `assumption` at the default transparency last: against an inequality of the path (`n ≤ …`
+      -- of a field read from the message) it unfolds the reads (`bitsToNat`) until the heartbeats
+      -- of the attempt run out, seconds each time, where `omega` closes the goal at once
+      let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl),
+        ← `(tactic| with_reducible assumption),
+        ← `(tactic| exact VM.bitsToNat_readBits_lt _ _),
+        ← `(tactic| check_omega_rel), ← `(tactic| (dsimp only; check_omega_rel)),
+        ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
+        ← `(tactic| (simp only [check_close, $sargs,*]; done)),
+        ← `(tactic| (dsimp only; simp only [check_close, $sargs,*]; omega)),
+        -- an implication (`d0.active = true → d.active = true` of a field set or kept)
+        ← `(tactic| (intros; first | with_reducible rfl | with_reducible assumption | omega)),
+        ← `(tactic| assumption), ← `(tactic| (intros; assumption))]
+      let mut closed := false
+      for c in closers do
+        if closed then break
+        if ← closeChecked g'' c 50000 then closed := true
+      unless closed do
+        -- reported with the projections of the witnesses reduced
+        match ← tryTac g'' (← `(tactic| dsimp only)) 50000 with
+        | some gs' => left := left ++ gs'
+        | none => left := left ++ [g'']
+  return left
+
+/-- The goal `X → P (some c4) ∧ SafeActs c5` of a path that commits (`X` its exit or `COMMIT`): `c5`
+by `safe_acts_close`; `P` unfolded and shown by `closeData`. The report if a part is left. -/
+def commitPath (g : MVarId) (args : Array Syntax) (what : String)
+    (ec : Option Expr) : TacticM (Option MessageData) := do
   let (_, g) ← g.intro1
   -- the registers after a jump counted (`VmState.countJump`, the end of the run) are those before
   let g ← match ← tryTac g (← `(tactic| simp only [countJump_regs, countJump_cstate])) 20000 with
@@ -1104,37 +1147,7 @@ def commitPath (g : MVarId) (args : Array Syntax) (what : String)
         gls[i]!.assign (← mkAppM ``And.left #[rest])
         rest ← mkAppM ``And.right #[rest]
     gP := gC.mvarId!
-  let simpTac ← `(tactic| simp only [Builder.finalize, Builder.storeBits, Builder.empty,
-    Array.empty_append, Array.append_empty, Array.append_assoc, Array.push_empty, Option.some.injEq,
-    Int.toNat_natCast_add_one, Int.toNat_natCast, bitsToNat_natToBits, natToBits_size,
-    Array.size_append, Array.extract_append, extract_natToBits_empty, extract_natToBits_past,
-    extract_natToBits_all, readBits_mkOrdinary, readBits_ofCell_mkOrdinary, Nat.reducePow,
-    Nat.reduceAdd, Nat.reduceSub, Nat.reduceMod, Nat.mod_eq_of_lt, check_close, $sargs,*])
-  let gs ← match ← tryTac gP simpTac 200000 with
-    | some gs => pure gs
-    | none => pure [gP]
-  let mut left : List MVarId := []
-  for g' in gs do
-    for g'' in ← checkExists g' do
-      -- a number read from `n` bits is below `2 ^ n` (a field of the data taken from the message)
-      let closers : Array (TSyntax `tactic) := #[← `(tactic| with_reducible rfl),
-        ← `(tactic| with_reducible assumption), ← `(tactic| assumption),
-        ← `(tactic| exact VM.bitsToNat_readBits_lt _ _),
-        ← `(tactic| check_omega_rel), ← `(tactic| (dsimp only; check_omega_rel)),
-        ← `(tactic| omega), ← `(tactic| (dsimp only; omega)), ← `(tactic| decide),
-        ← `(tactic| (simp only [check_close, $sargs,*]; done)),
-        ← `(tactic| (dsimp only; simp only [check_close, $sargs,*]; omega)),
-        -- an implication (`d0.active = true → d.active = true` of a field set or kept)
-        ← `(tactic| (intros; first | with_reducible rfl | assumption | omega))]
-      let mut closed := false
-      for c in closers do
-        if closed then break
-        if ← closeChecked g'' c 50000 then closed := true
-      unless closed do
-        -- reported with the projections of the witnesses reduced
-        match ← tryTac g'' (← `(tactic| dsimp only)) 50000 with
-        | some gs' => left := left ++ gs'
-        | none => left := left ++ [g'']
+  let left ← closeData gP args
   if left.isEmpty then return none
   return some (← report g (what ++ ": the data left does not satisfy the invariant") ec left)
 
