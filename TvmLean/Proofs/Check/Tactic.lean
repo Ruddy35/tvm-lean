@@ -1262,7 +1262,7 @@ def finishLeaf (g : MVarId) (args : Array Syntax) : TacticM (Option MessageData)
     logInfo m!"check: the end of a path at {← describePos (← g.getTag)}: \
       {if r.isSome then "not closed" else "closed"}"
     -- with `check.progress` too, the report of a path not closed as the run goes
-    if let some m := r then progressLine ((← m.toString).take 6000)
+    if let some m := r then progressLine ((← m.toString).take 60000)
   if r.isSome then return r
   let pf ← instantiateMVars (mkMVar g)
   let left ← (← getMVarsNoDelayed pf).filterM fun m => return !(← m.isAssigned)
@@ -1639,15 +1639,20 @@ def cutGoal (memo : CutMemo) (g : MVarId) (sub : List MVarId → TacticM (Array 
 
 /-- With the option `check.debug`: why the step at `g` fails, each of the tactics `alts` (the
 alternatives of `check_one_step`) run on its own, its error and the errors it logged reported
-(`logInfo`, or on the checker's output with `check.progress`); nothing of the attempts kept. -/
-def debugStep (g : MVarId) (alts : Array (String × TSyntax `tactic)) : TacticM Unit := do
+(`logInfo`, or on the checker's output with `check.progress`); nothing of the attempts kept. Each
+within the heartbeats of a step (`hb` thousands, `check.stepHeartbeats`; 0: no bound), as the step
+was tried: else a step that failed for its bound runs again without one, for as long as it takes. -/
+def debugStep (g : MVarId) (alts : Array (String × TSyntax `tactic)) (hb : Nat := 0) :
+    TacticM Unit := do
   unless check.debug.get (← getOptions) do return
   for (name, tac) in alts do
     let s ← saveState
     let n0 := (← Core.getMessageLog).toList.length
     let r ← tryCatchRuntimeEx
       (do
-        let gs ← Term.withoutErrToSorry (Tactic.run g (evalTactic tac))
+        let run := Term.withoutErrToSorry (Tactic.run g (evalTactic tac))
+        let gs ← if hb == 0 then run else
+          withCurrHeartbeats <| withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := hb * 1000 }) run
         let msgs := ((← Core.getMessageLog).toList.drop n0).filter (·.severity == .error)
         let mut m := m!"{gs.length} goal(s) left"
         for msg in msgs do m := m ++ m!"\n  logged: " ++ msg.data
@@ -1737,7 +1742,7 @@ def explore (memo : CutMemo) (step : TSyntax `tactic) (args : Array Syntax) (cut
       match r with
       | some gs => work := work ++ (gs.reverse.map (·, n + 1)).toArray
       | none =>
-        if ← isRunGoal g then debugStep g alts
+        if ← isRunGoal g then debugStep g alts stepHb
         if progress && (← isRunGoal g) then
           -- the goal of a path whose run stops before its end, in full
           progressLine s!"the run stops here:\n{← ppGoal g}"
