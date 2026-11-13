@@ -1333,6 +1333,18 @@ register_option check.maxSteps : Nat := {
     a path not ended then is reported where it stands (0: no bound)"
 }
 
+register_option check.debugTrace : Nat := {
+  defValue := 0
+  descr := "with `check.debug`: an alternative of a failed step that ran out of heartbeats runs again \
+    within this many thousand heartbeats with the trace classes `check.debugTraceClasses` on, and the \
+    last traces it made are reported: where the step spends its time (0: not)"
+}
+
+register_option check.debugTraceClasses : String := {
+  defValue := "Meta.Tactic.simp.rewrite,Meta.Tactic.simp.discharge,Meta.Tactic.simp.congr,Meta.isDefEq"
+  descr := "the trace classes of `check.debugTrace`, separated by commas"
+}
+
 /-- Whether the goal is about a run that has not ended (`VmState.runWith`, `VmState.runCont`). -/
 def isRunGoal (g : MVarId) : MetaM Bool := do
   let t ← instantiateMVars (← g.getType)
@@ -1637,6 +1649,47 @@ def cutGoal (memo : CutMemo) (g : MVarId) (sub : List MVarId → TacticM (Array 
   progressLine s!"a cut at {pos}: its theorem made (checked by the kernel) in {(← IO.monoMsNow) - t1} ms"
   return #[]
 
+/-- With `check.debugTrace` (not 0): the alternative `tac` (`name`) of the step at `g` again within
+`check.debugTrace` thousand heartbeats with the trace classes `check.debugTraceClasses` and
+`diagnostics` on; the definitions it unfolded most, its traces by class and its last traces
+reported (`logInfo`, or on the checker's output with `check.progress`): where the step spends its
+time. Nothing of the attempt kept. -/
+def debugTraceAlt (g : MVarId) (name : String) (tac : TSyntax `tactic) : TacticM Unit := do
+  let thb := check.debugTrace.get (← getOptions)
+  if thb == 0 then return
+  let classes := (check.debugTraceClasses.get (← getOptions)).splitOn ","
+  let tr0 ← getTraceState
+  modifyTraceState fun t => { t with traces := PersistentArray.empty }
+  let s2 ← saveState
+  modifyThe Meta.State fun st => { st with diag := {} }
+  let outcome ← tryCatchRuntimeEx
+    (do
+      withOptions (fun o => (classes.foldl (fun o c => o.setBool (`trace ++ c.trim.toName) true) o).setBool
+          `diagnostics true) do
+        let _ ← withCurrHeartbeats <| withTheReader Core.Context
+          (fun ctx => { ctx with maxHeartbeats := thb * 1000 }) <|
+          Term.withoutErrToSorry (Tactic.run g (evalTactic tac))
+      pure "ends")
+    (fun ex => do pure s!"fails: {(← ex.toMessageData.toString).take 300}")
+  let trs := (← getTraceState).traces.toArray
+  -- the definitions unfolded most (`diagnostics`, for this run only) and the traces by class
+  let unfolds := ((← getThe Meta.State).diag.unfoldCounter.toList.toArray.qsort
+    (fun a b => a.2 > b.2)).extract 0 25
+  let mut byCls : Std.HashMap Name Nat := {}
+  for t in trs do
+    if let .trace data _ _ := t.msg then byCls := byCls.insert data.cls (byCls.getD data.cls 0 + 1)
+  s2.restore
+  modifyTraceState fun _ => tr0
+  let mut out := s!"check: at {← describePos (← g.getTag)}, {name} traced \
+    ({thb}000 heartbeats): {outcome}; unfolded most: {unfolds.toList}; traces by class: \
+    {byCls.toList}; {trs.size} traces, the last:"
+  let last := trs.extract (trs.size - min trs.size 30) trs.size
+  for i in [0:last.size] do
+    let t ← last[i]!.msg.toString
+    out := out ++ s!"\n--- trace {trs.size - last.size + i}:\n" ++
+      t.take (if i + 1 == last.size then 12000 else 1200)
+  if check.progress.get (← getOptions) then progressLine out else logInfo m!"{out}"
+
 /-- With the option `check.debug`: why the step at `g` fails, each of the tactics `alts` (the
 alternatives of `check_one_step`) run on its own, its error and the errors it logged reported
 (`logInfo`, or on the checker's output with `check.progress`); nothing of the attempts kept. Each
@@ -1662,6 +1715,8 @@ def debugStep (g : MVarId) (alts : Array (String × TSyntax `tactic)) (hb : Nat 
     let m := m!"check: at {← describePos (← g.getTag)}, {name}: {r}"
     -- with `check.progress`, on the checker's output at once (a check that does not end shows it)
     if check.progress.get (← getOptions) then progressLine ((← m.toString).take 4000) else logInfo m
+    -- out of heartbeats: again with traces on (`check.debugTrace`), the last traces reported
+    if ((← r.toString).splitOn "heartbeats").length > 1 then debugTraceAlt g name tac
 
 /-- Every path from the goals `goals` (`check_one_step` as `step`), each end closed (`finishLeaf`);
 a path is cut (`cutGoal`) every `cut` steps and at join points (`memo`), at most `depth` cuts deep;
@@ -1733,7 +1788,11 @@ def explore (memo : CutMemo) (step : TSyntax `tactic) (args : Array Syntax) (cut
             progressLine s!"  trying {name}"
             let t1 ← IO.monoMsNow
             let r' ← tryTac g tac stepHb
-            progressLine s!"  {name}: {if r'.isSome then "applies" else "fails"} in {(← IO.monoMsNow) - t1} ms"
+            let dt := (← IO.monoMsNow) - t1
+            progressLine s!"  {name}: {if r'.isSome then "applies" else "fails"} in {dt} ms"
+            -- an alternative that failed after 15 s or more (a later one may apply, as the
+            -- loop rule anywhere): where it spent its time (`check.debugTrace`)
+            if r'.isNone && dt ≥ 15000 then debugTraceAlt g name tac
             if let some gs := r' then
               r := some gs
               break
