@@ -218,3 +218,9 @@ PROGRAM{
 
 // wave 9, item 2: POPSAVE
 <{ <{ NOP }> PUSHCONT c2 POPSAVE }>c "popsave" put
+
+// wave 9d: RIST255_MUL / RIST255_QMUL on a point the run does not know, the scalar known (7; 0 mod l)
+<{ DROP 256 PLDU 7 INT RIST255_MUL DROP }>c "rist255-mul" put
+<{ DROP 256 PLDU 0 INT RIST255_MUL DROP }>c "rist255-mul-zero" put
+<{ DROP 256 PLDU 7 INT RIST255_QMUL DROP }>c "rist255-qmul" put
+<{ DROP 256 PLDU 0 INT RIST255_QMUL DROP }>c "rist255-qmul-zero" put
