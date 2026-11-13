@@ -17,13 +17,6 @@ false there is none (`Acts.noSetCode`). A list of `SafeActs` is one of `Acts K` 
 
 namespace TvmLean.Tx
 
-/-- The nodes of the list with an action added whose first reference is the list before: after the
-first, the nodes of the list before. -/
-theorem actionNode_succ_of_ref0 (x prev : Cell) (h : x.refs[0]! = prev) :
-    ∀ i, actionNode x (i + 1) = actionNode prev i
-  | 0 => h
-  | i + 1 => by rw [actionNode_succ, actionNode_succ_of_ref0 x prev h i, ← actionNode_succ]
-
 /-- The tag of an action read after its first reference. -/
 theorem uint32_setCode (prev code : Cell) :
     Reader.uint 32 { cell := TvmLean.OutAction.setCode prev code, bitPos := 0, refPos := 1 } =
@@ -119,6 +112,10 @@ inductive Acts (K : Cell → Prop) : Cell → Prop
   | setLibCode {prev : Cell} (mode : Nat) (code : Cell) : Acts K prev →
       Acts K (OutAction.setLibCode mode prev code)
   | changeLib {prev : Cell} (mode hash : Nat) : Acts K prev → Acts K (OutAction.changeLib mode prev hash)
+  /-- A node whose first 32 bits are the tag of `action_send_msg`, as in `SafeActs.sendTag`. -/
+  | sendTag {c : Cell} : c.bits.extract 0 32 = natToBits 0x0ec3c86d 32 → Acts K c.refs[0]! → Acts K c
+  /-- The end of a list, as in `SafeActs.terminal`. -/
+  | terminal {c : Cell} : Tx.Terminal c → Acts K c
 
 /-- An action list that is not `SETCODE` at its first node and whose first reference is `prev`: a
 `SETCODE` in it is one of `prev`. -/
@@ -159,6 +156,10 @@ theorem Acts.setCode_of_actionIn {K : Cell → Prop} {c5 c : Cell} (h : Acts K c
   | setLibCode m code _ ih =>
     exact ih (Tx.actionIn_setCode_tail (Tx.parseOutAction_setLibCode m _ code c) rfl hin)
   | changeLib m hash _ ih => exact ih (Tx.actionIn_setCode_tail (Tx.parseOutAction_changeLib m _ hash c) rfl hin)
+  | sendTag htag _ ih => exact ih (Tx.actionIn_setCode_tail (Tx.parseOutAction_sendTag htag) rfl hin)
+  | terminal ht =>
+    obtain ⟨i, hi, _⟩ := hin
+    exact absurd ht (hi 0 (Nat.zero_le _))
 
 /-- An action list of `Acts` whose `SETCODE`s are excluded has none. -/
 theorem Acts.noSetCode {c5 : Cell} (h : Acts (fun _ => False) c5) : Tx.NoSetCode c5 :=
@@ -170,6 +171,8 @@ theorem SafeActs.acts {K : Cell → Prop} {c5 : Cell} (h : SafeActs c5) : Acts K
   | empty => exact Acts.empty
   | send m msg _ ih => exact Acts.send m msg ih
   | reserve m x _ ih => exact Acts.reserve m x ih
+  | sendTag htag _ ih => exact Acts.sendTag htag ih
+  | terminal ht => exact Acts.terminal ht
 
 /-- `Acts` for a weaker condition on the codes. -/
 theorem Acts.mono {K K' : Cell → Prop} (hk : ∀ c, K c → K' c) {c5 : Cell} (h : Acts K c5) : Acts K' c5 := by
@@ -181,5 +184,7 @@ theorem Acts.mono {K K' : Cell → Prop} (hk : ∀ c, K c → K' c) {c5 : Cell} 
   | setCode code _ hc ih => exact Acts.setCode code ih (hk code hc)
   | setLibCode m code _ ih => exact Acts.setLibCode m code ih
   | changeLib m hash _ ih => exact Acts.changeLib m hash ih
+  | sendTag htag _ ih => exact Acts.sendTag htag ih
+  | terminal ht => exact Acts.terminal ht
 
 end TvmLean

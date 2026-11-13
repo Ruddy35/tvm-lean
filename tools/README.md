@@ -112,6 +112,10 @@ TvmLean/Proofs/Check/Loops.lean):
   state is more of the stack takes a line `-- contract-check: loop k Q`: the top `k` entries may
   change in any way that keeps `Q` (a predicate of `k` values in which the parameters may appear;
   with a last argument of type `Cell`, of the data too, which the loop may then set);
+* an action list the code takes from a message after checking each node's tag (wallet v5) is a
+  `SafeActs` list too (`SafeActs.sendTag`, `SafeActs.terminal`): a loop invariant
+  `SafeActs node → SafeActs c` of the walk, the hints `SafeActs.walk_start` and
+  `SafeActs.walk_sdbegins`, and its end closed by `SafeActs.of_walk_end`.
 
 `--progress` writes each step to the checker's log (`<out>.log`) as it goes.
 

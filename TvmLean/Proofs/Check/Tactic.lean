@@ -342,10 +342,69 @@ namespace TvmLean
 
 /-! ## The action list: `SENDRAWMSG` and `RAWRESERVE` actions -/
 
+/-! ### An action list a contract walks before it sets it
+
+A contract that takes its action list from a message and checks each node before it sets it
+(wallet v5's `verify_c5_actions`: `x{0ec3c86d} SDBEGINS`, 8 bits and 2 references after the tag, down
+to an empty slice) keeps, in its loop, `SafeActs node → SafeActs c`: the list `c` is safe if what is
+left of it from the node `node` on is. At the start `node` is `c` (`SafeActs.walk_start`); a node
+whose slice begins with the tag moves it to the node's first reference (`SafeActs.walk_sdbegins`, the
+fact as the run states it); at the end of the list `c` is safe (`SafeActs.of_walk_end`,
+`safe_walk_close`). -/
+
+/-- At the start of the walk the node is the list. -/
+theorem SafeActs.walk_start (c : Cell) : SafeActs c → SafeActs c := id
+
+/-- A node whose slice begins with the tag of `action_send_msg` (`x{0ec3c86d} SDBEGINS`, as the run
+states it): the walk goes on at its first reference. -/
+theorem SafeActs.walk_sdbegins {c node : Cell} (h : SafeActs node → SafeActs c)
+    (htag : min 32 #[false, false, false, false, true, true, true, false, true, true, false, false, false,
+        false, true, true, true, true, false, false, true, false, false, false, false, true, true, false, true,
+        true, false, true].size ≤ node.bits.size ∧
+      (Slice.ofCell node).readBits (min 32 #[false, false, false, false, true, true, true, false, true, true, false, false, false,
+        false, true, true, true, true, false, false, true, false, false, false, false, true, true, false, true,
+        true, false, true].size) =
+        #[false, false, false, false, true, true, true, false, true, true, false, false, false,
+        false, true, true, true, true, false, false, true, false, false, false, false, true, true, false, true,
+        true, false, true]) :
+    SafeActs node.refs[0]! → SafeActs c := fun h' => h (SafeActs.sendTag (by
+      have h2 := htag.2
+      simp only [Slice.readBits, Slice.ofCell, List.size_toArray, List.length_cons, List.length_nil,
+        Nat.zero_add, Nat.reduceAdd, Nat.min_self] at h2
+      rw [h2]
+      decide) h')
+
+/-- `SafeActs.walk_sdbegins` with the fact of the tag as the step of `SDBEGINS` states it (the spec
+`sdBeginsConst`, TvmLean/Proofs/Exec/Spec/CellCut.lean): the bits read from the node equal to those
+the constant slice of the code reads (`pref.readBits 32`, the slice a literal). -/
+theorem SafeActs.walk_sdbegins_const {c node : Cell} (h : SafeActs node → SafeActs c)
+    (htag : min 32 #[false, false, false, false, true, true, true, false, true, true, false, false, false,
+        false, true, true, true, true, false, false, true, false, false, false, false, true, true, false, true,
+        true, false, true].size ≤ Array.size node.bits ∧
+      (Slice.ofCell node).readBits (min 32 #[false, false, false, false, true, true, true, false, true, true, false, false, false,
+        false, true, true, true, true, false, false, true, false, false, false, false, true, true, false, true,
+        true, false, true].size) =
+        Slice.readBits (⟨⟨#[false, false, false, false, true, true, true, false, true, true, false, false, false,
+          false, true, true, true, true, false, false, true, false, false, false, false, true, true, false,
+          true, true, false, true], #[], false, 0⟩, 0, 0⟩ : Slice) 32) :
+    SafeActs node.refs[0]! → SafeActs c :=
+  SafeActs.walk_sdbegins h ⟨htag.1, by rw [htag.2]; decide⟩
+
+/-- `SafeActs node → SafeActs c` from the hypotheses of a walk: one of them, or a node checked
+(`SafeActs.walk_sdbegins`, `SafeActs.walk_sdbegins_const`) after one of them, the run having gone
+through iterations of the walk. -/
+syntax "safe_walk_close" : tactic
+macro_rules
+  | `(tactic| safe_walk_close) => `(tactic| first
+      | assumption
+      | (apply SafeActs.walk_sdbegins_const <;> first | assumption | safe_walk_close)
+      | (apply SafeActs.walk_sdbegins <;> first | assumption | safe_walk_close))
+
 /-- `SafeActs c5`: the empty list, a hypothesis, or `SENDRAWMSG`/`RAWRESERVE` actions added to one.
 First at reducible transparency, the actions as `OutAction.sendMsg`/`OutAction.reserve` terms (else
 `exact SafeActs.empty` on `OutAction.reserve 0 0 Cell.empty` unfolds both cells, for long), then at
-the default one. -/
+the default one; last a list the code walked to its end (`SafeActs.of_walk_end`: the end of the
+list at a node, from the hypotheses, and `SafeActs node → SafeActs c5` by `safe_walk_close`). -/
 syntax "safe_acts_close" : tactic
 macro_rules
   | `(tactic| safe_acts_close) => `(tactic| first
@@ -356,7 +415,8 @@ macro_rules
       | exact SafeActs.empty
       | assumption
       | (refine SafeActs.send _ _ ?_; safe_acts_close)
-      | (refine SafeActs.reserve _ _ ?_; safe_acts_close))
+      | (refine SafeActs.reserve _ _ ?_; safe_acts_close)
+      | (apply SafeActs.of_walk_end <;> first | assumption | safe_walk_close))
 
 /-- `vm_c5_close` (the invariant of `c5` at a loop head of `vm_loop_c5`) for `SafeActs`. -/
 macro_rules
