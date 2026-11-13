@@ -146,7 +146,8 @@ lean_lib TvmLeanProofs where
     `TvmLean.Proofs.Exec.Spec.CryptoBls,
     `TvmLean.Proofs.Exec.Spec.CellLoad,
     `TvmLean.Proofs.Exec.Spec.CryptoCheck,
-    `TvmLean.Proofs.Exec.Spec.CryptoSecp]
+    `TvmLean.Proofs.Exec.Spec.CryptoSecp,
+    `TvmLean.Proofs.Exec.Spec.PopSave]
   -- the kernel checks the proofs that follow every path through a phase of a transaction
   -- (`TvmLean.Proofs.Tx.Tactic`) on deeply nested terms: a larger thread stack than the default
   moreLeanArgs := #["--tstack=65536"]
