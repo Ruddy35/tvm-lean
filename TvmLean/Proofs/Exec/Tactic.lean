@@ -153,14 +153,46 @@ def instrExpr (i : Instr) (cellE : Expr) (cell : Cell) : MetaM Expr := do
     e := e.replace fun x => if x == lit then some ref else none
   return e
 
+/-- The continuation `PUSHCONT` pushes, the cell the decoder makes of the code after the `n` bits of
+its opcode (`Slice.ofCell (Cell.mkOrdinary bits refs)`, TvmLean/Model/Instr/Codepage/Cp0.lean), as a
+term of the code cell `cellE`: its bits read from the code (`Slice.readBits` at the position of the
+data), its references those of the code (`cellE.refs[k]!`). As a literal (`toExpr`) the cell holds up
+to 1016 bits written out, and every state of the run that keeps the continuation (in `c0`, `c1`, a
+saved register) holds them: each step's `simp` and unification walk them (wallet v5r1's
+`process_actions`, a `CALL:<{...}>` of 904 bits, in every state of its action loop). `none` if the
+decoded cell is not that cell of the code (then the literal). -/
+def pushContExpr? (cellE : Expr) (s : Slice) (n : Nat) (code : Slice) : MetaM (Option Expr) := do
+  let c := code.cell
+  unless code.bitPos == 0 && code.refPos == 0 do return none
+  let atS : Slice := { cell := s.cell, bitPos := s.bitPos + n, refPos := s.refPos }
+  unless atS.readBits c.bits.size == c.bits do return none
+  for j in [0:c.refs.size] do
+    unless s.refPos + j < s.cell.refs.size && s.cell.refs[s.refPos + j]! == c.refs[j]! do return none
+  unless Cell.mkOrdinary c.bits c.refs == c do return none
+  let atE := mkApp3 (mkConst ``Slice.mk) cellE (mkNatLit (s.bitPos + n)) (mkNatLit s.refPos)
+  let bitsE := mkApp2 (mkConst ``Slice.readBits) atE (mkNatLit c.bits.size)
+  let mut refs : List Expr := []
+  for j in [0:c.refs.size] do
+    refs := refs ++ [← mkAppOptM ``getElem! #[none, none, none, none, none, none,
+      ← mkAppM ``Cell.refs #[cellE], mkNatLit (s.refPos + j)]]
+  let refsE ← mkArrayLit (mkConst ``Cell) refs
+  let cellT := mkApp2 (mkConst ``Cell.mkOrdinary) bitsE refsE
+  return some (mkApp (mkConst ``Instr.pushCont) (mkApp (mkConst ``Slice.ofCell) cellT))
+
 /-- The terms of the decoding of `code` (the term) whose value is `s` and whose cell's term is
 `cellE`: the result `Except.ok (i, n, rest)` or `Except.error x`, and, for an instruction, the
-terms of `i`, `n` and `rest` (`rest` keeps `cellE`). -/
+terms of `i`, `n` and `rest` (`rest` keeps `cellE`; the continuation of `PUSHCONT` a term of
+`cellE` too, `pushContExpr?`). -/
 def decodeExprs (cellE : Expr) (s : Slice) : MetaM (Expr × Option (Expr × Expr × Expr)) := do
   let tyE ← mkAppM ``Prod #[mkConst ``Instr, ← mkAppM ``Prod #[mkConst ``Nat, mkConst ``Slice]]
   match decodeCp0WithBits s with
   | .ok (i, n, rest) =>
-    let iE ← instrExpr i cellE s.cell
+    let iE ← match i with
+      | .pushCont code => do
+        match ← pushContExpr? cellE s n code with
+        | some e => pure e
+        | none => instrExpr i cellE s.cell
+      | _ => instrExpr i cellE s.cell
     let restE := mkApp3 (mkConst ``Slice.mk) cellE (mkNatLit rest.bitPos) (mkNatLit rest.refPos)
     let pair ← mkAppM ``Prod.mk #[mkNatLit n, restE]
     let triple ← mkAppM ``Prod.mk #[iE, pair]
