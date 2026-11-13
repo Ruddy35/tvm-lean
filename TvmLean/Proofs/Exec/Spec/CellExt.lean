@@ -30,6 +30,10 @@ makes it (`intToBitsTwos x bits` for an `x` that fits). -/
 def twosBits (x : Int) (bits : Nat) : BitString :=
   natToBits (if x ≥ 0 then x.toNat else (1 <<< bits) - (-x).toNat) bits
 
+/-- The `n`-bit two's complement of an integer has `n` bits. -/
+theorem twosBits_size (x : Int) (n : Nat) : (twosBits x n).size = n := by
+  simp [twosBits, natToBits]
+
 /-- `intToBitsTwos x bits` for `bits > 0`: `twosBits x bits` if `x` fits `bits` bits signed,
 range_chk otherwise. -/
 theorem intToBitsTwos_eq (x : Int) (bits : Nat) (hb : 0 < bits) :

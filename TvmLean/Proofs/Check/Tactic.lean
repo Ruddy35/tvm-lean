@@ -281,6 +281,12 @@ theorem extract_natToBits_past (n k i j : Nat) (h : k ≤ i) : (natToBits n k).e
 theorem extract_natToBits_all (n k j : Nat) (h : k ≤ j) : (natToBits n k).extract 0 j = natToBits n k :=
   Array.extract_eq_self_of_le (by simp [natToBits_size]; omega)
 
+/-- The bits of a two's complement field read whole (a key of a dictionary built as
+`store_int(wc, 8).store_uint(hash, 256)`, wallet v4's plugins). -/
+theorem extract_twosBits_all (x : Int) (k j : Nat) (h : k ≤ j) :
+    (twosBits x k).extract 0 j = twosBits x k :=
+  Array.extract_eq_self_of_le (by simp [twosBits_size]; omega)
+
 theorem readBits_mkOrdinary (b : BitString) (r : Array Cell) (p q n : Nat) :
     Slice.readBits { cell := Cell.mkOrdinary b r, bitPos := p, refPos := q } n = b.extract p (p + n) := rfl
 
@@ -595,6 +601,7 @@ macro_rules
       GasLimits.changeLimit_infty_min, TvmLean.Exec.iteFreshInst, TvmLean.Exec.diteFreshInst,
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
+      twosBits_size, extract_twosBits_all,
       toCellRemaining_bits_mkOrdinary, toCellRemaining_refs_mkOrdinary,
       toCellRemaining_bits_ofCell_mkOrdinary, toCellRemaining_refs_ofCell_mkOrdinary,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Exec.toNat_natCast_add_one_eq,
@@ -618,6 +625,7 @@ macro_rules
       GasLimits.changeLimit_infty_min, TvmLean.Exec.iteFreshInst, TvmLean.Exec.diteFreshInst,
       Array.extract_append, Array.size_append, natToBits_size, Array.append_empty, Array.empty_append,
       extract_natToBits_empty, extract_natToBits_past, extract_natToBits_all, readBits_mkOrdinary,
+      twosBits_size, extract_twosBits_all,
       toCellRemaining_bits_mkOrdinary, toCellRemaining_refs_mkOrdinary,
       toCellRemaining_bits_ofCell_mkOrdinary, toCellRemaining_refs_ofCell_mkOrdinary,
       readBits_ofCell_mkOrdinary, bitsToNat_natToBits, Nat.mod_eq_of_lt, Exec.toNat_natCast_add_one_eq,

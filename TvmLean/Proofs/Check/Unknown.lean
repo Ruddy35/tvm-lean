@@ -6,6 +6,7 @@ import TvmLean.Proofs.Exec.Spec.Ctr
 import TvmLean.Proofs.Exec.Spec.FlowRef
 import TvmLean.Proofs.Exec.Spec.DictLoad
 import TvmLean.Proofs.Contracts.Wallet3Run.Common
+import TvmLean.Proofs.Exec.Spec.CellExt
 
 /-!
 # What a symbolic run knows of what it cannot see
@@ -598,6 +599,41 @@ def debugNote (s : String) : CoreM Unit := do
     h.putStrLn s!"[check]   {s}"
     h.flush
 
+/-- The length of a key as the run writes it, when its parts say it: fields (`natToBits _ k`,
+`twosBits _ k`), the bits read from a slice (`Slice.readBits _ k`, as many as the read asks for, which
+the run checked), literals, their concatenations and windows (`Array.extract` at numerals), and the
+bits of an integer key (`dictKeyBits? x k u = some key`, a hypothesis). -/
+def keyBitsSize? (e : Expr) : (fuel : Nat := 64) → MetaM (Option Nat)
+  | 0 => pure none
+  | fuel + 1 => do
+    let e ← instantiateMVars e
+    let lit (x : Expr) : MetaM (Option Nat) := do
+      let x ← whnfR x
+      return x.rawNatLit? <|> x.nat?
+    if e.isAppOfArity ``HAppend.hAppend 6 then
+      let some a ← keyBitsSize? (e.getArg! 4) fuel | return none
+      let some b ← keyBitsSize? (e.getArg! 5) fuel | return none
+      return some (a + b)
+    if e.isAppOfArity ``natToBits 2 || e.isAppOfArity ``twosBits 2 ||
+        e.isAppOfArity ``Slice.readBits 2 then
+      return ← lit (e.getArg! 1)
+    if e.isAppOfArity ``Array.extract 4 then
+      let some a ← keyBitsSize? (e.getArg! 1) fuel | return none
+      let some i ← lit (e.getArg! 2) | return none
+      let some j ← lit (e.getArg! 3) | return none
+      return some (min j a - i)
+    if e.isAppOfArity ``List.toArray 2 then
+      let some l := (e.getArg! 1).listLit? | return none
+      return some l.2.length
+    -- the bits of an integer key (`dictKeyBits? x n u = some k`, a hypothesis of the path:
+    -- `DICTU*`, `DICTI*`)
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let some (_, lhs, rhs) := (← instantiateMVars d.type).eq? | continue
+      unless lhs.isAppOfArity ``dictKeyBits? 3 && rhs.isAppOfArity ``Option.some 2 do continue
+      if rhs.appArg! == e then return ← lit (lhs.getArg! 1)
+    return none
+
 /-- `check_dict_facts`: what the map of a dictionary says of the walks the run has split on.
 
 * For a walk `dictNearestWithCells … = .ok r` or `dictMinMaxWithCells … = .ok r` (`DICT*GETNEXT*`,
@@ -635,6 +671,73 @@ elab "check_dict_facts" : tactic => withMainContext do
       let (_, g') ← (← g.assert `hdel fty pf).intro1P
       g := g'
       debugNote "check_dict_facts: a delete"
+      continue
+    -- a set or a delete on a well-formed dictionary (`DICT*SET*`, `DICT*ADD*`, `DICT*DEL`): the
+    -- dictionary it leaves well-formed (`Dict.WF.setRes`, `Dict.WF.delRes`) with the key length
+    -- of the hypothesis; a set that leaves no root changed nothing (`Dict.setRes_none`)
+    if lhs.isAppOfArity ``Dict.setRes 4 || lhs.isAppOfArity ``Dict.delRes 2 then
+      let isSet := lhs.isAppOfArity ``Dict.setRes 4
+      let root := lhs.getArg! 0
+      let key := lhs.getArg! 1
+      let tup := rhs.appArg!
+      -- the new root: the first component of a set's result, the second of a delete's
+      let newRoot? : Option Expr :=
+        if isSet then (if tup.isAppOfArity ``Prod.mk 4 then some (tup.getArg! 2) else none)
+        else if tup.isAppOfArity ``Prod.mk 4 then
+          let t2 := tup.getArg! 3
+          if t2.isAppOfArity ``Prod.mk 4 then some (t2.getArg! 2) else none
+        else none
+      -- the facts `Dict.WF root m` at hand: the hypotheses, and for the empty dictionary (`null`)
+      -- `Dict.WF.empty` with the length the key is written with (`keyBitsSize?`)
+      let mut wfs : Array (Expr × Expr) := #[]
+      for d' in lctx do
+        if d'.isImplementationDetail then continue
+        let t' ← instantiateMVars d'.type
+        unless t'.isAppOfArity ``Dict.WF 2 do continue
+        unless ← withReducible (isDefEq (t'.getArg! 0) root) do continue
+        wfs := wfs.push (mkFVar d'.fvarId, t'.getArg! 1)
+      if (← whnfR root).isAppOfArity ``Option.none 1 then
+        if let some n ← keyBitsSize? key then
+          wfs := wfs.push (← mkAppM ``Dict.WF.empty #[mkNatLit n], mkNatLit n)
+      for (hwf, m) in wfs do
+        -- already known (an earlier split of the path): nothing to show again
+        if let some r := newRoot? then
+          if known.contains (← instantiateMVars (mkApp2 (mkConst ``Dict.WF) r m)) then break
+        let gEq ← mkFreshExprSyntheticOpaqueMVar (← mkEq (← mkAppM ``Array.size #[key]) m)
+        -- the length of the key, each way within a budget of its own, the cheap ones first (`rfl`
+        -- at the default transparency unfolds the bits of the key until the budget runs out; `simp`
+        -- closes the length of fields, `twosBits w 8 ++ natToBits h 256`, alone: `<;> omega`)
+        let sizeTacs : Array (TSyntax `tactic) := #[← `(tactic| assumption),
+          ← `(tactic| (simp only [natToBits_size, twosBits_size, Array.size_append,
+            Array.size_extract, Slice.readBits] <;> omega)),
+          ← `(tactic| exact dictKeyBits?_size (by assumption)),
+          ← `(tactic| omega), ← `(tactic| (simp; done)), ← `(tactic| rfl)]
+        let mut shown := false
+        for t in sizeTacs do
+          if shown then break
+          if ← closesWith gEq.mvarId! t 20000 then shown := true
+        unless shown do
+          debugNote "check_dict_facts: the length of a key not shown"
+          continue
+        let pf ← mkAppM (if isSet then ``Dict.WF.setRes else ``Dict.WF.delRes)
+          #[hwf, ← instantiateMVars gEq, mkFVar d.fvarId]
+        let fty ← instantiateMVars (← inferType pf)
+        if known.contains fty then break
+        known := known.push fty
+        let (_, g') ← (← g.assert `hwfd fty pf).intro1P
+        g := g'
+        debugNote s!"check_dict_facts: a {if isSet then "set" else "delete"} keeps the dictionary well-formed"
+        break
+      if isSet then
+        if let some r := newRoot? then
+          if r.isAppOfArity ``Option.none 1 then
+            let pf ← mkAppM ``Dict.setRes_none #[mkFVar d.fvarId]
+            let fty ← instantiateMVars (← inferType pf)
+            unless known.contains fty do
+              known := known.push fty
+              let (_, g') ← (← g.assert `hset fty pf).intro1P
+              g := g'
+              debugNote "check_dict_facts: a set that left no root changed nothing"
       continue
     let isNear := lhs.isAppOfArity ``dictNearestWithCells 6
     let isMinMax := lhs.isAppOfArity ``dictMinMaxWithCells 5
@@ -694,6 +797,27 @@ elab "check_dict_facts" : tactic => withMainContext do
       known := known.push t
       let (_, g') ← (← g.assert `hmap t p).intro1P
       g := g'
+  -- a flag both `false` and `true` (`Dict.setRes_none` against the flag the run split on: an `ADD`
+  -- into the empty dictionary that left no root and succeeded): the path does not happen
+  let contra? ← g.withContext do
+    let mut falses : Array (Expr × Expr) := #[]
+    let mut trues : Array (Expr × Expr) := #[]
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let some (ty, a, b) := (← instantiateMVars d.type).eq? | continue
+      unless ty.isConstOf ``Bool do continue
+      if b.isConstOf ``Bool.false then falses := falses.push (a, d.toExpr)
+      else if b.isConstOf ``Bool.true then trues := trues.push (a, d.toExpr)
+    for (a, hf) in falses do
+      for (a', ht) in trues do
+        if a == a' then
+          return some (mkApp (mkConst ``Bool.false_ne_true) (← mkEqTrans (← mkEqSymm hf) ht))
+    return none
+  if let some pf := contra? then
+    g.assign (← mkFalseElim (← g.getType) pf)
+    debugNote "check_dict_facts: a flag both false and true, the path does not happen"
+    replaceMainGoal []
+    return
   replaceMainGoal [g]
 
 /-- The data of the return continuation of a call with no arguments (`VmState.callTo`,
