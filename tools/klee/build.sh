@@ -3,7 +3,9 @@
 # bitcode module with the KLEE harness, and the same module as a native replay binary.
 #
 #   tools/klee/build.sh            -> $OUT/harness.bc (KLEE) and $OUT/replay (native)
-#   KW [default: ~/ws/klee]  OUT [default: $KW/build]  JOBS [default: nproc]
+#   tools/klee/build.sh --native   -> $OUT/replay only, with the system clang/LLVM 18 and libstdc++
+#                                     (no setup.sh needed: TON=<ton checkout at the commit>)
+#   KW [default: ~/ws/klee]  OUT [default: $KW/build]  TON [default: $KW/ton]  JOBS [default: nproc]
 #
 # What is compiled: the VM (crypto/vm: dispatch, opcode tables, every op family but tonops),
 # cells/slices/builders, dictionaries, BOC, the bigint (crypto/common) and the parts of tdutils
@@ -11,20 +13,29 @@
 # std::mutex/std::thread uses of TON compile against tools/klee/harness/compat. Left out and
 # stubbed (harness/stubs.cpp): crypto (SHA-256 of cells is a per-run counter, signatures, curves,
 # BLS), tonops (register_ton_ops registers nothing: no TON-specific opcodes in the table),
-# libsodium. The one source change: VmState::step() calls tvm_klee_step_hook() first, so the
-# harness can tell where the instruction under test starts (path signatures, see harness.cpp).
+# libsodium. The one source change: VmState::step() calls tvm_klee_step_hook() first, and the end
+# of a step calls tvm_klee_step_end(), so the harness can tell where the instruction under test
+# starts and ends (path signatures, see harness.cpp).
 #
 # Every basic block of the TON code calls tvm_cov(<block id>) or tvm_covf (cov_instrument.py): the
 # block ids seen while the instruction under test runs give its C++ path signatures, the same in
-# KLEE and in the native replay.
+# KLEE and in the native replay. The family table ($OUT/families.inc) is generated from
+# docs/progress/tvm_spec_index.json by gen_families.py.
 set -euo pipefail
 KW=${KW:-$HOME/ws/klee}; JOBS=${JOBS:-$(nproc)}
-HERE=$(cd "$(dirname "$0")" && pwd)
-ENV=$KW/env; TON=$KW/ton; OUT=${OUT:-$KW/build}
+HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$HERE/../.." && pwd)
+NATIVE=0; [ "${1:-}" = --native ] && NATIVE=1
+ENV=$KW/env; TON=${TON:-$KW/ton}; OUT=${OUT:-$KW/build}
 LCXX=$KW/libcxx-install
-export PATH=$ENV/bin:$PATH
-CXX=$ENV/bin/clang++
+if [ $NATIVE = 1 ]; then
+  export PATH=/usr/lib/llvm-18/bin:$PATH
+  CXX=clang++; CXXFILT=llvm-cxxfilt
+else
+  export PATH=$ENV/bin:$PATH
+  CXX=$ENV/bin/clang++; CXXFILT=$ENV/bin/llvm-cxxfilt
+fi
 mkdir -p "$OUT/bc" "$OUT/src/crypto/vm"
+python3 "$HERE/gen_families.py" "$ROOT/docs/progress/tvm_spec_index.json" "$OUT/families.inc"
 
 # vm.cpp with the step hooks: a step starts (VmState::step); it ends after the gas check that
 # follows it in run_inner, or where run_inner/run catch what it threw (VmError, VmNoGas)
@@ -71,12 +82,19 @@ TON_SRCS=(
 CXXFLAGS=(
   -std=c++20 -O1 -fno-vectorize -fno-slp-vectorize -g0 -DNDEBUG -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0
   -fno-stack-protector -w
-  -nostdinc++ -I"$HERE/harness/compat" -isystem "$LCXX/include/c++/v1"
-  -I"$HERE/harness/td-config" -I"$TON" -I"$TON/crypto" -I"$TON/crypto/vm" -I"$TON/tdutils"
-  -I"$TON/tdactor" -I"$TON/tddb" -I"$TON/common"
+)
+COMPAT=$HERE/harness/compat
+if [ $NATIVE = 1 ]; then  # the system libstdc++ has threads: only the library stand-ins
+  COMPAT=$OUT/compat-native; mkdir -p "$COMPAT"
+  for x in openssl sodium.h crc32c; do ln -sfn "$HERE/harness/compat/$x" "$COMPAT/$x"; done
+else
+  CXXFLAGS+=(-nostdinc++ -isystem "$LCXX/include/c++/v1")
+fi
+CXXFLAGS+=(
+  -I"$COMPAT" -I"$HERE/harness/td-config" -I"$TON" -I"$TON/crypto" -I"$TON/crypto/vm"
+  -I"$TON/tdutils" -I"$TON/tdactor" -I"$TON/tddb" -I"$TON/common"
 )
 printf '%s\n' "${CXXFLAGS[@]}" > "$OUT/cxxflags.txt"
-
 compile() {  # <src> -> $OUT/bc/<flat name>.bc
   local s=$1 f
   if [[ $s == @* ]]; then s=${s#@}; f=$OUT/src/$s; else f=$TON/$s; fi
@@ -85,56 +103,69 @@ compile() {  # <src> -> $OUT/bc/<flat name>.bc
     "$CXX" "${CXXFLAGS[@]}" -emit-llvm -c "$f" -o "$o" 2> "$o.err" || { echo "FAILED $s"; head -30 "$o.err"; return 1; }
   fi
 }
-export -f compile; export CXX OUT TON
-export CXXFLAGS_STR
-fails=0
-pids=()
-for s in "${TON_SRCS[@]}"; do
-  while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do sleep 0.2; done
-  compile "$s" &
-done
-for p in $(jobs -rp); do wait "$p" || fails=$((fails + 1)); done
-wait || true
-for s in "${TON_SRCS[@]}"; do
-  s=${s#@}; [ -f "$OUT/bc/$(echo "$s" | tr / _).bc" ] || { echo "missing bitcode: $s"; fails=$((fails + 1)); }
-done
-[ "$fails" -eq 0 ] || { echo "$fails TON sources failed"; exit 1; }
+compile_all() {
+  local fails=0 s
+  for s in "$@"; do
+    while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do sleep 0.2; done
+    compile "$s" &
+  done
+  for p in $(jobs -rp); do wait "$p" || fails=$((fails + 1)); done
+  wait || true
+  for s in "$@"; do
+    s=${s#@}; [ -f "$OUT/bc/$(echo "$s" | tr / _).bc" ] || { echo "missing bitcode: $s"; fails=$((fails + 1)); }
+  done
+  [ "$fails" -eq 0 ] || { echo "$fails TON sources failed"; exit 1; }
+}
+# link_native <out> <bitcode or object>...: a native binary (glibc and, on a server, the native
+# libc++ built by setup.sh); what nothing defines gets aborting stubs (the linker's list of
+# undefined symbols), so a call is loud, not silent
+link_native() {
+  local out=$1; shift
+  local lib=(-Wl,--no-demangle -lm)
+  [ $NATIVE = 1 ] || lib=(-nostdlib++ -L"$LCXX/lib" -Wl,-rpath,"$LCXX/lib" -Wl,--no-demangle -lc++ -lc++abi -lm)
+  if ! "$CXX" -O1 -g0 "$@" -o "$out" "${lib[@]}" 2> "$out.link.err"; then
+    python3 "$HERE/gen_stubs.py" --linker-errors "$out.link.err" > "$out-stubs.c"
+    clang -O1 -g0 -w -c "$out-stubs.c" -o "$out-stubs.o"
+    "$CXX" -O1 -g0 "$@" "$out-stubs.o" -o "$out" "${lib[@]}"
+    echo "$(basename "$out"): native stubs $(grep -c '__asm__' "$out-stubs.c")"
+  fi
+}
+compile_all "${TON_SRCS[@]}"
+"$CXX" "${CXXFLAGS[@]}" -emit-llvm -c "$HERE/harness/stubs.cpp" -o "$OUT/stubs.bc"
+
+STUBS=("$OUT/stubs.bc")
 
 # TON module, block-instrumented
 llvm-link "$OUT"/bc/*.bc -o "$OUT/ton.bc"
 llvm-dis "$OUT/ton.bc" -o "$OUT/ton.ll"
-python3 "$HERE/cov_instrument.py" "$OUT/ton.ll" "$OUT/ton-cov.ll" "$OUT/cov-blocks.txt" "$ENV/bin/llvm-cxxfilt"
+python3 "$HERE/cov_instrument.py" "$OUT/ton.ll" "$OUT/ton-cov.ll" "$OUT/cov-blocks.txt" "$CXXFILT"
 llvm-as "$OUT/ton-cov.ll" -o "$OUT/ton-cov.bc"
 rm -f "$OUT/ton.ll" "$OUT/ton-cov.ll"
 
-# harness and stubs (KLEE flavour and native flavour)
-for flavour in klee native; do
+# harness (KLEE flavour and native flavour)
+flavours=(klee native); [ $NATIVE = 1 ] && flavours=(native)
+for flavour in "${flavours[@]}"; do
   def=-DTVM_KLEE_NATIVE; [ $flavour = klee ] && def=-DTVM_KLEE_SYMBOLIC
-  "$CXX" "${CXXFLAGS[@]}" $def -emit-llvm -c "$HERE/harness/harness.cpp" -o "$OUT/harness-$flavour.bc"
+  "$CXX" "${CXXFLAGS[@]}" -I"$OUT" $def -emit-llvm -c "$HERE/harness/harness.cpp" -o "$OUT/harness-$flavour.bc"
 done
-"$CXX" "${CXXFLAGS[@]}" -emit-llvm -c "$HERE/harness/stubs.cpp" -o "$OUT/stubs.bc"
-llvm-link "$OUT/ton-cov.bc" "$OUT/stubs.bc" "$OUT/harness-klee.bc" -o "$OUT/pre-klee.bc"
 
-# symbols nothing defines: libc (uclibc for KLEE, glibc natively), libc++ and KLEE intrinsics
-# provide most; the rest get aborting definitions (gen_stubs.py), so a call is loud, not silent.
+# native replay: the same instrumented TON module and stubs, the native harness flavour
+llvm-link "$OUT/ton-cov.bc" "${STUBS[@]}" "$OUT/harness-native.bc" -o "$OUT/replay.bc"
+link_native "$OUT/replay" "$OUT/replay.bc"
+if [ $NATIVE = 1 ]; then
+  echo "built: $OUT/replay"
+  exit 0
+fi
+
+# KLEE: symbols nothing defines: libc (uclibc), libc++ and KLEE intrinsics provide most; the rest
+# get aborting definitions (gen_stubs.py), so a call is loud, not silent.
+llvm-link "$OUT/ton-cov.bc" "${STUBS[@]}" "$OUT/harness-klee.bc" -o "$OUT/pre-klee.bc"
 llvm-nm --defined-only "$LCXX/lib/libc++.bca" "$KW/klee-uclibc/lib/libc.a" "$KW"/klee-build/runtime/lib/*.bca 2>/dev/null \
   | awk 'NF>=3 {print $3}' | sort -u > "$OUT/provided.txt"
 llvm-dis "$OUT/pre-klee.bc" -o - | python3 "$HERE/gen_stubs.py" "$OUT/provided.txt" > "$OUT/autostubs.c"
 "$ENV/bin/clang" -O1 -g0 -w -emit-llvm -c "$OUT/autostubs.c" -o "$OUT/autostubs.bc"
-llvm-link "$OUT/pre-klee.bc" "$OUT/autostubs.bc" -o "$OUT/harness.bc"
+# only what main reaches: KLEE loads the module in half the time (25 s -> 13 s with tonops)
+llvm-link "$OUT/pre-klee.bc" "$OUT/autostubs.bc" -o "$OUT/harness-all.bc"
+opt -passes=internalize,globaldce -internalize-public-api-list=main "$OUT/harness-all.bc" -o "$OUT/harness.bc"
 echo "auto stubs: $(grep -c '__asm__' "$OUT/autostubs.c")"
-
-# native replay: the same instrumented TON module and stubs, the native harness flavour; what
-# glibc does not provide gets aborting stubs too (the linker's list of undefined symbols)
-llvm-link "$OUT/ton-cov.bc" "$OUT/stubs.bc" "$OUT/harness-native.bc" -o "$OUT/replay.bc"
-native_link() {
-  "$CXX" -O1 -g0 "$OUT/replay.bc" "$@" -o "$OUT/replay" -nostdlib++ -L"$LCXX/lib" -Wl,-rpath,"$LCXX/lib" -Wl,--no-demangle \
-    -lc++ -lc++abi -lm
-}
-if ! native_link 2> "$OUT/link.err"; then
-  python3 "$HERE/gen_stubs.py" --linker-errors "$OUT/link.err" > "$OUT/native-stubs.c"
-  "$ENV/bin/clang" -O1 -g0 -w -c "$OUT/native-stubs.c" -o "$OUT/native-stubs.o"
-  native_link "$OUT/native-stubs.o"
-  echo "native stubs: $(grep -c '__asm__' "$OUT/native-stubs.c")"
-fi
 echo "built: $OUT/harness.bc $OUT/replay"
