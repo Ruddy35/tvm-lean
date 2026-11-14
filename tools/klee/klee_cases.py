@@ -34,7 +34,7 @@ import json
 import os
 import sys
 
-CLASSES = 'SGN'
+CLASSES = 'SGNC'
 
 
 def runs_of(runs_dir):
@@ -126,7 +126,10 @@ def versions(path):
 
 
 def family(run):
-    return run.rsplit('.', 1)[0]
+    """The family a run's windows are tagged with (`replay cases ALL`): class C runs follow the
+    control transfer (control windows, `<family>+`)."""
+    name, cls = run.rsplit('.', 1)
+    return name + ('+' if cls == 'C' else '')
 
 
 def replaycheck(runs_dir, out_path):

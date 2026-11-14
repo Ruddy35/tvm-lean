@@ -24,7 +24,10 @@ A family gives the harness:
     immediate arguments and index slots can name.
 
 Classes (the run's name suffix): S = gas limit symbolic 0..kSmallGasMax, no NaN; G = 10^6, no
-NaN; N = 10^6 with at least one NaN integer (families with integer slots only).
+NaN; N = 10^6 with at least one NaN integer (families with integer slots only); C = 10^6, the
+control registers and the continuations on the stack set up by a code prelude, and windows that
+follow the control transfer (control-flow families: continuation and exception forms, those that
+take a continuation, the dictionary jumps).
 
 Forms not in the table (`--list` says why): those of tonops.cpp (not compiled into the bitcode,
 `build.sh`), and forms whose layout or signature this script does not understand.
@@ -391,10 +394,12 @@ def load(index_path):
             skipped.append((name, f'layout or signature not understood: {e}'))
             continue
         lay = form['layout']
+        cf = (form['category'] in ('continuation', 'exception') or any(k & K_CONT for k, _, _ in slots)
+              or (form['category'] == 'dictionary' and any(w in name for w in ('JMP', 'EXEC', 'SWITCH'))))
         fams.append({
             'name': name, 'lo': lay['min'], 'hi': lay['max'], 'alts': alts, 'slots': slots,
             'depths': depths_of(form, slots, variadic, alts), 'category': form['category'],
-            'file': impl.get('file_path') or '-', 'exec': exec_name(form),
+            'file': impl.get('file_path') or '-', 'exec': exec_name(form), 'cf': cf,
         })
     # opcode ranges no form has: the dispatch's invalid opcodes and the handlers' invalid
     # argument combinations (24-bit ranges, the tonops ranges included as covered)
@@ -419,7 +424,7 @@ def load(index_path):
         alts = [x for x in alts if not (x in seen or seen.add(x))]
         fams.append({
             'name': f'GAP_{a:06X}', 'lo': a, 'hi': b, 'alts': alts, 'slots': [],
-            'depths': [0, 3], 'category': 'gap', 'file': '-', 'exec': '-',
+            'depths': [0, 3], 'category': 'gap', 'file': '-', 'exec': '-', 'cf': False,
         })
     return fams, skipped
 
@@ -428,6 +433,8 @@ def classes_of(f):
     out = ['S', 'G']
     if any(k & K_INT and r not in ('NONE',) for k, r, _ in f['slots']):
         out.append('N')
+    if f['cf']:
+        out.append('C')
     return out
 
 
@@ -449,7 +456,7 @@ def cxx(fams):
     for i, f in enumerate(fams):
         sl = f'kSlots{i}' if f['slots'] else 'nullptr'
         o.append(f'    {{"{f["name"]}", 0x{f["lo"]:06x}, 0x{f["hi"]:06x}, kCode{i}, {len(f["alts"])}, {sl}, '
-                 f'{len(f["slots"])}, kDepths{i}, {len(f["depths"])}}},')
+                 f'{len(f["slots"])}, kDepths{i}, {len(f["depths"])}, {int(f["cf"])}}},')
     o.append('};')
     return '\n'.join(o) + '\n'
 
@@ -469,7 +476,7 @@ def main():
     if sys.argv[2] == '--runs':
         # costliest families first (stack slots, then code alternatives), so that a parallel batch
         # does not end on a long run; --part k/n: every n-th family from the k-th (all its classes)
-        want, part = 'SGN', None
+        want, part = 'SGNC', None
         for a in sys.argv[3:]:
             if a.startswith('--part='):
                 k, n = a.split('=')[1].split('/')

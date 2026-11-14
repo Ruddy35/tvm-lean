@@ -250,8 +250,11 @@ tools/klee/build.sh --native        # locally, no setup: replay only (system cla
   dictionaries), the code cell, the stack depth. Opcodes, stack indices, widths and key lengths are concrete on each path
   (symbolic, they turn the dispatch's table lookup and every later stack or bit access into
   symbolic-pointer reads, and the solver into the bottleneck). Classes: `S` gas limit symbolic in
-  0..4000; `G` 10^6; `N` 10^6 with a NaN on the stack. The instruction runs through
-  `VmState::run`.
+  0..4000; `G` 10^6; `N` 10^6 with a NaN on the stack; `C` (control-flow families) the registers
+  c0..c2 and the continuations on the stack (ordinary ones, with code, with an argument count,
+  with c0 saved) made by a code prelude, and a window that follows the control transfer through
+  the VM's implicit RET/JMPREF steps and exception handling up to the next instruction. The
+  instruction runs through `VmState::run`.
   `replay sample <run> <n>` builds n random inputs natively (a smoke test of a family).
 - `run.sh <run> <seconds>`: KLEE (`--libc=uclibc --libcxx`, C++ exceptions included; depth-first:
   random-path and coverage-guided search crashed KLEE or kept tens of thousands of states without

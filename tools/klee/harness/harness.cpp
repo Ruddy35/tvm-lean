@@ -22,7 +22,10 @@
 //
 // Classes: S = gas limit symbolic in 0..kSmallGasMax, no NaN; G = gas 10^6, no NaN; N = gas 10^6
 // and at least one NaN integer on the stack (NaN reaches the oracle through a code prelude,
-// Tests/Harness/OracleHarness.lean, that costs gas: large limit only).
+// Tests/Harness/OracleHarness.lean, that costs gas: large limit only); C = gas 10^6, the control
+// registers c0..c2 and the continuations on the stack made by a code prelude, control windows
+// (control-flow families). The code of class C is the prelude, then (implicit JMPREF) the
+// instruction's own cell.
 //
 // Input shape: the global version (0..16, symbolic), the gas limit, the stack entries of the slots
 // (type from the slot's set; an integer by its role: symbolic int16, int64, +-2^k+d near the word
@@ -242,7 +245,10 @@ struct FormSpec {
   unsigned char nslots;
   const int* depths;
   unsigned char ndepths;
+  unsigned char flags;  // F_CONTROL
 };
+// a control-flow family: class C, and windows that follow the control transfer
+constexpr unsigned char F_CONTROL = 1;
 
 #include "families.inc"
 
@@ -266,12 +272,12 @@ static const FormSpec* find_form(const std::string& n) {
 static bool parse_run(const char* run) {
   std::string r = run;
   size_t dot = r.rfind('.');
-  if (dot == std::string::npos || dot + 2 != r.size() || std::strchr("SGN", r[dot + 1]) == nullptr) {
+  if (dot == std::string::npos || dot + 2 != r.size() || std::strchr("SGNC", r[dot + 1]) == nullptr) {
     return false;
   }
   g_form = find_form(r.substr(0, dot));
   g_class = r[dot + 1];
-  return g_form != nullptr;
+  return g_form != nullptr && (g_class != 'C' || (g_form->flags & F_CONTROL));
 }
 
 // the family of a step's opcode (24 bits, zero-padded as the dispatch reads it), -1 if none
@@ -300,22 +306,29 @@ static int form_of_opcode(unsigned op) {
 }
 
 // ---------------------------------------------------------------- path signatures
-// A window is the stretch of execution one signature covers: the step of one instruction (from
-// VmState::step to the end of its gas check, or to where the VM catches what it threw).
+// A window is the stretch of execution one signature covers. A step window: the step of one
+// instruction (from VmState::step to the end of its gas check, or to where the VM catches what it
+// threw). A control window (class C, and in `replay cases ALL` for every control-flow family):
+// the step, then the VM's own steps that follow it before the next instruction is dispatched
+// (implicit RET and JMPREF when a continuation's code runs out, exception handling: the jumps,
+// returns and register restores of the control transfer), at most kMaxImplicit of them.
 struct Sig {
   uint64_t seq;     // hash of the sequence of blocks: the exact path
   uint64_t edges;   // hash of the set of block-to-block edges: the path up to loop iteration counts
   uint64_t coarse;  // hash of the set of edges between blocks outside the folded functions
   int form;         // the family of the step's instruction
+  bool control;     // a control window
 };
 struct Window {
   Sig sig;
   uint32_t prev, prevc;
   uint32_t gen;
   unsigned edge_count;
+  int implicit_steps;
   bool active;
 };
-constexpr int kMaxWin = 1;  // one step at a time
+constexpr int kMaxWin = 3;  // at most a step window and two overlapping control windows
+constexpr int kMaxImplicit = 4;
 static Window g_win[kMaxWin];
 static int g_nactive = 0;
 static bool g_all = false;  // record the steps of every family (replay cases ALL)
@@ -404,10 +417,10 @@ static void end_window(int w) {
   g_nactive--;
 }
 
-static void start_window(int form) {
+static void start_window(int form, bool control) {
   for (int w = 0; w < kMaxWin; w++) {
     if (!g_win[w].active) {
-      g_win[w] = Window{{0xcbf29ce484222325ULL, 0, 0, form}, 0, 0, ++g_gen, 0, true};
+      g_win[w] = Window{{0xcbf29ce484222325ULL, 0, 0, form, control}, 0, 0, ++g_gen, 0, 0, true};
       g_nactive++;
       return;
     }
@@ -422,8 +435,12 @@ static void end_windows() {
   }
 }
 
-extern "C" void tvm_klee_step_end() {
-  end_windows();
+extern "C" void tvm_klee_step_end() {  // the step windows end
+  for (int w = 0; w < kMaxWin; w++) {
+    if (g_win[w].active && !g_win[w].sig.control) {
+      end_window(w);
+    }
+  }
 }
 
 // The hook reads the step's opcode without the slice's methods: prefetch_ulong fills the slice's
@@ -433,7 +450,7 @@ extern "C" void tvm_klee_step_end() {
 extern "C" void tvm_klee_step_hook(const vm::CellSlice* code) {
   int saved = g_nactive;
   g_nactive = 0;
-  bool dispatched = code && code->size() > 0;  // else an implicit RET or JMPREF: no instruction
+  bool dispatched = code && code->size() > 0;  // else an implicit RET or JMPREF
   int start = -1;
   if (dispatched) {
     const unsigned char* d = code->data();
@@ -450,9 +467,21 @@ extern "C" void tvm_klee_step_hook(const vm::CellSlice* code) {
     }
   }
   g_nactive = saved;
-  end_windows();
-  if (start >= 0) {
-    start_window(start);
+  for (int w = 0; w < kMaxWin; w++) {
+    if (g_win[w].active && (!g_win[w].sig.control || dispatched || ++g_win[w].implicit_steps > kMaxImplicit)) {
+      end_window(w);
+    }
+  }
+  if (start < 0) {
+    return;
+  }
+  if (g_all) {
+    start_window(start, false);
+    if (kForms[start].flags & F_CONTROL) {
+      start_window(start, true);
+    }
+  } else {
+    start_window(start, g_class == 'C');
   }
 }
 
@@ -652,7 +681,13 @@ struct Input {
   std::vector<vm::StackEntry> stack;  // bottom first
 };
 
-static vm::StackEntry make_entry(const std::string& t, const SlotDesc& sp, bool& nan) {
+// class C: continuations other than Quit(0) cannot be stack tokens of a case line; the code makes
+// them, in a prelude that runs before the instruction (see make_input). The variants of a
+// continuation entry: 0 Quit(0) (token K), 1 an ordinary continuation with no code, 2 one with
+// code (PUSHINT 7), 3 the same expecting one argument, 4 the same with c0 in its save list.
+constexpr int kContVariants = 5;
+
+static vm::StackEntry make_entry(const std::string& t, const SlotDesc& sp, bool& nan, int& cont) {
   int opts[8], n = 0;
   for (unsigned k : {K_INT, K_NULL, K_CELL, K_SLICE, K_BUILDER, K_TUPLE, K_CONT, K_DICT}) {
     if (sp.kinds & k) {
@@ -686,6 +721,12 @@ static vm::StackEntry make_entry(const std::string& t, const SlotDesc& sp, bool&
     case K_TUPLE:
       return make_tuple(t);
     case K_CONT:
+      if (g_class == 'C') {
+        cont = pick_index(kContVariants, (t + ".cont").c_str());
+        if (cont) {
+          return vm::StackEntry{};  // a placeholder the prelude replaces
+        }
+      }
       return vm::StackEntry{Ref<vm::Continuation>{Ref<vm::QuitCont>{true, 0}}};
     default:
       return make_dict(sym_range(0, 2, (t + ".dict").c_str()));
@@ -722,6 +763,23 @@ static Ref<vm::Cell> code_cell(const CodeAlt& a) {
   return cb.finalize_novm();
 }
 
+// prelude code that pushes continuation variant v (1..4, see kContVariants)
+static void push_cont(vm::CellBuilder& p, int v) {
+  if (v == 1) {
+    p.store_long(0x90, 8);  // PUSHCONT {}
+    return;
+  }
+  if (v == 4) {
+    p.store_long(0xed40, 16);  // PUSHCTR c0
+  }
+  p.store_long(0x9177, 16);  // PUSHCONT { PUSHINT 7 }
+  if (v == 3) {
+    p.store_long(0xec01, 16);  // SETCONTARGS 0,1
+  } else if (v == 4) {
+    p.store_long(0xed60, 16);  // SETCONTCTR c0
+  }
+}
+
 static Input make_input(const FormSpec& f) {
   Input in;
   in.version = sym_range(0, 16, "version");
@@ -729,15 +787,20 @@ static Input make_input(const FormSpec& f) {
   if (small_gas) {
     in.gas = sym_range(0, kSmallGasMax, "gas");
   }
+  // class C: the control registers c0, c1, c2 each the VM's default or an ordinary continuation
+  int regs = g_class == 'C' ? pick_index(8, "regs") : 0;
   // The entries the instruction reads first, then the code and the stack depth: depth-first,
   // KLEE varies the last choices fastest, so a run cut by its time limit has tried every code
   // and depth on the entries it got to, instead of every entry on the first code and depth.
   std::vector<vm::StackEntry> entries(f.nslots);
   std::vector<bool> nans(f.nslots);
+  std::vector<int> conts(f.nslots);
   for (int i = (int)f.nslots - 1; i >= 0; i--) {
     bool nan = false;
-    entries[i] = make_entry("s" + std::to_string(i), f.slots[i], nan);
+    int cont = 0;
+    entries[i] = make_entry("s" + std::to_string(i), f.slots[i], nan, cont);
     nans[i] = nan;
+    conts[i] = cont;
   }
   in.target = code_cell(f.code[pick_index(f.ncode, "code")]);
   int depth = pick(f.depths, f.ndepths, "depth");
@@ -754,6 +817,27 @@ static Input make_input(const FormSpec& f) {
     klee_silent_exit(0);  // the N class is the inputs with a NaN; the others are G's
   }
   in.code = in.target;
+  if (g_class == 'C') {
+    // the prelude: set the registers, put the continuations in place of their placeholders
+    // (push, XCHG s0,s(i+1), DROP), then the code runs out and the VM jumps into the instruction's
+    // cell (implicit JMPREF)
+    vm::CellBuilder p;
+    for (int r = 0; r < 3; r++) {
+      if (regs & (1 << r)) {
+        push_cont(p, 2);
+        p.store_long(0xed50 + r, 16);  // POPCTR c<r>
+      }
+    }
+    for (int i = 0; i < (int)f.nslots && i < depth; i++) {
+      if (conts[i]) {
+        push_cont(p, conts[i]);
+        p.store_long(i + 1, 8);  // XCHG s0,s(i+1)
+        p.store_long(0x30, 8);   // DROP
+      }
+    }
+    p.store_ref(in.target);
+    in.code = p.finalize_novm();
+  }
   return in;
 }
 
@@ -789,7 +873,7 @@ static int run_vm(const Input& in, Ref<vm::Tuple> c7 = {}) {
 #ifdef TVM_KLEE_SYMBOLIC
 int main(int argc, char** argv) {
   if (argc < 2 || !parse_run(argv[1])) {
-    std::fprintf(stderr, "usage: harness <FAMILY>.<S|G|N>\n");
+    std::fprintf(stderr, "usage: harness <FAMILY>.<S|G|N|C>\n");
     return 2;
   }
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL));  // td LOG(DEBUG) lines: off
@@ -797,7 +881,7 @@ int main(int argc, char** argv) {
   warm_up();
   Input in = make_input(*g_form);
   run_vm(in);
-  Sig s = g_sigs.size() == 1 ? g_sigs[0] : Sig{0, 0, 0, -1};
+  Sig s = g_sigs.size() == 1 ? g_sigs[0] : Sig{0, 0, 0, -1, false};
   uint64_t out = sym<uint64_t>("sig");
   klee_assume(out == s.seq);
   uint64_t out_edges = sym<uint64_t>("esig");
@@ -979,7 +1063,7 @@ static std::string sig_str(const Sig& s) {
 }
 
 // a case line: id \t version \t gas \t code_hex \t tokens; prints id \t exit code \t the windows of
-// the target families as <family>:<exact>:<edges>:<coarse>, each distinct one once, space separated
+// the target families as <family>[+]:<exact>:<edges>:<coarse>, each distinct one once, space separated
 static int run_case(const std::vector<std::string>& cols) {
   Input in;
   in.version = std::stoi(cols[1]);
@@ -1000,7 +1084,7 @@ static int run_case(const std::vector<std::string>& cols) {
   std::string sigs;
   std::vector<std::string> seen;  // each distinct window once (loops repeat them)
   for (const auto& s : g_sigs) {
-    std::string w = std::string(kForms[s.form].name) + ":" + sig_str(s);
+    std::string w = std::string(kForms[s.form].name) + (s.control ? "+" : "") + ":" + sig_str(s);
     if (std::find(seen.begin(), seen.end(), w) == seen.end()) {
       seen.push_back(w);
       sigs += (sigs.empty() ? "" : " ") + w;
@@ -1042,7 +1126,8 @@ int main(int argc, char** argv) {
   std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "families") {
     for (const FormSpec& f : kForms) {
-      std::printf("%s\t%06x\t%06x\tSG%s\n", f.name, f.lo, f.hi, has_int_slot(f) ? "N" : "");
+      std::printf("%s\t%06x\t%06x\tSG%s%s\n", f.name, f.lo, f.hi, has_int_slot(f) ? "N" : "",
+                  f.flags & F_CONTROL ? "C" : "");
     }
     return 0;
   }
@@ -1109,7 +1194,7 @@ int main(int argc, char** argv) {
           return 1;
         }
         run_vm(in);
-        Sig s = g_sigs.size() == 1 ? g_sigs[0] : Sig{0, 0, 0, -1};
+        Sig s = g_sigs.size() == 1 ? g_sigs[0] : Sig{0, 0, 0, -1, false};
         if (replay::bad) {
           std::printf("%s\tERROR\t%s\n", argv[i], replay::why.c_str());
           return 1;
