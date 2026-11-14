@@ -412,32 +412,122 @@ structure ImportState where
 def ImportState.empty : ImportState :=
   { cells := #[], map := {}, intRefs := 0 }
 
-partial def importCell (c : Cell) (st : ImportState) : BocM (Nat × ImportState) := do
-  if c.refs.size > 4 then
-    bocFail "BOC: cells with >4 refs not supported"
-  if c.bits.size > 1023 then
-    bocFail "BOC: cell bitstring too large"
-  let key : ByteArray := ByteArray.mk (Cell.hashBytes c)
-  match st.map[key]? with
-  | some idx =>
-      let ci := st.cells[idx]!
-      let cells := st.cells.set! idx { ci with shouldCache := true }
-      return (idx, { st with cells := cells })
-  | none =>
-      let mut st := st
-      let mut refs : Array Nat := #[]
-      let mut sumChildWt : Nat := 1
-      for r in c.refs do
-        let (ri, st') ← importCell r st
-        st := { st' with intRefs := st'.intRefs + 1 }
-        refs := refs.push ri
-        sumChildWt := sumChildWt + (st.cells[ri]!).wt
-      let wt : Nat := Nat.min 255 sumChildWt
-      let idx := st.cells.size
-      let ci : CellInfo := { cell := c, refs := refs, wt := wt, shouldCache := false, newIdx := -1 }
-      let cells := st.cells.push ci
-      let map := st.map.insert key idx
-      return (idx, { st with cells := cells, map := map })
+/-- A cell with the key `importCell` finds it by (its representation hash, `Cell.hashBytes`) and
+its references likewise keyed. -/
+structure KeyedCell where
+  cell : Cell
+  key : ByteArray
+  refs : Array KeyedCell
+
+mutual
+/-- `c.computeLevelInfo?` and `c` keyed, each cell's level information computed once, from its
+references' (`importCell` looks up every cell it visits by its hash; `Cell.hashBytes` of each would
+compute its whole tree again, quadratic in the depth, where C++ keeps the hash in the cell:
+`DataCell`). The checks, the references left to right (the first error is returned) and
+`Cell.levelInfoFromChildren` are those of `Cell.computeLevelInfo?` (`Cell.keyed_fst`); a cell it
+rejects is keyed, as by `Cell.hashBytes`, with 32 zero bytes (`Cell.keyed_snd`). -/
+def Cell.keyed : Cell → Except String CellLevelInfo × KeyedCell
+  | c@⟨_, ⟨refs⟩, _, _⟩ =>
+    let kids := Cell.keyedRefs refs
+    let info : Except String CellLevelInfo := do
+      if c.refs.size > 4 then
+        throw "Too many references"
+      if c.bits.size > 1023 then
+        throw "Too many data bits"
+      let childInfos ← kids.1
+      Cell.levelInfoFromChildren c childInfos
+    let hash : Array UInt8 :=
+      match info with
+      | .ok i => i.getHash Cell.maxLevel
+      | .error _ => Array.replicate 32 0
+    (info, { cell := c, key := ByteArray.mk hash, refs := kids.2.toArray })
+termination_by structural c => c
+/-- `Cell.childLevelInfos?` of a list of references, and the references keyed. -/
+def Cell.keyedRefs : List Cell → Except String (Array CellLevelInfo) × List KeyedCell
+  | [] => (pure #[], [])
+  | r :: rs =>
+    let k := Cell.keyed r
+    let ks := Cell.keyedRefs rs
+    let infos : Except String (Array CellLevelInfo) := do
+      let i ← k.1
+      let is ← ks.1
+      pure (#[i] ++ is)
+    (infos, k.2 :: ks.2)
+termination_by structural rs => rs
+end
+
+mutual
+/-- `Cell.keyed` computes `Cell.computeLevelInfo?`. -/
+theorem Cell.keyed_fst : ∀ c : Cell, (Cell.keyed c).1 = c.computeLevelInfo?
+  | ⟨_, ⟨refs⟩, _, _⟩ => by
+    rw [Cell.keyed, Cell.computeLevelInfo?, ← Cell.keyedRefs_fst refs]
+termination_by structural c => c
+/-- `Cell.keyedRefs` computes `Cell.childLevelInfos?`. -/
+theorem Cell.keyedRefs_fst : ∀ rs : List Cell, (Cell.keyedRefs rs).1 = Cell.childLevelInfos? rs
+  | [] => by rw [Cell.keyedRefs, Cell.childLevelInfos?]
+  | r :: rs => by
+    rw [Cell.keyedRefs, Cell.childLevelInfos?, ← Cell.keyed_fst r, ← Cell.keyedRefs_fst rs]
+termination_by structural rs => rs
+end
+
+/-- A cell keyed is the cell, its `Cell.hashBytes` as the key, and its references keyed. -/
+theorem Cell.keyed_snd (c : Cell) :
+    (Cell.keyed c).2 =
+      { cell := c, key := ByteArray.mk c.hashBytes,
+        refs := (c.refs.toList.map fun r => (Cell.keyed r).2).toArray } := by
+  rcases c with ⟨bits, ⟨refs⟩, special, levelMask⟩
+  have hfst := Cell.keyed_fst ⟨bits, ⟨refs⟩, special, levelMask⟩
+  have hrefs : ∀ rs : List Cell, (Cell.keyedRefs rs).2 = rs.map fun r => (Cell.keyed r).2 := by
+    intro rs
+    induction rs with
+    | nil => rw [Cell.keyedRefs]; rfl
+    | cons r rs ih => rw [Cell.keyedRefs, List.map_cons, ← ih]
+  rw [Cell.keyed] at hfst ⊢
+  rw [Cell.hashBytes, ← hfst, hrefs refs]
+  rfl
+
+mutual
+/-- C++ `BagOfCells::import_cell` (crypto/vm/boc.cpp:213) of a keyed cell: a cell already imported
+(the same key) is marked to be cached; a new one is added after its references, imported left to
+right. -/
+def importKeyed (kc : KeyedCell) (st : ImportState) : BocM (Nat × ImportState) :=
+  match kc with
+  | ⟨c, key, ⟨kids⟩⟩ => do
+    if c.refs.size > 4 then
+      bocFail "BOC: cells with >4 refs not supported"
+    if c.bits.size > 1023 then
+      bocFail "BOC: cell bitstring too large"
+    match st.map[key]? with
+    | some idx =>
+        let ci := st.cells[idx]!
+        let cells := st.cells.set! idx { ci with shouldCache := true }
+        return (idx, { st with cells := cells })
+    | none =>
+        let (refs, sumChildWt, st) ← importKeyedRefs kids st #[] 1
+        let wt : Nat := Nat.min 255 sumChildWt
+        let idx := st.cells.size
+        let ci : CellInfo := { cell := c, refs := refs, wt := wt, shouldCache := false, newIdx := -1 }
+        let cells := st.cells.push ci
+        let map := st.map.insert key idx
+        return (idx, { st with cells := cells, map := map })
+termination_by structural kc
+/-- `importKeyed` of references left to right, each one more internal reference: their indices
+appended to `refs`, their weights added to `sumChildWt`. -/
+def importKeyedRefs (kcs : List KeyedCell) (st : ImportState) (refs : Array Nat) (sumChildWt : Nat) :
+    BocM (Array Nat × Nat × ImportState) :=
+  match kcs with
+  | [] => pure (refs, sumChildWt, st)
+  | kc :: kcs => do
+    let (ri, st') ← importKeyed kc st
+    let st := { st' with intRefs := st'.intRefs + 1 }
+    let sumChildWt := sumChildWt + (st.cells[ri]!).wt
+    importKeyedRefs kcs st (refs.push ri) sumChildWt
+termination_by structural kcs
+end
+
+/-- Imports `c` (`importKeyed`) with the keys of its tree computed once (`Cell.keyed`). -/
+def importCell (c : Cell) (st : ImportState) : BocM (Nat × ImportState) :=
+  importKeyed (Cell.keyed c).2 st
 
 def reorderWeights (cells : Array CellInfo) : Array CellInfo :=
   -- Mirrors `vm::BagOfCells::reorder_cells` weight adjustment used for `is_special()` decisions.
@@ -490,59 +580,82 @@ structure ReorderState where
   rvIdx : Nat
   deriving Repr
 
-partial def revisit (cellIdx : Nat) (force : Nat) (st : ReorderState) : BocM (Int × ReorderState) := do
+/-- C++ `BagOfCells::revisit` (crypto/vm/boc.cpp:344): `force` 0 previsits (down to the special
+cells, of weight 0, which it visits), 1 visits (previsits a special cell first, then visits and
+allocates the references), 2 allocates (the next new index).
+
+It terminates on `(cellIdx, force)`, lexicographically: the visit of a cell previsits the same cell
+first, and every other call is on a reference, which has a smaller index. `importCell` adds a cell
+after its references, and the references of a cell are rewritten (to the new indices) only when
+its visit ends, after which it is never descended into again (`newIdx` -3, then allocated). A
+reference not below its cell is an internal error, checked before each descent: on the cells of
+`importCell` it never happens. -/
+def revisit (cellIdx : Nat) (force : Nat) (st : ReorderState) : BocM (Int × ReorderState) := do
   let dci := st.cells[cellIdx]!
   if dci.newIdx ≥ 0 then
     return (dci.newIdx, st)
 
-  if force = 0 then
+  if hforce : force = 0 then
     if dci.newIdx ≠ -1 then
       return (dci.newIdx, st)
     let mut st := st
     for j in [0:dci.refs.size] do
       let k := dci.refs.size - 1 - j
       let childOld := dci.refs[k]!
-      let child := st.cells[childOld]!
-      let childForce : Nat := if child.wt = 0 then 1 else 0
-      let (_, st') ← revisit childOld childForce st
-      st := st'
+      if childOld < cellIdx then
+        let child := st.cells[childOld]!
+        let childForce : Nat := if child.wt = 0 then 1 else 0
+        let (_, st') ← revisit childOld childForce st
+        st := st'
+      else
+        bocFail "BOC: internal error (reference to a later cell)"
     let dci' := { dci with newIdx := -2 }
     let cells := st.cells.set! cellIdx dci'
     return (-2, { st with cells := cells })
-
-  if force > 1 then
+  else if force > 1 then
     let new : Nat := st.rvIdx
     let dci' := { dci with newIdx := Int.ofNat new }
     let cells := st.cells.set! cellIdx dci'
     let tmp := st.tmp.push dci'
     return (Int.ofNat new, { st with cells := cells, tmp := tmp, rvIdx := new + 1 })
-
-  -- force = 1 (visit)
-  if dci.newIdx = -3 then
-    return (-3, st)
-  let mut st := st
-  if dci.wt = 0 then
-    let (_, st') ← revisit cellIdx 0 st
-    st := st'
-  -- visit children
-  for j in [0:dci.refs.size] do
-    let k := dci.refs.size - 1 - j
-    let childOld := dci.refs[k]!
-    let (_, st') ← revisit childOld 1 st
-    st := st'
-  -- allocate children + rewrite refs to new indices
-  let mut newRefs := dci.refs
-  for j in [0:dci.refs.size] do
-    let k := dci.refs.size - 1 - j
-    let childOld := dci.refs[k]!
-    let (childNew, st') ← revisit childOld 2 st
-    st := st'
-    if childNew < 0 then
-      bocFail "BOC: internal error (child allocation did not return an index)"
-    newRefs := newRefs.set! k childNew.toNat
-  let dci' := { (st.cells[cellIdx]!) with refs := newRefs, newIdx := -3 }
-  let cells := st.cells.set! cellIdx dci'
-  return (-3, { st with cells := cells })
+  else
+    -- force = 1 (visit)
+    if dci.newIdx = -3 then
+      return (-3, st)
+    let mut st := st
+    if dci.wt = 0 then
+      let (_, st') ← revisit cellIdx 0 st
+      st := st'
+    -- visit children
+    for j in [0:dci.refs.size] do
+      let k := dci.refs.size - 1 - j
+      let childOld := dci.refs[k]!
+      if childOld < cellIdx then
+        let (_, st') ← revisit childOld 1 st
+        st := st'
+      else
+        bocFail "BOC: internal error (reference to a later cell)"
+    -- allocate children + rewrite refs to new indices
+    let mut newRefs := dci.refs
+    for j in [0:dci.refs.size] do
+      let k := dci.refs.size - 1 - j
+      let childOld := dci.refs[k]!
+      if childOld < cellIdx then
+        let (childNew, st') ← revisit childOld 2 st
+        st := st'
+        if childNew < 0 then
+          bocFail "BOC: internal error (child allocation did not return an index)"
+        newRefs := newRefs.set! k childNew.toNat
+      else
+        bocFail "BOC: internal error (reference to a later cell)"
+    let dci' := { (st.cells[cellIdx]!) with refs := newRefs, newIdx := -3 }
+    let cells := st.cells.set! cellIdx dci'
+    return (-3, { st with cells := cells })
+termination_by (cellIdx, force)
+decreasing_by
+  all_goals first
+    | exact Prod.Lex.left _ _ (by assumption)
+    | exact Prod.Lex.right _ (Nat.pos_of_ne_zero hforce)
 
 def reorderCells (cells : Array CellInfo) (rootIdxs : Array Nat) : BocM (Array CellInfo × Array Nat) := do
   let cells := reorderWeights cells
