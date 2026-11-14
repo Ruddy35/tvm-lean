@@ -27,6 +27,9 @@ structure RunnerOpts where
   dumpCases? : Option String := none
   /-- `--cases-file <path>`: run the cases of a case file (`Tests.CaseFile`). -/
   casesFile? : Option String := none
+  /-- `--shard k/n`: only the selected suites whose index (in registration order, after `--filter`)
+  is `k` modulo `n`. -/
+  shard? : Option (Nat × Nat) := none
   deriving Repr
 
 structure RunnerSummary where
@@ -227,7 +230,14 @@ private def effectiveJobs (opts : RunnerOpts) (suiteCount : Nat) : IO Nat := do
 
 def runSuites (opts : RunnerOpts) : IO RunnerSummary := do
   let suites ← registeredSuites
-  let selected := suites.filter (suiteSelected opts)
+  let filtered := suites.filter (suiteSelected opts)
+  -- `--shard k/n`: every `n`-th suite from the `k`-th, so that the suites of a family (registered
+  -- together, often of like cost) spread over the shards
+  let selected :=
+    match opts.shard? with
+    | none => filtered
+    | some (k, n) =>
+        (Array.range filtered.size).filterMap fun i => if i % n == k then filtered[i]? else none
   if selected.isEmpty then
     return {}
 

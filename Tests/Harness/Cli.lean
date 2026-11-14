@@ -20,6 +20,15 @@ partial def parseCliArgs (args : List String) (opts : RunnerOpts := {}) : IO Run
   | "--jobs" :: n :: rest => do
       let jobs ← parsePositiveNatArg "--jobs" n
       parseCliArgs rest { opts with jobs? := some jobs }
+  | "--shard" :: kn :: rest =>
+      match kn.splitOn "/" with
+      | [k, n] =>
+          match k.trim.toNat?, n.trim.toNat? with
+          | some k, some n =>
+              if k < n then parseCliArgs rest { opts with shard? := some (k, n) }
+              else throw (IO.userError s!"--shard: expected k/n with k < n, got {kn}")
+          | _, _ => throw (IO.userError s!"--shard: expected k/n, got {kn}")
+      | _ => throw (IO.userError s!"--shard: expected k/n, got {kn}")
   | "--no-progress" :: rest =>
       parseCliArgs rest { opts with progress := false }
   | "--unit-only" :: rest =>
