@@ -387,7 +387,8 @@ private def genDictDelGetFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     (mkCase s!"fuzz/ref-hit/{tag}" stack dictDelGetIntSignedRefCode, rng4)
   else if shape = 8 then
     let (v, rng2) := pickFromPool fuzzValuePool rng1
-    let stack := #[v, .null, intV 4]
+    -- two items, one short of the three DELGET pops (`check_underflow(3)`, crypto/vm/dictops.cpp:405)
+    let stack := #[v, intV 4]
     let (tag, rng3) := randNat rng2 0 999_999
     (mkCase s!"fuzz/underflow/{tag}" stack dictDelGetSliceCode, rng3)
   else if shape = 9 then

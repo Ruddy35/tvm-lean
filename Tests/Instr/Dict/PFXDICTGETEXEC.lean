@@ -92,10 +92,12 @@ private def rawF4A0 : Cell := rawOpcode16 0xF4A0
 private def rawF4B0 : Cell := rawOpcode16 0xF4B0
 private def rawF4 : Cell := Cell.mkOrdinary (natToBits 0xF4 8) #[]
 
-private def methodA : Slice := mkSliceFromBits (natToBits 0xA111 16)
-private def methodB : Slice := mkSliceFromBits (natToBits 0xA222 16)
-private def methodC : Slice := mkSliceFromBits (natToBits 0xA333 16)
-private def methodN0 : Slice := mkSliceFromBits (natToBits 0xA444 16)
+/-- The values are the code a hit calls: two `PUSHINT` each (0x7i pushes i), so a hit ends normally
+and its marker ints show which value ran. -/
+private def methodA : Slice := mkSliceFromBits (natToBits 0x7172 16)
+private def methodB : Slice := mkSliceFromBits (natToBits 0x7374 16)
+private def methodC : Slice := mkSliceFromBits (natToBits 0x7576 16)
+private def methodN0 : Slice := mkSliceFromBits (natToBits 0x7778 16)
 
 private def key4A : BitString := natToBits 0xB 4 -- 1011
 private def key4B : BitString := natToBits 0x3 4 -- 0011

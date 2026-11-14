@@ -118,11 +118,13 @@ private def dict4MissBits : BitString :=
 private def dict4LongBits : BitString :=
   natToBits 0b11010010 8
 
+/-- The values are the code a hit jumps to: two `PUSHINT` each (0x7i pushes i), so a hit ends normally
+and its marker ints show which value ran. -/
 private def dict4Value : Slice :=
-  mkSliceFromBits (natToBits 0xA5A5 16)
+  mkSliceFromBits (natToBits 0x7576 16)
 
 private def dict0Value : Slice :=
-  mkSliceFromBits (natToBits 0x5A5A 16)
+  mkSliceFromBits (natToBits 0x7778 16)
 
 private def pfxDict4Root : Cell :=
   mkPfxDict "pfx-switch/dict4" #[(dict4MatchBits, dict4Value)]

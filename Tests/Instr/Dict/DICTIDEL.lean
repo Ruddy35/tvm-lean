@@ -496,7 +496,9 @@ def suite : InstrSuite where
     mkCaseSigned "oracle/n-too-large" #[intV 7, .cell dictSliceSignedN8One, intV 2000],
     -- [B3]
     mkCaseSigned "oracle/n-type" #[intV 7, (.cell dictSliceSignedN8One), .tuple #[]],
-    mkCaseSigned "oracle/key-underflow" #[.slice key3ShortSlice, .cell dictSliceSignedN8One, intV 8],
+    -- [B5] a signed key below the n-bit range (`-2` for `n = 1`): `range_chk`; a slice key too short
+    -- for `n` is `oracle/key-underflow-slice`
+    mkCaseSigned "oracle/key-underflow" #[intV (-2), .cell dictSliceSignedN8One, intV 1],
     -- [B3/B4]
     mkCaseSigned "oracle/key-out-of-range-high" #[intV 128, .cell dictSliceSignedN8One, intV 8],
     -- [B3/B4]

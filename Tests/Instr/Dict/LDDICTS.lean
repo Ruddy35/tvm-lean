@@ -248,7 +248,8 @@ private def genLDDICTSFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     if shape = 0 then
       (mkCase "fuzz/err/underflow/empty" #[], rng1)
     else if shape = 1 then
-      (mkCase "fuzz/err/underflow/one" #[.null], rng1)
+      -- one operand short: LDDICTS pops one slice
+      (mkCase "fuzz/err/underflow/one" #[], rng1)
     else if shape = 2 then
       (mkCase "fuzz/err/type-null" #[.null], rng1)
     else if shape = 3 then
@@ -403,7 +404,7 @@ def suite : InstrSuite where
   ]
   oracle := #[
     mkCase "oracle/underflow/empty" #[], -- [B2]
-    mkCase "oracle/underflow/one" #[.slice valSliceAbsentShort], -- [B2]
+    mkCase "oracle/underflow/one" #[], -- [B2] one operand short: LDDICTS pops one slice
     mkCase "oracle/type-top-null" #[], -- [B2] with noise
     mkCase "oracle/type-top-int" #[intV 7], -- [B3]
     mkCase "oracle/type-top-cell" #[.cell valCellA], -- [B3]

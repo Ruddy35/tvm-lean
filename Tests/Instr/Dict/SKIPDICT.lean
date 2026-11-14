@@ -240,7 +240,8 @@ private def genSKIPDICTFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     if shape = 0 then
       mkCase "fuzz/underflow/empty" #[]
     else if shape = 1 then
-      mkCase "fuzz/underflow/one" #[.null]
+      -- one operand short: SKIPDICT pops one slice
+      mkCase "fuzz/underflow/one" #[]
     else if shape = 2 then
       mkCase "fuzz/type/null" #[.null, intV 7]
     else if shape = 3 then
@@ -389,7 +390,8 @@ def suite : InstrSuite where
     -- [B2]
     mkCase "oracle/underflow/empty" #[],
     -- [B2]
-    mkCase "oracle/underflow/one" #[.null],
+    -- [B2] one operand short: SKIPDICT pops one slice
+    mkCase "oracle/underflow/one" #[],
 
     -- [B3]
     mkCase "oracle/type/null" #[.null, intV 11],

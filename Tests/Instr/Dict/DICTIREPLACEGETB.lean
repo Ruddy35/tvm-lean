@@ -170,10 +170,12 @@ private def mkSliceStack
     (value : Builder := valueA) : Array Value :=
   #[.builder value, .slice key, dict, intV n]
 
+/-- A case of the suite's own opcode (`instrSigned`, signed int key) unless `program` says otherwise:
+the slice-key and unsigned forms are given explicitly. -/
 private def mkCase
     (name : String)
     (stack : Array Value)
-    (program : Array Instr := #[instrSlice])
+    (program : Array Instr := #[instrSigned])
     (gasLimits : OracleGasLimits := {})
     (fuel : Nat := 1_000_000) : OracleCase :=
   { name := name
@@ -366,9 +368,9 @@ private def genDICTIREPLACEGETBFuzzCase (rng0 : StdGen) : OracleCase × StdGen :
     let (sel, rng2) := randNat rng1 0 5
     let c : OracleCase :=
       if sel = 0 then
-        mkGasCase "fuzz/gas/signed-miss-exact" (mkIntStack 0 1 .null) instrSigned replaceMissGas (oracleGasLimitsExact replaceMissGas)
+        mkGasCase "fuzz/gas/signed-miss-exact" (mkIntStack 0 0 .null) instrSigned replaceMissGas (oracleGasLimitsExact replaceMissGas)
       else if sel = 1 then
-        mkGasCase "fuzz/gas/signed-miss-exact-minus-one" (mkIntStack 0 1 .null) instrSigned replaceMissGasMinusOne (oracleGasLimitsExactMinusOne replaceMissGas)
+        mkGasCase "fuzz/gas/signed-miss-exact-minus-one" (mkIntStack 0 0 .null) instrSigned replaceMissGasMinusOne (oracleGasLimitsExactMinusOne replaceMissGas)
       else if sel = 2 then
         mkGasCase "fuzz/gas/slice-hit-exact" (mkSliceStack 8 slice8C (.cell dictSlice8) valueA) instrSlice replaceSliceGas (oracleGasLimitsExact replaceSliceGas)
       else if sel = 3 then
@@ -452,7 +454,7 @@ def suite : InstrSuite where
     mkCase "err/underflow/three" (mkSliceStack 8 slice8A .null), -- [B5]
 
     -- [B6] integer validation
-    mkCase "err/nan-key/signed" (#[.builder valueA, .slice slice8A, .cell dictSigned8, intV 8]), -- [B6]
+    mkCase "err/nan-key/signed" (#[.builder valueA, .int .nan, .cell dictSigned8, intV 8]), -- [B4] NaN key: `range_chk`
     mkCase "err/key-out-of-range/signed-high" (mkIntStack 4 8 (.cell dictSigned4) valueA), -- [B6]
     mkCase "err/key-out-of-range/signed-low" (mkIntStack 4 (-9) (.cell dictSigned4) valueA), -- [B6]
     mkCase "err/key-out-of-range/unsigned" (mkIntStack 8 (-1) (.cell dictUnsigned8) valueA) #[instrSignedUnsigned], -- [B6]
@@ -475,8 +477,8 @@ def suite : InstrSuite where
     mkCodeCase "ok/code/f44f" (mkIntStack 8 255 (.cell dictUnsigned8) valueA) rawF44F, -- [B9]
 
     -- [B11] gas exactness and minus-one
-    mkGasCase "gas/signed-miss-exact" (mkIntStack 0 1 .null) instrSigned replaceMissGas (oracleGasLimitsExact replaceMissGas),
-    mkGasCase "gas/signed-miss-exact-minus-one" (mkIntStack 0 1 .null) instrSigned replaceMissGasMinusOne (oracleGasLimitsExactMinusOne replaceMissGas),
+    mkGasCase "gas/signed-miss-exact" (mkIntStack 0 0 .null) instrSigned replaceMissGas (oracleGasLimitsExact replaceMissGas),
+    mkGasCase "gas/signed-miss-exact-minus-one" (mkIntStack 0 0 .null) instrSigned replaceMissGasMinusOne (oracleGasLimitsExactMinusOne replaceMissGas),
     mkGasCase "gas/slice-hit-exact" (mkSliceStack 8 slice8C (.cell dictSlice8) valueA) instrSlice replaceSliceGas (oracleGasLimitsExact replaceSliceGas),
     mkGasCase "gas/slice-hit-exact-minus-one" (mkSliceStack 8 slice8C (.cell dictSlice8) valueA) instrSlice (replaceSliceGasMinusOne) (oracleGasLimitsExactMinusOne replaceSliceGas),
     mkGasCase "gas/signed-hit-exact" (mkIntStack 8 42 (.cell dictSigned8) valueA) instrSigned replaceSignedGas (oracleGasLimitsExact replaceSignedGas),

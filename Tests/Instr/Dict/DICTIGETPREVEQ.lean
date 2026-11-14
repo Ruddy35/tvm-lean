@@ -47,7 +47,9 @@ Runtime semantics, decoder, gas, and boundary categories are covered as follows:
 -/
 
 private def dictGetPreveqId : InstrId := { name := "DICTIGETPREVEQ" }
-private def dictGetPreveqInstr : Instr := .dictGetNear 7
+/-- `DICTIGETPREVEQ` (0xf47b): int key (8), signed (no 4), previous (2), equal allowed (1)
+(C++ `exec_dict_getnear`, crypto/vm/dictops.cpp:524-532; `.dictGetNear 7` is the slice-key form). -/
+private def dictGetPreveqInstr : Instr := .dictGetNear 11
 
 private def assembleNoRefCell! (label : String) (program : Array Instr) : Cell :=
   match assembleCp0 program.toList with
@@ -129,32 +131,32 @@ private def genDICTIGETPREVEQ (rng0 : StdGen) : OracleCase × StdGen :=
     -- [B1] Hit/path with in-range keys.
     let (key, rng2) := pickIntFrom #[( -20), (-1), (7), (90)] rng1
     let (dictV, rng3) := pickDictCell rng2
-    ({ name := "fuzz/hit/range", instr := dictGetPreveqId, initStack := stack3 key dictV 8 }, rng3)
+    ({ name := "fuzz/hit/range", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack3 key dictV 8 }, rng3)
   else if shape = 1 then
     -- [B2] In-range predecessor fallback within non-empty dict.
     let (key, rng2) := pickIntFrom #[( -2), (6), (8), (91)] rng1
-    ({ name := "fuzz/hit/fallback", instr := dictGetPreveqId, initStack := stack3 key (.cell dict8A) 8 }, rng2)
+    ({ name := "fuzz/hit/fallback", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack3 key (.cell dict8A) 8 }, rng2)
   else if shape = 2 then
     -- [B4] In-range miss in non-empty singleton.
-    ({ name := "fuzz/miss/in-range", instr := dictGetPreveqId, initStack := stack3 0 (.cell dict8B) 8 }, rng1)
+    ({ name := "fuzz/miss/in-range", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack3 0 (.cell dict8B) 8 }, rng1)
   else if shape = 3 then
     -- [B4] Empty dict miss with same in-range key.
     let (key, rng2) := pickIntFrom #[( -20), (7), (90)] rng1
-    ({ name := "fuzz/miss/empty", instr := dictGetPreveqId, initStack := stack3 key .null 8 }, rng2)
+    ({ name := "fuzz/miss/empty", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack3 key .null 8 }, rng2)
   else if shape = 4 then
     -- [B3] Negative out-of-range key uses max/min fallback.
     let (key, rng2) := pickIntFrom #[( -130), (-200), (-129)] rng1
     let (dictV, rng3) := pickDictCell rng2
-    ({ name := "fuzz/out-of-range-neg", instr := dictGetPreveqId, initStack := stack3 key dictV 8 }, rng3)
+    ({ name := "fuzz/out-of-range-neg", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack3 key dictV 8 }, rng3)
   else if shape = 5 then
     -- [B4] Positive out-of-range miss path.
     let (key, rng2) := pickIntFrom #[( 128), (130), (1_000)] rng1
     let (dictV, rng3) := pickDictCell rng2
-    ({ name := "fuzz/out-of-range-pos", instr := dictGetPreveqId, initStack := stack3 key dictV 8 }, rng3)
+    ({ name := "fuzz/out-of-range-pos", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack3 key dictV 8 }, rng3)
   else if shape = 6 then
     -- [B5] Range/type errors on n.
     let (badN, rng2) := pickIntFrom #[(1024), (-1)] rng1
-    ({ name := "fuzz/bad-n", instr := dictGetPreveqId, initStack := stack3 7 .null badN }, rng2)
+    ({ name := "fuzz/bad-n", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack3 7 .null badN }, rng2)
   else if shape = 7 then
     -- [B5] Type errors and underflow variants.
     let (mode, rng2) := randNat rng1 0 4
@@ -169,10 +171,10 @@ private def genDICTIGETPREVEQ (rng0 : StdGen) : OracleCase × StdGen :=
         #[intV 7, .int (.num 0), intV 8]
       else
         #[intV 7, .cell dict8A, .null]
-    ({ name := "fuzz/type-errors", instr := dictGetPreveqId, initStack := stack }, rng2)
+    ({ name := "fuzz/type-errors", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack }, rng2)
   else if shape = 8 then
     -- [B6] Malformed dictionary branch.
-    ({ name := "fuzz/malformed-dict", instr := dictGetPreveqId, initStack := stack3 (-1) (.cell malformedDict) 8 }, rng1)
+    ({ name := "fuzz/malformed-dict", instr := dictGetPreveqId, program := #[dictGetPreveqInstr], initStack := stack3 (-1) (.cell malformedDict) 8 }, rng1)
   else
     -- [B7] Gas boundary branch.
     let (exact, rng2) := randBool rng1

@@ -46,8 +46,10 @@ private def instrPfxSet : Instr := .dictExt (.pfxSet .set)
 
 private def dispatchSentinel : Int := 77_001
 
-private def jumpTargetSlice : Slice := mkSliceFromBits (natToBits 0xC0DE 16)
-private def altJumpTargetSlice : Slice := mkSliceFromBits (natToBits 0xBEEF 16)
+/-- The values are the code a hit jumps to: two `PUSHINT` each (0x7i pushes i), so a hit ends normally
+and its marker ints show which value ran. -/
+private def jumpTargetSlice : Slice := mkSliceFromBits (natToBits 0x7172 16)
+private def altJumpTargetSlice : Slice := mkSliceFromBits (natToBits 0x7374 16)
 private def shortKeyBits : Slice := mkSliceFromBits (natToBits 3 4)
 private def shortMissBits : Slice := mkSliceFromBits (natToBits 10 4)
 private def longHitBits : Slice := mkSliceFromBits (natToBits 0x3F 8)

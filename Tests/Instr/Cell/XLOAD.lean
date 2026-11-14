@@ -412,8 +412,9 @@ private def genXloadFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
       else .slice (Slice.ofCell cOrdBits8)
     (mkOracleCase "fuzz/err/type" xloadCode1 #[bad], rng2)
   else
-    let (noise, rng2) := pickNoiseValue rng1
-    (mkOracleCase "fuzz/underflow/one" xloadCode1 #[noise], rng2)
+    -- one operand short: XLOAD pops one cell (the draw is kept so the fuzz sequence stays the same)
+    let (_, rng2) := pickNoiseValue rng1
+    (mkOracleCase "fuzz/underflow/one" xloadCode1 #[], rng2)
 
 def suite : InstrSuite where
   id := xloadId
