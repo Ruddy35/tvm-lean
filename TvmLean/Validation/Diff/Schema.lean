@@ -1,6 +1,7 @@
 import Lean
 import TvmLean.Model
 import TvmLean.Boc
+import TvmLean.Validation.JsonSize
 
 namespace TvmLean
 
@@ -130,7 +131,7 @@ inductive ExpectedVal : Type
   | tuple (items : Array ExpectedVal)
   deriving Repr
 
-partial def expectedValFromJson? (j : Json) : Except String ExpectedVal := do
+def expectedValFromJson? (j : Json) : Except String ExpectedVal := do
   let ty ← j.getObjValAs? String "type"
   match ty with
   | "null" => return .null
@@ -153,17 +154,23 @@ partial def expectedValFromJson? (j : Json) : Except String ExpectedVal := do
   | "builder" =>
       return .builder (← j.getObjValAs? String "boc")
   | "tuple" =>
-      let itemsJ ← j.getObjVal? "items"
-      match itemsJ with
-      | .arr items =>
+      match _hitems : j.getObjVal? "items" with
+      | .error e => throw e
+      | .ok (.arr items) =>
           let mut out : Array ExpectedVal := #[]
-          for it in items do
+          for _hit : it in items do
             out := out.push (← expectedValFromJson? it)
           return .tuple out
-      | _ =>
+      | .ok _ =>
           throw "ExpectedVal.tuple.items must be a JSON array"
   | other =>
       throw s!"unknown ExpectedVal type '{other}'"
+termination_by sizeOf j
+decreasing_by
+  have h1 := Array.sizeOf_lt_of_mem _hit
+  have h2 := JsonSize.sizeOf_getObjVal?_lt _hitems
+  simp only [Json.arr.sizeOf_spec] at h2
+  omega
 
 instance : FromJson ExpectedVal where
   fromJson? := expectedValFromJson?
@@ -174,7 +181,7 @@ def decodeCellBoc (s : String) : Except String Cell := do
   | .ok c => pure c
   | .error e => throw (toString e)
 
-partial def ExpectedVal.toValue : ExpectedVal → Except String Value
+def ExpectedVal.toValue : ExpectedVal → Except String Value
   | .null => .ok .null
   | .nan => .ok (.int .nan)
   | .int n => .ok (.int (.num n))
@@ -189,10 +196,15 @@ partial def ExpectedVal.toValue : ExpectedVal → Except String Value
       return .builder { bits := c.bits, refs := c.refs }
   | .tuple items => do
       let mut out : Array Value := #[]
-      for it in items do
+      for _h : it in items do
         let v ← it.toValue
         out := out.push v
       return .tuple out
+termination_by e => sizeOf e
+decreasing_by
+  have h1 := Array.sizeOf_lt_of_mem _h
+  simp_wf
+  omega
 
 structure Expected where
   exit_code : Int

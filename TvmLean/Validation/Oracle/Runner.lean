@@ -1,6 +1,7 @@
 import Lean
 import TvmLean
 import TvmLean.Validation.Canon.Value
+import TvmLean.Validation.JsonSize
 
 open TvmLean
 
@@ -111,6 +112,17 @@ def asNat (j : Lean.Json) : IO Nat :=
 
 def findKey? (k : String) (xs : List (String × Lean.Json)) : Option Lean.Json :=
   xs.findSome? (fun (k', v) => if k' = k then some v else none)
+
+/-- A value found in the entries of an object is smaller than the object. -/
+theorem sizeOf_findKey?_lt {o : Std.TreeMap.Raw String Lean.Json compare} {k : String} {v : Lean.Json}
+    (h : findKey? k o.toList = some v) : sizeOf v < sizeOf (Lean.Json.obj o) := by
+  unfold findKey? at h
+  obtain ⟨⟨k', v'⟩, hmem, hf⟩ := List.exists_of_findSome?_eq_some h
+  simp only at hf
+  split at hf
+  · cases hf
+    exact TvmLean.JsonSize.sizeOf_lt_of_mem_toList hmem
+  · cases hf
 
 def bytesToHex (bs : ByteArray) : String :=
   String.intercalate "" (bs.data.toList.map (fun b => natToHexPad b.toNat 2))
@@ -625,47 +637,49 @@ def parseRange? (j : Lean.Json) : Except String (Option (Int × Int)) := do
   | _ =>
       pure none
 
-partial def parseImmFields (row : InstrRow) : Except String (Array ImmField) := do
-  let argsLen : Nat := row.skipLen - row.checkLen
-  let rec parseOne (j : Lean.Json) : Except String (Array ImmField) := do
-    match j with
-    | .obj o =>
+/-- The immediate fields of one layout argument of the instruction table (a `delta` argument is its
+inner `arg`). -/
+def parseImmArg (j : Lean.Json) : Except String (Array ImmField) := do
+  match j with
+  | .obj o =>
+      let tag ←
+        match findKey? "$" o.toList with
+        | some (.str s) => pure s
+        | _ => throw "layout arg missing $ tag"
+      if tag == "delta" then
+        match _hinner : findKey? "arg" o.toList with
+        | some inner => parseImmArg inner
+        | none => throw "delta arg missing .arg"
+      else if tag == "minusOne" || tag == "s1" then
+        pure #[]
+      else if tag == "dict" || tag == "refCodeSlice" || tag == "codeSlice" || tag == "inlineCodeSlice" ||
+          tag == "largeInt" || tag == "slice" || tag == "debugstr" then
+        pure #[]
+      else
         let xs := o.toList
-        let tag ←
-          match findKey? "$" xs with
-          | some (.str s) => pure s
-          | _ => throw "layout arg missing $ tag"
-        if tag == "delta" then
-          let inner ←
-            match findKey? "arg" xs with
-            | some v => pure v
-            | none => throw "delta arg missing .arg"
-          parseOne inner
-        else if tag == "minusOne" || tag == "s1" then
-          pure #[]
-        else if tag == "dict" || tag == "refCodeSlice" || tag == "codeSlice" || tag == "inlineCodeSlice" ||
-            tag == "largeInt" || tag == "slice" || tag == "debugstr" then
-          pure #[]
-        else
-          let name :=
-            match findKey? "name" xs with
-            | some (.str s) => s
-            | _ => tag
-          let len : Nat :=
-            match findKey? "len" xs with
-            | some (.num n) => (if n.exponent == 0 && n.mantissa >= 0 then n.mantissa.toNat else 0)
-            | _ => 0
-          let range? ←
-            match findKey? "range" xs with
-            | some r => parseRange? r
-            | none => pure none
-          pure #[{ tag, name, len, range? }]
-    | _ =>
-        throw "layout arg must be an object"
+        let name :=
+          match findKey? "name" xs with
+          | some (.str s) => s
+          | _ => tag
+        let len : Nat :=
+          match findKey? "len" xs with
+          | some (.num n) => (if n.exponent == 0 && n.mantissa >= 0 then n.mantissa.toNat else 0)
+          | _ => 0
+        let range? ←
+          match findKey? "range" xs with
+          | some r => parseRange? r
+          | none => pure none
+        pure #[{ tag, name, len, range? }]
+  | _ =>
+      throw "layout arg must be an object"
+termination_by sizeOf j
+decreasing_by exact sizeOf_findKey?_lt _hinner
 
+def parseImmFields (row : InstrRow) : Except String (Array ImmField) := do
+  let argsLen : Nat := row.skipLen - row.checkLen
   let mut fields : Array ImmField := #[]
   for a in row.args do
-    let fs ← parseOne a
+    let fs ← parseImmArg a
     fields := fields ++ fs
 
   let knownBits : Nat := fields.foldl (init := 0) fun acc f => acc + f.len

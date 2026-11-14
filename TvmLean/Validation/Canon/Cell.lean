@@ -10,16 +10,17 @@ def refPathToString (pathRev : List Nat) : String :=
   else
     String.intercalate "/" (path.map fun i => s!"refs[{i}]")
 
-partial def firstBitDiff (a b : BitString) (i : Nat := 0) : Option Nat :=
-  if i < a.size then
+def firstBitDiff (a b : BitString) (i : Nat := 0) : Option Nat :=
+  if h : i < a.size then
     if a[i]! != b[i]! then
       some i
     else
       firstBitDiff a b (i + 1)
   else
     none
+termination_by a.size - i
 
-partial def Cell.diff (a b : Cell) (pathRev : List Nat := []) : Option String :=
+def Cell.diff (a b : Cell) (pathRev : List Nat := []) : Option String :=
   if a.special != b.special then
     some s!"{refPathToString pathRev}: special differs (a={a.special} b={b.special})"
   else if a.levelMask != b.levelMask then
@@ -36,8 +37,13 @@ partial def Cell.diff (a b : Cell) (pathRev : List Nat := []) : Option String :=
         else
           Id.run do
             let mut out : Option String := none
-            for i in [0:a.refs.size] do
+            for h : i in [0:a.refs.size] do
               if out.isNone then
-                out := Cell.diff a.refs[i]! b.refs[i]! (i :: pathRev)
+                out := Cell.diff a.refs[i] b.refs[i]! (i :: pathRev)
             out
-
+termination_by sizeOf a
+decreasing_by
+  rcases a with ⟨bits, refs, special, levelMask⟩
+  have h1 := Array.sizeOf_lt_of_mem (Array.getElem_mem (xs := refs) h.upper)
+  simp only [Cell.mk.sizeOf_spec]
+  omega

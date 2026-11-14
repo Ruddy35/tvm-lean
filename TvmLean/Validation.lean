@@ -9,3 +9,4 @@ import TvmLean.Validation.Oracle.Runner
 import TvmLean.Validation.Oracle.Report
 import TvmLean.Validation.Coverage.InstrStatus
 import TvmLean.Validation.Coverage.Report
+import TvmLean.Validation.JsonSize

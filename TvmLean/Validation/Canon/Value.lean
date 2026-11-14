@@ -25,7 +25,7 @@ def canonContTy : Continuation → String
   | .againBody .. => "vmc_again"
   | .pushInt .. => "vmc_pushint"
 
-partial def canonValue (v : Value) : String :=
+def canonValue (v : Value) : String :=
   match v with
   | .null => "null"
   | .nullCell => "null"
@@ -35,11 +35,16 @@ partial def canonValue (v : Value) : String :=
   | .slice s => s!"slice:{bytesHex (Cell.hashBytes s.toCellRemaining)}"
   | .builder b => s!"builder:{bytesHex (Cell.hashBytes b.finalize)}"
   | .tuple t =>
-      let inner := String.intercalate "," (t.toList.map canonValue)
+      let inner := String.intercalate "," (t.attach.toList.map fun ⟨x, _⟩ => canonValue x)
       "tuple[" ++ toString t.size ++ "]{" ++ inner ++ "}"
   | .cont k => "cont:Cont{" ++ canonContTy k ++ "}"
+termination_by sizeOf v
+decreasing_by
+  have h1 := Array.sizeOf_lt_of_mem ‹x ∈ t›
+  simp_wf
+  omega
 
-partial def valueEqNormalized : Value → Value → Bool
+def valueEqNormalized : Value → Value → Bool
   | .null, .null => true
   | .nullCell, .nullCell => true
   | .int x, .int y => x == y
@@ -53,13 +58,18 @@ partial def valueEqNormalized : Value → Value → Bool
       else
         Id.run do
           let mut ok := true
-          for i in [0:x.size] do
+          for h : i in [0:x.size] do
             if ok then
-              ok := valueEqNormalized x[i]! y[i]!
+              ok := valueEqNormalized x[i] y[i]!
           return ok
   | _, _ => false
+termination_by a _ => sizeOf a
+decreasing_by
+  have h1 : sizeOf x[i] < sizeOf x := Array.sizeOf_getElem x i h.upper
+  simp_wf
+  omega
 
-partial def firstValueMismatch (expected actual : Value) : Option (List Nat × Value × Value) :=
+def firstValueMismatch (expected actual : Value) : Option (List Nat × Value × Value) :=
   if valueEqNormalized expected actual then
     none
   else
@@ -69,8 +79,8 @@ partial def firstValueMismatch (expected actual : Value) : Option (List Nat × V
           some ([], expected, actual)
         else
           Id.run do
-            for i in [0:e.size] do
-              let ev := e[i]!
+            for h : i in [0:e.size] do
+              let ev := e[i]
               let av := a[i]!
               if !valueEqNormalized ev av then
                 match firstValueMismatch ev av with
@@ -79,6 +89,11 @@ partial def firstValueMismatch (expected actual : Value) : Option (List Nat × V
             return some ([], expected, actual)
     | _, _ =>
         some ([], expected, actual)
+termination_by sizeOf expected
+decreasing_by
+  have h1 : sizeOf e[i] < sizeOf e := Array.sizeOf_getElem e i h.upper
+  simp_wf
+  omega
 
 
 end TvmLean
