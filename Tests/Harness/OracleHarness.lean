@@ -177,10 +177,35 @@ def oracleCaseInvocation (c : OracleCase) : Except String (Cell × List String �
 def cellBocHex (c : Cell) : Except String String :=
   toBocHex c
 
+/-- The line of a case's result in the record of `recordOracleResults`. A few generated case names
+hold the `repr` of a value, line breaks included: they are written as `\n`. -/
+private def oracleRecordLine (r : OracleRunResult) : String :=
+  let res :=
+    match r.comparison? with
+    | some cmp =>
+        let o := cmp.oracle
+        "\t".intercalate ([toString o.exitRaw, toString o.gasUsed, o.c4Hash, o.c5Hash,
+          toString o.stackTop.size] ++ o.stackTop.toList)
+    | none => "ERROR\t" ++ ((r.error?.getD "").splitOn "\n").headD ""
+  s!"{r.instr.name}\t{r.caseName.replace "\n" "\\n"}\t{res}\n"
+
+/-- With env `TVMLEAN_ORACLE_RECORD=<file>`: appends to the file a line per result of `rs`, in
+order: the case's instruction and name, then the C++ result the comparison saw (exit code, gas, `c4`
+and `c5` hashes, stack depth, the stack from the top: the oracle's lines, none with a line break),
+or `ERROR` and the first line of the error for a case without one (it failed before or in the C++
+run). The lines of a call are written at once;
+with `--jobs 1` the file follows the run case by case. For checking that a change in how C++ is run
+leaves every result as it was. -/
+def recordOracleResults (rs : Array OracleRunResult) : IO Unit := do
+  let some path ← IO.getEnv "TVMLEAN_ORACLE_RECORD" | pure ()
+  let h ← IO.FS.Handle.mk path .append
+  h.putStr (String.join (rs.map oracleRecordLine).toList)
+  h.flush
+
 /--
   Executes a single case on Lean and on Fift `runvmx`, then compares full canonical results.
 -/
-def runOracleCase (c : OracleCase) : IO OracleRunResult := do
+private def runOracleCaseUnrecorded (c : OracleCase) : IO OracleRunResult := do
   let codeCell0 ←
     match assembleCaseCode c with
     | .ok code => pure code
@@ -241,5 +266,14 @@ def runOracleCase (c : OracleCase) : IO OracleRunResult := do
         ok := false
         comparison? := some cmp
         error? := some msg }
+
+/--
+  Executes a single case on Lean and on Fift `runvmx`, then compares full canonical results
+  (and records the result: `recordOracleResults`).
+-/
+def runOracleCase (c : OracleCase) : IO OracleRunResult := do
+  let r ← runOracleCaseUnrecorded c
+  recordOracleResults #[r]
+  pure r
 
 end Tests
