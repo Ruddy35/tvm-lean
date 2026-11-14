@@ -64,7 +64,9 @@ For an instruction (decoded from a code cell, as the tactic decodes it) it print
   each with its module: the lemmas of the modules `TvmLean.Proofs.Check.Tactic` imports are those a
   module of `tools/contract-check` sees; the conditions on the state (the shape of the stack, a
   closed fact of the code) are not checked here — they are what a run must meet for the lemma to
-  fire;
+  fire; but a lemma one of whose conditions the unification leaves closed (no variable of the
+  lemma and none of the state) and decidably false is left out (`closedFalse`: `mode ≠ .del` of
+  the lookup-and-set lemmas on a `DELGET` form): it never fires on the instruction;
 * its handler, statically: the VM programs it runs (the applications whose type is `VM _`), each
   computed by a lemma of `vm_run` (its left side `ExceptT.run (f ..) st`), or unfolded
   (`TvmLean.Exec.unfoldableModelDef`: a non-recursive definition of the model, then its body is
@@ -139,6 +141,14 @@ def pp (e : Expr) (n : Nat := 160) : MetaM String := do
   let s := " ".intercalate ((s.splitOn "\n").map String.trim)
   return if s.length > n then s.take n ++ "…" else s
 
+/-- Runs `x` within `hb` thousand heartbeats; `none` if it fails or runs out of them. -/
+def guarded {α : Type} (hb : Nat) (x : MetaM α) : MetaM (Option α) := do
+  let s ← saveState
+  tryCatchRuntimeEx
+    (withCurrHeartbeats <| withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := hb * 1000 }) do
+      return some (← x))
+    (fun _ => do s.restore; return none)
+
 /-! ## The lemmas of `vm_spec` -/
 
 /-- A lemma of `vm_spec`: its name, module, whether a module of `tools/contract-check` sees it,
@@ -196,7 +206,25 @@ def specLemmas (inCheck : NameSet) : MetaM (Array SpecLemma) := do
     out := out.push { name, module := mod, inCheck := inCheck.contains mod, instr, conds }
   return out
 
-/-- The `vm_spec` lemmas whose left side unifies with the run of `iE` on a state (as `applySpec`). -/
+/-- Whether the hypothesis `x` of a lemma (a metavariable of its telescope), once the left side is
+unified, is a closed proposition that is decidably false: no metavariable and no free variable
+left (`mode ≠ .del` of `Spec.dictSetGetInt` on a `DELGET` form, whose mode is `.del`), and
+`decide` of it reduces (`whnf` at the default transparency, within 200 thousand heartbeats) to
+`false`. A hypothesis that is not closed, has no `Decidable` instance or does not reduce is not
+known false. -/
+def closedFalse (x : Expr) : MetaM Bool := do
+  let t ← instantiateMVars (← inferType x)
+  if t.hasMVar || t.hasFVar then return false
+  unless ← isProp t do return false
+  let r ← guarded 200 do
+    let d ← mkDecide t
+    let v ← withTransparency .default (whnf d)
+    return v.isConstOf ``Bool.false
+  return r == some true
+
+/-- The `vm_spec` lemmas whose left side unifies with the run of `iE` on a state (as `applySpec`)
+and none of whose hypotheses is then a closed false proposition (`closedFalse`): such a lemma can
+never fire on the instruction. -/
 def matchingSpecs (iE : Expr) : MetaM (Array Name) := do
   let some ext ← getSimpExtension? `vm_spec | return #[]
   let thms ← ext.getTheorems
@@ -209,9 +237,11 @@ def matchingSpecs (iE : Expr) : MetaM (Array Name) := do
       let s ← saveState
       let ok ← try
           let val ← thm.getValue
-          let (_, _, concl) ← forallMetaTelescopeReducing (← inferType val)
+          let (xs, _, concl) ← forallMetaTelescopeReducing (← inferType val)
           let some (_, lhs, _) := concl.eq? | pure false
-          withReducible (isDefEq lhs e)
+          if ← withReducible (isDefEq lhs e) then
+            pure !(← xs.anyM closedFalse)
+          else pure false
         catch _ => pure false
       s.restore
       if ok && !out.contains thm.origin.key then out := out.push thm.origin.key
@@ -321,14 +351,6 @@ def analyseHandler (heads : NameSet) (iE : Expr) : MetaM Found := do
   let budget ← IO.mkRef 20000
   scan heads found budget 64 h
   found.get
-
-/-- Runs `x` within `hb` thousand heartbeats; `none` if it fails or runs out of them. -/
-def guarded {α : Type} (hb : Nat) (x : MetaM α) : MetaM (Option α) := do
-  let s ← saveState
-  tryCatchRuntimeEx
-    (withCurrHeartbeats <| withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := hb * 1000 }) do
-      return some (← x))
-    (fun _ => do s.restore; return none)
 
 /-- The fields of the classification of an instruction: its text, the `vm_spec` lemmas that unify
 (those a module of `tools/contract-check` sees, the others), and, with `handler`, the handler

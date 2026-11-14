@@ -166,7 +166,9 @@ tools/contract-check/contract-check list:tools/txoracle/contracts.txt#wallet3.co
 `inventory`: every one of the 919 instruction forms of the decoder (the opcode ranges of
 `third_party/tvm-specification`), sampled over its arguments and decoded by the model, classified in
 the environment of `tools/contract-check` (`tools/spec-coverage/SpecCoverage.lean`, run by
-`lake env lean`): a `vm_spec` lemma that `vm_step` uses for it, or its handler, statically (the VM
+`lake env lean`): a `vm_spec` lemma that `vm_step` uses for it (its left side unifies with the
+instruction; a lemma one of whose conditions is then closed and decides to `false`, as `mode ≠ .del`
+of `Spec.dictSetGet*` on a `DELGET` form, never fires and does not count), or its handler, statically (the VM
 programs it runs: computed by a `vm_run` lemma, unfolded, or blocking) and, with `--deep`, by running
 it on a symbolic stack of its signature; the lemmas of `TvmLean/Proofs/Exec/` that contract-check does
 not import are counted apart. Writes the table per family (`docs/audit/spec-coverage.md`) and the
