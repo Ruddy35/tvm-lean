@@ -24,8 +24,8 @@
 // and at least one NaN integer on the stack (NaN reaches the oracle through a code prelude,
 // Tests/Harness/OracleHarness.lean, that costs gas: large limit only); C = gas 10^6, the control
 // registers c0..c2 and the continuations on the stack made by a code prelude, control windows
-// (control-flow families). The code of class C is the prelude, then (implicit JMPREF) the
-// instruction's own cell.
+// (control-flow families); T = gas 10^6, a symbolic c7 (families of tonops.cpp that read it).
+// The code of classes C and T is the prelude, then (implicit JMPREF) the instruction's own cell.
 //
 // Input shape: the global version (0..16, symbolic), the gas limit, the stack entries of the slots
 // (type from the slot's set; an integer by its role: symbolic int16, int64, +-2^k+d near the word
@@ -245,10 +245,12 @@ struct FormSpec {
   unsigned char nslots;
   const int* depths;
   unsigned char ndepths;
-  unsigned char flags;  // F_CONTROL
+  unsigned char flags;  // F_CONTROL, F_C7
 };
 // a control-flow family: class C, and windows that follow the control transfer
 constexpr unsigned char F_CONTROL = 1;
+// a family whose handler reads c7 (tonops): class T
+constexpr unsigned char F_C7 = 2;
 
 #include "families.inc"
 
@@ -272,12 +274,13 @@ static const FormSpec* find_form(const std::string& n) {
 static bool parse_run(const char* run) {
   std::string r = run;
   size_t dot = r.rfind('.');
-  if (dot == std::string::npos || dot + 2 != r.size() || std::strchr("SGNC", r[dot + 1]) == nullptr) {
+  if (dot == std::string::npos || dot + 2 != r.size() || std::strchr("SGNCT", r[dot + 1]) == nullptr) {
     return false;
   }
   g_form = find_form(r.substr(0, dot));
   g_class = r[dot + 1];
-  return g_form != nullptr && (g_class != 'C' || (g_form->flags & F_CONTROL));
+  return g_form != nullptr && (g_class != 'C' || (g_form->flags & F_CONTROL)) &&
+         (g_class != 'T' || (g_form->flags & F_C7));
 }
 
 // the family of a step's opcode (24 bits, zero-padded as the dispatch reads it), -1 if none
@@ -780,6 +783,167 @@ static void push_cont(vm::CellBuilder& p, int v) {
   }
 }
 
+// ---------------------------------------------------------------- class T: c7
+// The TON-specific instructions read c7 (tonops.cpp get_param, get_unpacked_config_tuple). Class T
+// puts a c7 on the stack, as a tuple token above the instruction's entries, and a prelude
+// (POPCTR c7) installs it. Its parameter tuple c7[0] has the 18 entries of a transaction's c7
+// (block::Transaction::prepare_vm_c7) with symbolic integers, the unpacked config c7[0][14] holds
+// storage, gas and forwarding prices in their TL-B encodings with symbolic prices; c7 itself is one
+// of: [], [params], [params of 14 entries], [params, g1, g2, g3] (globals), [7] (no parameter tuple).
+static vm::StackEntry sym_int(const std::string& t, bool wide = false) {
+  if (wide) {
+    unsigned char b[32];
+    klee_make_symbolic(b, sizeof(b), t.c_str());
+    RefInt256 x{true};
+    x.write().import_bytes(b, sizeof(b), false);
+    return x;
+  }
+  return td::make_refint((long long)sym<int64_t>(t.c_str()));
+}
+
+static Ref<vm::CellSlice> slice_of(vm::CellBuilder& cb) {
+  return vm::load_cell_slice_ref(cb.finalize_novm());
+}
+
+static void store_sym64(vm::CellBuilder& cb, const std::string& t) {
+  cb.store_long((long long)sym<uint64_t>(t.c_str()), 64);
+}
+
+static vm::StackEntry std_addr(const std::string& t) {
+  vm::CellBuilder cb;
+  cb.store_long(4, 3);  // addr_std$10, no anycast
+  cb.store_long(0, 8);  // workchain 0
+  unsigned char h[32];
+  klee_make_symbolic(h, sizeof(h), (t + ".hash").c_str());
+  cb.store_bits(h, 256);
+  return slice_of(cb);
+}
+
+// gas prices of the config (ConfigParam 20/21): gas_prices_ext#de, gas_prices#dd, or gas_flat_pfx#d1
+// around gas_prices_ext
+static vm::StackEntry gas_prices(const std::string& t) {
+  int form = pick_index(3, (t + ".form").c_str());
+  vm::CellBuilder cb;
+  if (form == 2) {
+    cb.store_long(0xd1, 8);
+    store_sym64(cb, t + ".flat_limit");
+    store_sym64(cb, t + ".flat_price");
+  }
+  cb.store_long(form == 1 ? 0xdd : 0xde, 8);
+  store_sym64(cb, t + ".price");
+  cb.store_long(1000000, 64);  // gas_limit
+  if (form != 1) {
+    cb.store_long(35000000, 64);  // special_gas_limit
+  }
+  cb.store_long(10000, 64);       // gas_credit
+  cb.store_long(10000000, 64);    // block_gas_limit
+  cb.store_long(100000000, 64);   // freeze_due_limit
+  cb.store_long(1000000000, 64);  // delete_due_limit
+  return slice_of(cb);
+}
+
+// forwarding prices (ConfigParam 24/25): msg_forward_prices#ea
+static vm::StackEntry fwd_prices(const std::string& t) {
+  vm::CellBuilder cb;
+  cb.store_long(0xea, 8);
+  store_sym64(cb, t + ".lump");
+  store_sym64(cb, t + ".bit");
+  store_sym64(cb, t + ".cell");
+  cb.store_long(98304, 32);
+  cb.store_long(21845, 16);
+  cb.store_long(21845, 16);
+  return slice_of(cb);
+}
+
+static vm::StackEntry make_params(int len) {
+  std::vector<vm::StackEntry> p;
+  p.emplace_back(td::make_refint(0x076ef1ea));  // magic
+  p.emplace_back(td::make_refint(0));           // actions
+  p.emplace_back(td::make_refint(0));           // msgs_sent
+  p.push_back(sym_int("c7.now"));
+  p.push_back(sym_int("c7.block_lt"));
+  p.push_back(sym_int("c7.trans_lt"));
+  if (sym_range(0, 1, "c7.seed_null")) {
+    p.emplace_back();
+  } else {
+    p.push_back(sym_int("c7.seed", true));
+  }
+  p.emplace_back(Ref<vm::Tuple>{true, std::vector<vm::StackEntry>{sym_int("c7.balance"), vm::StackEntry{}}});
+  p.push_back(std_addr("c7.myaddr"));
+  if (sym_range(0, 1, "c7.config")) {  // the config dictionary: 32-bit keys, two parameters
+    vm::Dictionary cfg{32};
+    unsigned char key[4] = {0, 0, 0, 0};
+    cfg.set_ref(td::ConstBitPtr{key}, 32, ref_cell(1));
+    key[3] = 20;
+    cfg.set_ref(td::ConstBitPtr{key}, 32, ref_cell(2));
+    p.emplace_back(cfg.get_root_cell());
+  } else {
+    p.emplace_back();
+  }
+  p.emplace_back(Ref<vm::Cell>{ref_cell(10)});  // mycode
+  p.emplace_back(Ref<vm::Tuple>{true, std::vector<vm::StackEntry>{sym_int("c7.in_value"), vm::StackEntry{}}});
+  p.push_back(sym_int("c7.storage_fees"));
+  p.emplace_back();  // prev_blocks_info
+  {  // the unpacked config: storage prices, global id, gas mc/bc, forwarding mc/bc, size limits
+    std::vector<vm::StackEntry> u;
+    vm::CellBuilder sp;
+    sp.store_long(0xcc, 8);
+    sp.store_long(1700000000, 32);
+    store_sym64(sp, "c7.sp.bit");
+    store_sym64(sp, "c7.sp.cell");
+    store_sym64(sp, "c7.sp.mc_bit");
+    store_sym64(sp, "c7.sp.mc_cell");
+    u.emplace_back(slice_of(sp));
+    vm::CellBuilder gid;
+    gid.store_long((long long)sym<uint32_t>("c7.global_id"), 32);
+    u.emplace_back(slice_of(gid));
+    u.push_back(gas_prices("c7.gas_mc"));
+    u.push_back(gas_prices("c7.gas_bc"));
+    u.push_back(fwd_prices("c7.fwd_mc"));
+    u.push_back(fwd_prices("c7.fwd_bc"));
+    u.emplace_back();
+    p.emplace_back(Ref<vm::Tuple>{true, std::move(u)});
+  }
+  p.push_back(sym_int("c7.due"));
+  if (sym_range(0, 1, "c7.precompiled")) {
+    p.push_back(sym_int("c7.precompiled_gas"));
+  } else {
+    p.emplace_back();
+  }
+  {  // in-message parameters
+    std::vector<vm::StackEntry> m;
+    m.push_back(td::make_refint((long long)sym<int8_t>("c7.in.bounce")));
+    m.push_back(td::make_refint((long long)sym<int8_t>("c7.in.bounced")));
+    m.push_back(std_addr("c7.in.src"));
+    for (const char* n : {"c7.in.fwd_fee", "c7.in.lt", "c7.in.utime", "c7.in.orig_value", "c7.in.value"}) {
+      m.push_back(sym_int(n));
+    }
+    m.emplace_back();
+    m.emplace_back();
+    p.emplace_back(Ref<vm::Tuple>{true, std::move(m)});
+  }
+  p.resize(len);
+  return vm::StackEntry{Ref<vm::Tuple>{true, std::move(p)}};
+}
+
+static vm::StackEntry make_c7() {
+  int v = pick_index(5, "c7.shape");
+  std::vector<vm::StackEntry> c7;
+  if (v == 1) {
+    c7.push_back(make_params(18));
+  } else if (v == 2) {
+    c7.push_back(make_params(14));
+  } else if (v == 3) {
+    c7.push_back(make_params(18));
+    for (int i = 1; i <= 3; i++) {
+      c7.push_back(sym_int("c7.g" + std::to_string(i)));
+    }
+  } else if (v == 4) {
+    c7.emplace_back(td::make_refint(7));
+  }
+  return vm::StackEntry{Ref<vm::Tuple>{true, std::move(c7)}};
+}
+
 static Input make_input(const FormSpec& f) {
   Input in;
   in.version = sym_range(0, 16, "version");
@@ -817,6 +981,13 @@ static Input make_input(const FormSpec& f) {
     klee_silent_exit(0);  // the N class is the inputs with a NaN; the others are G's
   }
   in.code = in.target;
+  if (g_class == 'T') {  // the c7 on top, the prelude POPCTR c7, then the instruction's cell
+    in.stack.push_back(make_c7());
+    vm::CellBuilder p;
+    p.store_long(0xed57, 16);
+    p.store_ref(in.target);
+    in.code = p.finalize_novm();
+  }
   if (g_class == 'C') {
     // the prelude: set the registers, put the continuations in place of their placeholders
     // (push, XCHG s0,s(i+1), DROP), then the code runs out and the VM jumps into the instruction's
@@ -873,7 +1044,7 @@ static int run_vm(const Input& in, Ref<vm::Tuple> c7 = {}) {
 #ifdef TVM_KLEE_SYMBOLIC
 int main(int argc, char** argv) {
   if (argc < 2 || !parse_run(argv[1])) {
-    std::fprintf(stderr, "usage: harness <FAMILY>.<S|G|N|C>\n");
+    std::fprintf(stderr, "usage: harness <FAMILY>.<S|G|N|C|T>\n");
     return 2;
   }
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL));  // td LOG(DEBUG) lines: off
@@ -1126,8 +1297,8 @@ int main(int argc, char** argv) {
   std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "families") {
     for (const FormSpec& f : kForms) {
-      std::printf("%s\t%06x\t%06x\tSG%s%s\n", f.name, f.lo, f.hi, has_int_slot(f) ? "N" : "",
-                  f.flags & F_CONTROL ? "C" : "");
+      std::printf("%s\t%06x\t%06x\tSG%s%s%s\n", f.name, f.lo, f.hi, has_int_slot(f) ? "N" : "",
+                  f.flags & F_CONTROL ? "C" : "", f.flags & F_C7 ? "T" : "");
     }
     return 0;
   }

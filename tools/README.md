@@ -258,8 +258,10 @@ tools/klee/build.sh --native        # locally, no setup: replay only (system cla
   0..4000; `G` 10^6; `N` 10^6 with a NaN on the stack; `C` (control-flow families) the registers
   c0..c2 and the continuations on the stack (ordinary ones, with code, with an argument count,
   with c0 saved) made by a code prelude, and a window that follows the control transfer through
-  the VM's implicit RET/JMPREF steps and exception handling up to the next instruction. The
-  instruction runs through `VmState::run`.
+  the VM's implicit RET/JMPREF steps and exception handling up to the next instruction; `T`
+  (tonops that read c7) a symbolic c7 as a tuple token, installed by a prelude (`POPCTR c7`):
+  parameters with symbolic times, balances and fees, the unpacked config with storage, gas and
+  forwarding prices in their TL-B forms. The instruction runs through `VmState::run`.
   `replay sample <run> <n>` builds n random inputs natively (a smoke test of a family).
 - `run.sh <run> <seconds>`: KLEE (`--libc=uclibc --libcxx`, C++ exceptions included; depth-first:
   random-path and coverage-guided search crashed KLEE or kept tens of thousands of states without

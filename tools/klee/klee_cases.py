@@ -34,7 +34,7 @@ import json
 import os
 import sys
 
-CLASSES = 'SGNC'
+CLASSES = 'SGNCT'
 
 
 def runs_of(runs_dir):
