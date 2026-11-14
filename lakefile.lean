@@ -186,6 +186,7 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Gen.OwnOpcode,
     `Tests.Harness.Gen.Versions,
     `Tests.Harness.Gen.AdvancedSlices,
+    `Tests.Harness.Gen.Klee,
     `Tests.Tx.Oracle,
     `Tests.Tx.Gen,
     `Tests.Tx.StorageContract,
