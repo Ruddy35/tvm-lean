@@ -32,6 +32,10 @@ partial def parseCliArgs (args : List String) (opts : RunnerOpts := {}) : IO Run
       parseCliArgs rest { opts with opcodeCheck := true }
   | "--opcode-share" :: rest =>
       parseCliArgs rest { opts with opcodeShare := true }
+  | "--dump-cases" :: names :: rest =>
+      parseCliArgs rest { opts with dumpCases? := some names }
+  | "--cases-file" :: path :: rest =>
+      parseCliArgs rest { opts with casesFile? := some path }
   | "--" :: rest =>
       parseCliArgs rest opts
   | arg :: _ =>

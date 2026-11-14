@@ -152,6 +152,22 @@ private def leanCanonResult (res : StepResult) : Except String CanonResult := do
 private def oracleCanonResult (out : TvmLeanOracleValidate.OracleOut) : CanonResult :=
   CanonResult.ofOracleRaw out.exitRaw out.gasUsed out.c4Hash out.c5Hash out.stackTop
 
+/-- What `runOracleCase` hands to Fift `runvmx` for the case `c`: the code cell (with the NaN
+prelude, if any), the stack tokens (and the `c7` tokens with `SETC7`) and the gas limit. For
+tools that rerun a case on C++ elsewhere (`tools/klee`: `--dump-cases`). -/
+def oracleCaseInvocation (c : OracleCase) : Except String (Cell × List String × Int) := do
+  let code0 ← assembleCaseCode c
+  let (code, initStack) ← injectNaNPrelude code0 c.initStack
+  let toks ← stackToTokens initStack
+  let toks ←
+    if c.initC7.isEmpty then pure toks
+    else pure (toks ++ (← valueToTokens (.tuple c.initC7)) ++ ["SETC7"])
+  pure (code, toks, c.gasLimits.gasLimit + c.gasLimits.gasCredit)
+
+/-- Hex of the standard BOC of `c`, as the oracle gets it. -/
+def cellBocHex (c : Cell) : Except String String :=
+  toBocHex c
+
 /--
   Executes a single case on Lean and on Fift `runvmx`, then compares full canonical results.
 -/

@@ -20,6 +20,10 @@ structure RunnerOpts where
   opcodeShare : Bool := false
   jobs? : Option Nat := none
   progress : Bool := true
+  /-- `--dump-cases <suite,...>`: print the suites' oracle and fuzz cases (`Tests.CaseFile`). -/
+  dumpCases? : Option String := none
+  /-- `--cases-file <path>`: run the cases of a case file (`Tests.CaseFile`). -/
+  casesFile? : Option String := none
   deriving Repr
 
 structure RunnerSummary where

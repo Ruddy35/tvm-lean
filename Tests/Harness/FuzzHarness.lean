@@ -446,6 +446,31 @@ private def nextFuzzOracleCase
   else
     spec.gen gen
 
+/-- The cases `runFuzzSpec spec oraclePool` runs, in its order (the same generators, seeds, filter
+and advanced-slice variants), without running them: for tools that rerun the fuzz cases on C++
+elsewhere (`tools/klee`: `--dump-cases`). -/
+def fuzzSpecCases (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : Array OracleCase := Id.run do
+  let mut gen := mkStdGen spec.seed.toNat
+  let mut i : Nat := 0
+  let mut attempts : Nat := 0
+  let maxAttempts : Nat := spec.count.succ * 64
+  let mut advGen := mkStdGen (spec.seed.toNat + 1)
+  let mut out : Array OracleCase := #[]
+  while i < spec.count && attempts < maxAttempts do
+    attempts := attempts + 1
+    let (oracleCase, gen') := nextFuzzOracleCase spec oraclePool i gen
+    gen := gen'
+    if !oracleCaseFuzzComparable oracleCase then
+      continue
+    out := out.push oracleCase
+    i := i + 1
+    let (adv?, advGen') := Tests.Gen.AdvancedSlices.advance oracleCase advGen
+    advGen := advGen'
+    if let some adv := adv? then
+      if oracleCaseFuzzComparable adv then
+        out := out.push adv
+  pure out
+
 def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO FuzzRunResult := do
   let mut gen := mkStdGen spec.seed.toNat
   let mut i : Nat := 0
