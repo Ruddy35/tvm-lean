@@ -246,3 +246,26 @@ variable oracle_global_version
     stack_i @ 1+ stack_i !
   } swap times
 } : oracle-run
+
+// --- many cases in one fift process ---
+// `runOracleMany` (TvmLean/Validation/Oracle/Batch.lean) runs a script of cases, each
+//   "<id>" oracle-case-begin
+//   "<gas_limit>" parse-int oracle_gas_limit !
+//   "<lib_collection_boc_hex>" x>B B>boc vmlibs !      (only with a library collection)
+//   "<token>" push-token ...
+//   "<code_boc_hex>" oracle-run
+//   "<id>" oracle-case-end
+// that is the words ton_oracle_runvm.fif runs on its arguments. A case starts from the state that
+// script starts from: oracle-case-begin aborts unless the stack is empty (runvmx runs the VM on the
+// whole stack: crypto/fift/words.cpp:2679-2680, crypto/vm/vm.cpp:619-625) and resets what a case
+// sets: the library collection (`vmlibs`, a box of the interpreter that runvmx reads:
+// words.cpp:2632-2640), the c7 of SETC7 and the gas limit. oracle-run sets the other variables of
+// this file before it reads them and consumes the stack; runvmx builds a fresh VmState from its
+// arguments (vm.cpp:579-588).
+// ( id$ -- )
+{ "CASE" swap print-kv
+  depth abort"oracle batch: the stack is not empty at the start of a case"
+  null vmlibs ! null oracle_c7 ! 1000000 oracle_gas_limit !
+} : oracle-case-begin
+// ( id$ -- )
+{ "ENDCASE" swap print-kv } : oracle-case-end

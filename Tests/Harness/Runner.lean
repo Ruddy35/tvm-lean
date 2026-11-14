@@ -193,9 +193,8 @@ private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResul
       | none => pure ()
 
   if !opts.unitOnly && !opts.fuzzOnly then
-    for c in suiteOracleCases suite do
+    for runOut in ← runOracleCases (suiteOracleCases suite) do
       out := { out with oracleCases := out.oracleCases + 1 }
-      let runOut ← runOracleCase c
       if !runOut.ok then
         let reason := oracleFailureReason runOut
         out := { out with

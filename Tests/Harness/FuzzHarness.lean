@@ -447,43 +447,26 @@ private def nextFuzzOracleCase
   else
     spec.gen gen
 
-/-- The cases `runFuzzSpec spec oraclePool` runs, in its order (the same generators, seeds, filter
-and advanced-slice variants), without running them: for tools that rerun the fuzz cases on C++
-elsewhere (`tools/klee`: `--dump-cases`). -/
-def fuzzSpecCases (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : Array OracleCase := Id.run do
-  let mut gen := mkStdGen spec.seed.toNat
-  let mut i : Nat := 0
-  let mut attempts : Nat := 0
-  let maxAttempts : Nat := spec.count.succ * 64
-  let mut advGen := mkStdGen (spec.seed.toNat + 1)
-  let mut out : Array OracleCase := #[]
-  while i < spec.count && attempts < maxAttempts do
-    attempts := attempts + 1
-    let (oracleCase, gen') := nextFuzzOracleCase spec oraclePool i gen
-    gen := gen'
-    if !oracleCaseFuzzComparable oracleCase then
-      continue
-    let oracleCase := Tests.Gen.ExactGas.fix oracleCase
-    out := out.push oracleCase
-    i := i + 1
-    let (adv?, advGen') := Tests.Gen.AdvancedSlices.advance oracleCase advGen
-    advGen := advGen'
-    if let some adv := adv? then
-      if oracleCaseFuzzComparable adv then
-        out := out.push (Tests.Gen.ExactGas.fix adv)
-  pure out
+/-- A case `runFuzzSpec` runs: the iteration it is reported under (the number of cases generated up
+to and including its own), whether it is the variant on advanced slices of the case before it, and
+the case. -/
+private structure FuzzStep where
+  iteration : Nat
+  advanced : Bool
+  oracleCase : OracleCase
 
-def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO FuzzRunResult := do
+/-- The cases `runFuzzSpec spec oraclePool` runs, in its order: `spec.count` generated cases (fewer
+if the generator gives too few the oracle can compare), each followed by its variant on advanced
+slices if it has one. Which cases they are depends on the seed only, not on their results. -/
+private def fuzzSpecSteps (spec : FuzzSpec) (oraclePool : Array OracleCase) : Array FuzzStep := Id.run do
   let mut gen := mkStdGen spec.seed.toNat
   let mut i : Nat := 0
   let mut attempts : Nat := 0
   let maxAttempts : Nat := spec.count.succ * 64
-  let mut failures : Array FuzzFailure := #[]
-  let mut artifacts : Array System.FilePath := #[]
   -- the variants on advanced slices draw from a generator of their own: the cases generated stay
   -- those of the seed
   let mut advGen := mkStdGen (spec.seed.toNat + 1)
-  let mut advanced : Nat := 0
+  let mut out : Array FuzzStep := #[]
   while i < spec.count && attempts < maxAttempts do
     attempts := attempts + 1
     let (oracleCase, gen') := nextFuzzOracleCase spec oraclePool i gen
@@ -491,27 +474,39 @@ def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO Fu
     if !oracleCaseFuzzComparable oracleCase then
       continue
     let oracleCase := Tests.Gen.ExactGas.fix oracleCase
-    let out ← runOracleCase oracleCase
     i := i + 1
-    if !out.ok then
-      let artifact? ← dumpFailureArtifact spec.seed i oracleCase out
-      failures := failures.push { iteration := i, result := out, artifact? := artifact? }
-      match artifact? with
-      | some p => artifacts := artifacts.push p
-      | none => pure ()
+    out := out.push { iteration := i, advanced := false, oracleCase := oracleCase }
     let (adv?, advGen') := Tests.Gen.AdvancedSlices.advance oracleCase advGen
     advGen := advGen'
     if let some adv := adv? then
       if oracleCaseFuzzComparable adv then
-        advanced := advanced + 1
-        let adv := Tests.Gen.ExactGas.fix adv
-        let outAdv ← runOracleCase adv
-        if !outAdv.ok then
-          let artifact? ← dumpFailureArtifact spec.seed i adv outAdv
-          failures := failures.push { iteration := i, result := outAdv, artifact? := artifact? }
-          match artifact? with
-          | some p => artifacts := artifacts.push p
-          | none => pure ()
-  pure { seed := spec.seed, total := i, advanced := advanced, failures := failures, artifacts := artifacts }
+        out := out.push { iteration := i, advanced := true, oracleCase := Tests.Gen.ExactGas.fix adv }
+  pure out
+
+/-- The cases `runFuzzSpec spec oraclePool` runs, in its order (the same generators, seeds, filter
+and advanced-slice variants), without running them: for tools that rerun the fuzz cases on C++
+elsewhere (`tools/klee`: `--dump-cases`). -/
+def fuzzSpecCases (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : Array OracleCase :=
+  (fuzzSpecSteps spec oraclePool).map (·.oracleCase)
+
+/-- Runs the cases of `spec` (`fuzzSpecSteps`) on the Lean model and on C++ (`runOracleCases`: many
+to a `fift` process) and reports the failures, each with its iteration and artifact. -/
+def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO FuzzRunResult := do
+  let steps := fuzzSpecSteps spec oraclePool
+  let outs ← runOracleCases (steps.map (·.oracleCase))
+  let mut failures : Array FuzzFailure := #[]
+  let mut artifacts : Array System.FilePath := #[]
+  for (step, out) in steps.zip outs do
+    if !out.ok then
+      let artifact? ← dumpFailureArtifact spec.seed step.iteration step.oracleCase out
+      failures := failures.push { iteration := step.iteration, result := out, artifact? := artifact? }
+      if let some p := artifact? then
+        artifacts := artifacts.push p
+  pure
+    { seed := spec.seed
+      total := (steps.filter (!·.advanced)).size
+      advanced := (steps.filter (·.advanced)).size
+      failures := failures
+      artifacts := artifacts }
 
 end Tests

@@ -16,11 +16,14 @@
 # Runs: build; all unit tests; the opcode check (every suite runs its own opcode, --opcode-check);
 # the full oracle and the fuzz category on every global version of VERSIONS; whole transactions
 # against the TON transaction emulator (tvm-lean-tx-test: the cases on every version, and fuzz);
-# diff fixtures. (The fuzz category, ~400k randomized cases per version, takes about 10 minutes.)
+# diff fixtures. (Per version, the fuzz category, ~490k randomized cases, takes about 2000 CPU-s,
+# the full oracle, ~70k cases, about 2500.)
 # The oracle and the fuzz run in processes of one worker, SHARDS per version and category, each a
 # job of its own; a version's shards add up to one summary line, the line one process running all
-# the suites prints. Every case forks a `fift`: the fork of the test process (~250 MB) is serialized
-# within the process and costs it more system time the more threads it runs, so the parallelism is
+# the suites prints. The C++ side of the cases runs in `fift` processes of up to 512 cases each
+# (TVMLEAN_ORACLE_BATCH; 0: a process per case), each case's result the one of a process of its own
+# (TvmLean/Validation/Oracle/Batch.lean). The forks of the test process (~250 MB) are serialized
+# within the process and cost it more system time the more threads it runs, so the parallelism is
 # in processes.
 # Exit status: 0 only if the build and every job succeed (each job's status is in the summary);
 # a failed build stops the run.

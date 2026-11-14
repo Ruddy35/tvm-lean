@@ -2,6 +2,7 @@ import Tests.Harness.Registry
 import TvmLean.Validation.Canon.Result
 import TvmLean.Validation.Oracle.Report
 import TvmLean.Validation.Oracle.Runner
+import TvmLean.Validation.Oracle.Batch
 
 open TvmLean
 
@@ -202,78 +203,88 @@ def recordOracleResults (rs : Array OracleRunResult) : IO Unit := do
   h.putStr (String.join (rs.map oracleRecordLine).toList)
   h.flush
 
-/--
-  Executes a single case on Lean and on Fift `runvmx`, then compares full canonical results.
--/
-private def runOracleCaseUnrecorded (c : OracleCase) : IO OracleRunResult := do
-  let codeCell0 ←
-    match assembleCaseCode c with
-    | .ok code => pure code
-    | .error e =>
-        return { caseName := c.name, instr := c.instr, ok := false, error? := some e }
+/-- A case `runOracleCase` has run on the Lean model: the run of `runvmx` it makes and the model's
+result. -/
+private structure PreparedCase where
+  inv : TvmLeanOracleValidate.OracleInvocation
+  leanCanon : CanonResult
 
-  let (codeCell, initStack) ←
-    match injectNaNPrelude codeCell0 c.initStack with
-    | .ok prepared => pure prepared
-    | .error e => return { caseName := c.name, instr := c.instr, ok := false, error? := some e }
-
-  let stackTokens ←
-    match stackToTokens initStack with
-    | .ok toks => pure toks
-    | .error e =>
-        return { caseName := c.name, instr := c.instr, ok := false, error? := some e }
+/-- `runOracleCase` up to the C++ run: the case's code with the NaN prelude, its stack and `c7` as
+oracle tokens, its run on the Lean model; or the failure of one of them. -/
+private def prepareOracleCase (c : OracleCase) : Except OracleRunResult PreparedCase := do
+  let fail (e : String) : OracleRunResult :=
+    { caseName := c.name, instr := c.instr, ok := false, error? := some e }
+  let codeCell0 ← (assembleCaseCode c).mapError fail
+  let (codeCell, initStack) ← (injectNaNPrelude codeCell0 c.initStack).mapError fail
+  let stackTokens ← (stackToTokens initStack).mapError fail
   -- a case's own c7 is passed after the stack: its tokens, then SETC7 (fift uses it instead of default-c7)
   let stackTokens ←
     if c.initC7.isEmpty then
       pure stackTokens
     else
-      match valueToTokens (.tuple c.initC7) with
-      | .ok toks => pure (stackTokens ++ toks ++ ["SETC7"])
-      | .error e =>
-          return { caseName := c.name, instr := c.instr, ok := false, error? := some e }
-
+      pure (stackTokens ++ (← (valueToTokens (.tuple c.initC7)).mapError fail) ++ ["SETC7"])
   let leanCase : OracleCase := { c with initStack := initStack }
-  let leanCanon ←
-    match leanCanonResult (runLeanCase codeCell leanCase) with
-    | .ok result => pure result
-    | .error e =>
-        return { caseName := c.name, instr := c.instr, ok := false, error? := some e }
+  let leanCanon ← (leanCanonResult (runLeanCase codeCell leanCase)).mapError fail
+  pure
+    { inv :=
+        { code := codeCell
+          stackArgs := stackTokens
+          libraries := c.initLibraries
+          gasLimit := c.gasLimits.gasLimit + c.gasLimits.gasCredit }
+      leanCanon }
 
-  let oracleGas : Int := c.gasLimits.gasLimit + c.gasLimits.gasCredit
-  let oracleRes : Except String TvmLeanOracleValidate.OracleOut ←
-    try
-      pure (Except.ok (← TvmLeanOracleValidate.runOracle codeCell stackTokens c.initLibraries oracleGas))
-    catch e =>
-      pure (Except.error s!"oracle run failed: {e.toString}")
-  let oracleOut ←
-    match oracleRes with
-    | .ok out => pure out
-    | .error e =>
-        return { caseName := c.name, instr := c.instr, ok := false, error? := some e }
-
-  let oracleCanon := oracleCanonResult oracleOut
-  let cmp := compareCanonResults leanCanon oracleCanon
-  if cmp.ok then
-    pure { caseName := c.name, instr := c.instr, ok := true, comparison? := some cmp }
-  else
-    let msg :=
-      match cmp.mismatch? with
-      | some mismatch => mismatch.message
-      | none => "oracle comparison failed"
-    pure
-      { caseName := c.name
-        instr := c.instr
-        ok := false
-        comparison? := some cmp
-        error? := some msg }
+/-- `runOracleCase` after the C++ run: the comparison of the model's result with C++'s, or the
+failure of the C++ run. -/
+private def finishOracleCase (c : OracleCase) (p : PreparedCase)
+    (oracleRes : Except IO.Error TvmLeanOracleValidate.OracleOut) : OracleRunResult :=
+  match oracleRes with
+  | .error e =>
+      { caseName := c.name, instr := c.instr, ok := false, error? := some s!"oracle run failed: {e.toString}" }
+  | .ok oracleOut =>
+      let cmp := compareCanonResults p.leanCanon (oracleCanonResult oracleOut)
+      if cmp.ok then
+        { caseName := c.name, instr := c.instr, ok := true, comparison? := some cmp }
+      else
+        let msg :=
+          match cmp.mismatch? with
+          | some mismatch => mismatch.message
+          | none => "oracle comparison failed"
+        { caseName := c.name
+          instr := c.instr
+          ok := false
+          comparison? := some cmp
+          error? := some msg }
 
 /--
-  Executes a single case on Lean and on Fift `runvmx`, then compares full canonical results
-  (and records the result: `recordOracleResults`).
+  Executes a single case on Lean and on Fift `runvmx` (a `fift` process of its own), then compares
+  full canonical results (and records the result: `recordOracleResults`).
 -/
 def runOracleCase (c : OracleCase) : IO OracleRunResult := do
-  let r ← runOracleCaseUnrecorded c
+  let r ←
+    match prepareOracleCase c with
+    | .error r => pure r
+    | .ok p => pure (finishOracleCase c p (← TvmLeanOracleValidate.runOracleAlone p.inv))
   recordOracleResults #[r]
   pure r
+
+/-- `runOracleCase` of every case of `cs`, in order. The C++ runs go through
+`TvmLeanOracleValidate.runOracleMany`: many cases to a `fift` process, each result the one of a
+process of its own. With `TVMLEAN_ORACLE_BATCH=0`: `runOracleCase`, a process per case. -/
+def runOracleCases (cs : Array OracleCase) : IO (Array OracleRunResult) := do
+  if (← TvmLeanOracleValidate.oracleBatchSize) ≤ 1 then
+    return (← cs.mapM runOracleCase)
+  let prepared := cs.map fun c => (c, prepareOracleCase c)
+  let invs := prepared.filterMap fun (_, p) => p.toOption.map (·.inv)
+  let outs ← TvmLeanOracleValidate.runOracleMany invs
+  let mut rs : Array OracleRunResult := Array.mkEmpty cs.size
+  let mut k : Nat := 0
+  for (c, p) in prepared do
+    match p with
+    | .error r => rs := rs.push r
+    | .ok p =>
+        rs := rs.push (finishOracleCase c p (outs[k]?.getD (.error (IO.userError "oracle batch: no result"))))
+        k := k + 1
+  recordOracleResults rs
+  pure rs
 
 end Tests
