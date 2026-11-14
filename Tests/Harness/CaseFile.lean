@@ -74,46 +74,58 @@ def caseOfLine (instr : String) (line : String) : Except String OracleCase := do
   | _ => throw s!"bad case line: {line.take 80}"
 
 /-- Runs every case of the file `path` on the Lean model and on C++ (`runOracleCase`) at the
-process's global version, with `jobs` workers; prints `<id> \t OK` or `<id> \t FAIL \t <why>` and a
-summary line. Returns the number of failures. -/
+process's global version, with `jobs` workers; prints `<id> \t OK` or `<id> \t FAIL \t <why>` in the
+order of the file, then a summary line. Returns the number of failures.
+
+Worker `w` runs the lines `w`, `w + jobs`, ... and keeps its result lines until all have finished:
+the workers share no `IO.Ref`. The `get` and `take` of an `IO.Ref` used by several threads spin
+until the value is back (`lean_st_ref_get`, `lean_st_ref_take` in the Lean runtime's `io.cpp`), so
+with an `IO.Ref` touched per case (the next line, the failures, the output) a worker preempted
+inside `modify` had the others spin through their time slices whenever the workers, their `fift`
+processes and the output threads outnumbered the cores. An exception of one case is that case's
+failure; the other cases of its worker still run. -/
 def runCaseFile (path : String) (jobs : Nat) : IO Nat := do
   let text ← IO.FS.readFile path
   let lines := (text.splitOn "\n").filter (·.trim ≠ "") |>.toArray
-  let nextRef ← IO.mkRef 0
-  let failRef ← IO.mkRef 0
-  let outRef ← IO.mkRef (#[] : Array String)
-  let worker : IO Unit := do
-    let mut go := true
-    while go do
-      let i ← nextRef.modifyGet (fun n => (n, n + 1))
-      if h : i < lines.size then
-        let line := lines[i]
-        let msg ←
-          match caseOfLine "KLEE" line with
-          | .error e => pure (some e)
-          | .ok c =>
-              let r ← runOracleCase c
-              pure (if r.ok then none else some (r.error?.getD "failed"))
-        let id := (line.splitOn "\t").headD "?"
-        match msg with
-        | none => outRef.modify (·.push s!"{id}\tOK")
-        | some m =>
-            failRef.modify (· + 1)
-            outRef.modify (·.push s!"{id}\tFAIL\t{m}")
-      else
-        go := false
+  let jobs := Nat.max 1 jobs
+  -- the result line of a case line, and whether the case failed
+  let runLine (line : String) : IO (String × Bool) := do
+    let msg ←
+      match caseOfLine "KLEE" line with
+      | .error e => pure (some e)
+      | .ok c =>
+          try
+            let r ← runOracleCase c
+            pure (if r.ok then none else some (r.error?.getD "failed"))
+          catch e =>
+            pure (some s!"error: {e}")
+    let id := (line.splitOn "\t").headD "?"
+    match msg with
+    | none => pure (s!"{id}\tOK", false)
+    | some m => pure (s!"{id}\tFAIL\t{m}", true)
+  let worker (w : Nat) : IO (Array (String × Bool)) := do
+    let mut out := #[]
+    -- the lines `w + k * jobs` below `lines.size` (`w < jobs`)
+    for k in [0:(lines.size + jobs - 1 - w) / jobs] do
+      out := out.push (← runLine lines[w + k * jobs]!)
+    pure out
   let mut tasks := #[]
-  for _ in [0:Nat.max 1 jobs] do
-    tasks := tasks.push (← IO.asTask worker)
+  for w in [0:jobs] do
+    tasks := tasks.push (← IO.asTask (worker w))
+  let mut results : Array (Array (String × Bool)) := #[]
+  let mut fails := 0
   for t in tasks do
     match ← IO.wait t with
-    | .ok _ => pure ()
+    | .ok rs => results := results.push rs
     | .error e =>
-        failRef.modify (· + 1)
+        results := results.push #[]
+        fails := fails + 1
         IO.println s!"[worker/error] {e}"
-  for l in (← outRef.get) do
-    IO.println l
-  let fails ← failRef.get
+  -- line `i` is the `i / jobs`-th of worker `i % jobs`
+  for i in [0:lines.size] do
+    if let some (l, failed) := results[i % jobs]?.bind (·[i / jobs]?) then
+      IO.println l
+      if failed then fails := fails + 1
   IO.println s!"cases={lines.size} failures={fails}"
   pure fails
 
