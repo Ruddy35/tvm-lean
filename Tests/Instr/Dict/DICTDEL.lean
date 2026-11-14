@@ -436,9 +436,9 @@ def suite : InstrSuite where
     mkCase "oracle/delete/int-unsigned-hit" (mkIntStack (.cell dictSliceUnsigned4) 4 (9)) dictDelIntUnsignedCode,
     mkCase "oracle/delete/int-unsigned-miss" (mkIntStack (.cell dictSliceUnsigned4) 4 (6)) dictDelIntUnsignedCode,
     mkCase "oracle/delete/with-tail-hit-preserved"
-      #[intV 77, .cell dictSlice4Single, .slice (mkSliceFromBits (natToBits 2 4)), intV 4],
+      #[intV 77, .slice (mkSliceFromBits (natToBits 2 4)), .cell dictSlice4Single, intV 4],
     mkCase "oracle/delete/with-tail-miss-preserved"
-      #[intV 77, .cell dictSlice4Single, .slice (mkSliceFromBits (natToBits 7 4)), intV 4],
+      #[intV 77, .slice (mkSliceFromBits (natToBits 7 4)), .cell dictSlice4Single, intV 4],
 
     -- [B7] malformed dictionary structure.
     mkCase "oracle/malformed/dict-root-bad-structure" (mkSliceStack (.cell malformedDict) 4 (natToBits 2 4)),

@@ -235,7 +235,7 @@ private def genDICTUGETOPTREF (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 13 then
       (mkCase "fuzz/err/type-key-nan" (#[.int .nan, .cell dictUnsigned8, intV 8]) rawUGETOPTREF, rng1)
     else if shape = 14 then
-      (mkCase "fuzz/err/nan-n" (#[.cell dictUnsigned8, intV 1, .int .nan]) rawUGETOPTREF, rng1)
+      (mkCase "fuzz/err/nan-n" (#[intV 1, .cell dictUnsigned8, .int .nan]) rawUGETOPTREF, rng1)
     else if shape = 15 then
       (mkCase "fuzz/err/n-negative" (stackUIntKey 0 (.cell dictUnsigned8) (-1)) rawUGETOPTREF, rng1)
     else if shape = 16 then
@@ -333,9 +333,9 @@ def suite : InstrSuite where
     -- [B1][B5][B10]
     mkCase "err/type-key-nan" (#[.int .nan, .cell dictUnsigned8, intV 8]) rawUGETOPTREF,
     -- [B1][B5][B10]
-    mkCase "err/nan-n" (#[.cell dictUnsigned8, intV 1, .int .nan]) rawUGETOPTREF,
+    mkCase "err/nan-n" (#[intV 1, .cell dictUnsigned8, .int .nan]) rawUGETOPTREF,
     -- [B1][B3][B10]
-    mkCase "err/type-n-non-int" (#[.cell dictUnsigned8, .slice (mkSliceFromBits (natToBits 1 8)), intV 8]) rawUGETOPTREF,
+    mkCase "err/type-n-non-int" (#[intV 8, .cell dictUnsigned8, .slice (mkSliceFromBits (natToBits 1 8))]) rawUGETOPTREF,
     -- [B1][B3][B10]
     mkCase "err/range-n-negative" (stackUIntKey 0 (.cell dictUnsigned8) (-1)) rawUGETOPTREF,
     -- [B1][B3][B10]

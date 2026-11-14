@@ -458,7 +458,7 @@ def suite : InstrSuite where
     mkCase "oracle/type/n-too-large" (mkStack (.cell dictRoot4Single2) key4_2 (intV 1024)),
     mkCase "oracle/type/n-max" (mkStack (.cell dictRoot4Single2) key4_2 (intV 1023)),
     -- [B4]
-    mkCase "oracle/type/key-not-slice" (#[.cell dictRoot4Single2, intV 4, intV 4]),
+    mkCase "oracle/type/key-not-slice" (#[intV 4, .cell dictRoot4Single2, intV 4]),
     mkCase "oracle/type/key-not-slice" (#[intV 4, .cell dictRoot4Single2, intV 4]),
     mkCase "oracle/type/dict-not-cell" (#[.slice (mkSliceFromBits key4_2), .tuple #[], intV 4]),
     -- [B5]

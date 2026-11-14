@@ -21,7 +21,8 @@ BRANCH ANALYSIS (derived from reading Lean + C++ source):
 
 2. [B2] Runtime stack-shape/underflow branch:
    - `VM.checkUnderflow (if mode==.del then 3 else 4)` is used by all mutGet paths.
-   - DICTDELGET requires at least 3 items: `(n : Nat)`, `(dict : Option Cell)`, `(key : Slice | Int)` depending on `intKey`.
+   - DICTDELGET requires at least 3 items, `(key : Slice | Int, dict : Option Cell, n : Nat)` bottom first:
+     C++ pops `n`, the dictionary, then the key (crypto/vm/dictops.cpp:406-418).
    - Underflow errors are `stkUnd`.
 
 3. [B3] Runtime key-extraction branch (slice keys):
@@ -32,8 +33,8 @@ BRANCH ANALYSIS (derived from reading Lean + C++ source):
 
 4. [B4] Runtime key-extraction branch (int keys):
    - For integer keys, integer validation is `dictKeyBits? idx n unsigned`.
-   - Out-of-range signed/unsigned values currently route to `.rangeChk` in Lean.
-   - C++ reference handles unsigned/signed overflow as key-not-found (`false`), which is a behavioral difference to be tracked.
+   - Out-of-range signed/unsigned values raise `.rangeChk`, as C++ `integer_key` with `quiet = false`
+     (crypto/vm/dictops.cpp:411, crypto/vm/dict.cpp:432).
 
 5. [B5] Reference-return variant and payload shape checks:
    - `byRef=false` pushes `.slice oldVal`.
@@ -98,6 +99,9 @@ private def dictDelGetIntSignedRefCode : Cell :=
 
 private def dictDelGetIntUnsignedCode : Cell :=
   dictDelGetCell true true false
+
+private def dictDelGetIntUnsignedRefCode : Cell :=
+  dictDelGetCell true true true
 
 private def dispatchSentinel : Int := 99221
 
@@ -215,11 +219,13 @@ private def intSignedRefRoot4 : Cell :=
 private def intUnsignedRefRoot4 : Cell :=
   mkDictRefRoot (keyBitsFor 10 4 true) sampleCellB
 
+/-- The stacks (bottom first) in the C++ pop order (`exec_dict_deleteget`, crypto/vm/dictops.cpp:406-418):
+`n` on top, then the dictionary, then the key. -/
 private def mkSliceCaseStack (root : Value) (n : Int) (keyBits : BitString) : Array Value :=
-  #[root, .slice (makeSlice keyBits), intV n]
+  #[.slice (makeSlice keyBits), root, intV n]
 
 private def mkIntCaseStack (root : Value) (n : Int) (key : Int) : Array Value :=
-  #[root, intV key, intV n]
+  #[intV key, root, intV n]
 
 private def mkCase
     (name : String)
@@ -470,7 +476,7 @@ def suite : InstrSuite where
       mkCase "oracle/byref/int-signed-hit" (mkIntCaseStack (.cell intSignedRefRoot4) 4 (-1)) dictDelGetIntSignedRefCode,
 
       -- [B3] byRef int unsigned hit branch.
-      mkCase "oracle/byref/int-unsigned-hit" (mkIntCaseStack (.cell intUnsignedRefRoot4) 4 (10)) dictDelGetIntUnsignedCode,
+      mkCase "oracle/byref/int-unsigned-hit" (mkIntCaseStack (.cell intUnsignedRefRoot4) 4 (10)) dictDelGetIntUnsignedRefCode,
 
       -- [B5] byRef payload is slice with non-empty bits -> expected dictErr.
       mkCase "oracle/byref/payload/bits" (mkSliceCaseStack (.cell sliceRootRefBadBits4) 4 (natToBits 2 4)) dictDelGetSliceRefCode,

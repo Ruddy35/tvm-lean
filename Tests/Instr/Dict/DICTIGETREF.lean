@@ -57,7 +57,8 @@ BRANCH ANALYSIS (Lean + C++ reference):
    - truncated bytes must fail with `.invOpcode`.
 
 11. [B11] Gas accounting.
-   - This instruction is fixed-cost in this model (`computeExactGasBudget`).
+   - A hit loads cells: the hit gas cases use the exact budget of their path (`exactGasBudgetOnStack`);
+     the miss on a null root costs the base budget (`computeExactGasBudget`).
    - Exact-budget and exact-minus-one branches are required for accounting coverage.
 
 TOTAL BRANCHES: 11
@@ -127,11 +128,13 @@ private def dictBadBits : Cell :=
 private def dictBadRefs : Cell :=
   mkDictSetRefRoot! "dict-bad-refs" 8 #[(7, badValueRefs)]
 
-private def exactGas : Int :=
-  computeExactGasBudget instr
-
 private def exactGasMinusOne : Int :=
   computeExactGasBudgetMinusOne instr
+
+/-- The budget of the hit gas cases (key 5 in `dictN8`): the path loads cells
+(`exactGasBudgetOnStack`). -/
+private def hitGas : Int :=
+  exactGasBudgetOnStack instr #[intV 5, .cell dictN8, intV 8]
 
 private def mkCase
     (name : String)
@@ -178,51 +181,51 @@ private def genDictIGetRefFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
   let (tag, rng2) := randNat rng1 0 999_999
   let (case0, rng3) :=
     if shape = 0 then
-      (mkCase "fuzz/miss/null/n8" (#[ .null, intV 7, intV 8 ]) , rng2)
+      (mkCase "fuzz/miss/null/n8" (#[ intV 7, .null, intV 8 ]) , rng2)
     else if shape = 1 then
-      (mkCase "fuzz/miss/null/n0" (#[ .null, intV 2, intV 0 ]) , rng2)
+      (mkCase "fuzz/miss/null/n0" (#[ intV 2, .null, intV 0 ]) , rng2)
     else if shape = 2 then
-      (mkCase "fuzz/miss/null/n257" (#[ .null, intV 7, intV 257 ]) , rng2)
+      (mkCase "fuzz/miss/null/n257" (#[ intV 7, .null, intV 257 ]) , rng2)
     else if shape = 3 then
-      (mkCase "fuzz/hit/key-5" (#[ .cell dictN8, intV 5, intV 8 ]) , rng2)
+      (mkCase "fuzz/hit/key-5" (#[ intV 5, .cell dictN8, intV 8 ]) , rng2)
     else if shape = 4 then
-      (mkCase "fuzz/hit/key-neg3" (#[ .cell dictN8, intV (-3), intV 8 ]) , rng2)
+      (mkCase "fuzz/hit/key-neg3" (#[ intV (-3), .cell dictN8, intV 8 ]) , rng2)
     else if shape = 5 then
-      (mkCase "fuzz/hit/n0" (#[ .cell dictN0, intV 0, intV 0 ]) , rng2)
+      (mkCase "fuzz/hit/n0" (#[ intV 0, .cell dictN0, intV 0 ]) , rng2)
     else if shape = 6 then
-      (mkCase "fuzz/hit/prefix-preserve" (#[ intV 11, .cell dictN8, intV 5, intV 8 ]) , rng2)
+      (mkCase "fuzz/hit/prefix-preserve" (#[ intV 11, intV 5, .cell dictN8, intV 8 ]) , rng2)
     else if shape = 7 then
-      (mkCase "fuzz/out-of-range/pos8" (#[ .cell dictN8, intV 128, intV 8 ]) , rng2)
+      (mkCase "fuzz/out-of-range/pos8" (#[ intV 128, .cell dictN8, intV 8 ]) , rng2)
     else if shape = 8 then
-      (mkCase "fuzz/out-of-range/neg8" (#[ .cell dictN8, intV (-129), intV 8 ]) , rng2)
+      (mkCase "fuzz/out-of-range/neg8" (#[ intV (-129), .cell dictN8, intV 8 ]) , rng2)
     else if shape = 9 then
-      (mkCase "fuzz/out-of-range/n0-mismatch" (#[ .cell dictN0, intV 1, intV 0 ]) , rng2)
+      (mkCase "fuzz/out-of-range/n0-mismatch" (#[ intV 1, .cell dictN0, intV 0 ]) , rng2)
     else if shape = 10 then
-      (mkCase "fuzz/out-of-range/n1-mismatch" (#[ .cell dictN1, intV 1, intV 1 ]) , rng2)
+      (mkCase "fuzz/out-of-range/n1-mismatch" (#[ intV 1, .cell dictN1, intV 1 ]) , rng2)
     else if shape = 11 then
-      (mkCase "fuzz/type/n-null" (#[ .cell dictN8, intV 5, .null ]) , rng2)
+      (mkCase "fuzz/type/n-null" (#[ intV 5, .cell dictN8, .null ]) , rng2)
     else if shape = 12 then
-      (mkCase "fuzz/type/key-null" (#[ .cell dictN8, .null, intV 8 ]) , rng2)
+      (mkCase "fuzz/type/key-null" (#[ .null, .cell dictN8, intV 8 ]) , rng2)
     else if shape = 13 then
-      (mkCase "fuzz/type/key-cell" (#[ .cell dictN8, .cell Cell.empty, intV 8 ]) , rng2)
+      (mkCase "fuzz/type/key-cell" (#[ .cell Cell.empty, .cell dictN8, intV 8 ]) , rng2)
     else if shape = 14 then
-      (mkCase "fuzz/type/key-slice" (#[ .cell dictN8, .slice (mkSliceFromBits (natToBits 0x1 1)), intV 8 ]) , rng2)
+      (mkCase "fuzz/type/key-slice" (#[ .slice (mkSliceFromBits (natToBits 0x1 1)), .cell dictN8, intV 8 ]) , rng2)
     else if shape = 15 then
-      (mkCase "fuzz/type/key-nan" (#[ .cell dictN8, .int .nan, intV 8 ]) , rng2)
+      (mkCase "fuzz/type/key-nan" (#[ .int .nan, .cell dictN8, intV 8 ]) , rng2)
     else if shape = 16 then
-      (mkCase "fuzz/type/dict-non-cell" (#[ .tuple #[], intV 5, intV 8 ]) , rng2)
+      (mkCase "fuzz/type/dict-non-cell" (#[ intV 5, .tuple #[], intV 8 ]) , rng2)
     else if shape = 17 then
-      (mkCase "fuzz/type/nan-n" (#[ .cell dictN8, intV 5, .int .nan ]) , rng2)
+      (mkCase "fuzz/type/nan-n" (#[ intV 5, .cell dictN8, .int .nan ]) , rng2)
     else if shape = 18 then
-      (mkCase "fuzz/type/n-negative" (#[ .cell dictN8, intV 5, intV (-1) ]) , rng2)
+      (mkCase "fuzz/type/n-negative" (#[ intV 5, .cell dictN8, intV (-1) ]) , rng2)
     else if shape = 19 then
-      (mkCase "fuzz/type/n-too-large" (#[ .cell dictN8, intV 5, intV 1024 ]) , rng2)
+      (mkCase "fuzz/type/n-too-large" (#[ intV 5, .cell dictN8, intV 1024 ]) , rng2)
     else if shape = 20 then
-      (mkCase "fuzz/err/malformed-dict" (#[ .cell malformedDict, intV 5, intV 8 ]) , rng2)
+      (mkCase "fuzz/err/malformed-dict" (#[ intV 5, .cell malformedDict, intV 8 ]) , rng2)
     else if shape = 21 then
-      (mkCase "fuzz/err/bad-value-bits" (#[ .cell dictBadBits, intV 7, intV 8 ]) , rng2)
+      (mkCase "fuzz/err/bad-value-bits" (#[ intV 7, .cell dictBadBits, intV 8 ]) , rng2)
     else if shape = 22 then
-      (mkCase "fuzz/err/bad-value-refs" (#[ .cell dictBadRefs, intV 7, intV 8 ]) , rng2)
+      (mkCase "fuzz/err/bad-value-refs" (#[ intV 7, .cell dictBadRefs, intV 8 ]) , rng2)
     else if shape = 23 then
       (mkCase "fuzz/underflow/empty" #[] , rng2)
     else if shape = 24 then
@@ -230,9 +233,9 @@ private def genDictIGetRefFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 25 then
       (mkCase "fuzz/underflow/two" (#[ .cell dictN8, intV 5 ]) , rng2)
     else
-      (mkCase "fuzz/gas/exact" (#[ .cell dictN8, intV 5, intV 8 ])
-        (#[.pushInt (.num exactGas), .tonEnvOp .setGasLimit, instr])
-        (oracleGasLimitsExact exactGas), rng2)
+      (mkCase "fuzz/gas/exact" (#[ intV 5, .cell dictN8, intV 8 ])
+        (#[.pushInt (.num hitGas), .tonEnvOp .setGasLimit, instr])
+        (oracleGasLimitsExact hitGas), rng2)
   ({ case0 with name := s!"{case0.name}/{tag}" }, rng3)
 
 def suite : InstrSuite where
@@ -349,14 +352,14 @@ def suite : InstrSuite where
   , mkCase "oracle/err/malformed-dict" (#[ intV 5, .cell malformedDict, intV 8 ])
     -- [B11] gas limits
   , mkCase "oracle/gas/exact-hit" (#[ intV 5, .cell dictN8, intV 8 ])
-      (#[.pushInt (.num exactGas), .tonEnvOp .setGasLimit, instr])
-      (oracleGasLimitsExact exactGas)
+      (#[.pushInt (.num hitGas), .tonEnvOp .setGasLimit, instr])
+      (oracleGasLimitsExact hitGas)
   , mkCase "oracle/gas/exact-minus-one-miss" (#[ intV 5, .null, intV 8 ])
       (#[.pushInt (.num exactGasMinusOne), .tonEnvOp .setGasLimit, instr])
       (oracleGasLimitsExact exactGasMinusOne)
   , mkCase "oracle/gas/exact-tail-preserve" (#[ intV 123, intV 5, .cell dictN8, intV 8 ])
-      (#[.pushInt (.num exactGas), .tonEnvOp .setGasLimit, instr])
-      (oracleGasLimitsExact exactGas)
+      (#[.pushInt (.num hitGas), .tonEnvOp .setGasLimit, instr])
+      (oracleGasLimitsExact hitGas)
     -- [B9] assemble/decode edge fixtures via raw opcode compatibility
   , mkCodeCase "oracle/code/decode/f40d" #[] rawF40D
   , mkCodeCase "oracle/code/decode/f40a" #[] rawF40A

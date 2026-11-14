@@ -21,7 +21,9 @@ BRANCH ANALYSIS (Lean + C++ source):
    - Any non-`dictExt` instruction falls through to `next` (verified via sentinel fallback).
 
 2. [B2] Stack-shape checks (`checkUnderflow 3`):
-   - Missing any of `(dict, key, n)` triggers `.stkUnd` in all modes.
+   - The stack is `(key, dict, n)` (bottom first): C++ `exec_dict_delete` pops `n`, the dictionary,
+     then the key (crypto/vm/dictops.cpp:379-391).
+   - Missing any of `(key, dict, n)` triggers `.stkUnd` in all modes.
 
 3. [B3] Width extraction (`popNatUpTo 1023`):
    - `.nan`, negative, and values `> 1023` for `n` raise `.rangeChk`.
@@ -32,10 +34,9 @@ BRANCH ANALYSIS (Lean + C++ source):
    - Non-cell/tuple/cont values for dictionary raise `.typeChk`.
 
 5. [B5] Integer-key branch (`intKey = true`):
-   - Key must be finite int.
-   - Non-finite key → `.rangeChk`.
-   - Key/range mismatch via `dictKeyBits?` (`signed`/`unsigned` and `n`) raises `.rangeChk` in Lean.
-   - C++ `DICTIDEL` differs by returning miss for out-of-range signed keys; this Lean mismatch is handled explicitly.
+   - Key must be finite int (`pop_int_finite`, crypto/vm/dictops.cpp:384): NaN → `.intOv`.
+   - Key/range mismatch via `dictKeyBits?` (`signed`/`unsigned` and `n`) raises `.rangeChk`, as C++
+     `integer_key` with `quiet = false` (crypto/vm/dict.cpp:432).
 
 6. [B6] Slice-key branch (`intKey = false`):
    - `n` bits are read from key slice.
@@ -62,7 +63,7 @@ BRANCH ANALYSIS (Lean + C++ source):
 11. [B11] Gas behavior:
    - Exact budget success on miss/hit paths when budget is sufficient.
    - Exact budget minus one should fail.
-   - Hit path gas may include `cellCreateGasPrice * created`.
+   - Hit path loads and creates cells: its budget is the exact gas of the path (`exactGasBudgetOnStack`).
 
 TOTAL BRANCHES: 11.
 Each oracle test below is tagged with the branch(es) it exercises.
@@ -173,28 +174,21 @@ private def key3ShortSlice : Slice :=
 private def key0Slice : Slice :=
   mkSliceFromBits #[] 
 
-private def dictDeleteCreated (root : Cell) (n : Nat) (key : Int) (unsigned : Bool) : Nat :=
-  match dictKeyBits? key n unsigned with
-  | none => 0
-  | some bits =>
-      match dictDeleteWithCells (some root) bits with
-      | .ok (_, _, created, _) => created
-      | .error _ => 0
-
 private def baseGas : Int :=
   computeExactGasBudget instrIntSigned
 
 private def baseGasMinusOne : Int :=
   computeExactGasBudgetMinusOne instrIntSigned
 
+/-- The budget of the hit gas cases: the path loads and creates cells (`exactGasBudgetOnStack`). -/
 private def hitSignedGas : Int :=
-  baseGas + Int.ofNat (dictDeleteCreated dictSliceSignedN8Many 8 127 false) * cellCreateGasPrice
+  exactGasBudgetOnStack instrIntSigned #[intV 127, .cell dictSliceSignedN8Many, intV 8]
 
 private def hitSignedGasMinusOne : Int :=
   if hitSignedGas > 0 then hitSignedGas - 1 else 0
 
 private def hitUnsignedGas : Int :=
-  baseGas + Int.ofNat (dictDeleteCreated dictSliceUnsignedN8Many 8 255 true) * cellCreateGasPrice
+  exactGasBudgetOnStack instrIntUnsigned #[intV 255, .cell dictSliceUnsignedN8Many, intV 8]
 
 private def hitUnsignedGasMinusOne : Int :=
   if hitUnsignedGas > 0 then hitUnsignedGas - 1 else 0
@@ -282,19 +276,14 @@ private def mkCaseProgram
 private def runDispatchFallback (stack : Array Value) : Except Excno (Array Value) :=
   runHandlerDirectWithNext execInstrDictExt (.add) (VM.push (intV dispatchSentinel)) stack
 
-private def normalizeExecStack (stack : Array Value) : Array Value :=
-  match stack with
-  | #[dict, key, n] => #[key, dict, n]
-  | _ => stack
-
 private def runSigned (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect execInstrDictExt instrIntSigned (normalizeExecStack stack)
+  runHandlerDirect execInstrDictExt instrIntSigned stack
 
 private def runUnsigned (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect execInstrDictExt instrIntUnsigned (normalizeExecStack stack)
+  runHandlerDirect execInstrDictExt instrIntUnsigned stack
 
 private def runSlice (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect execInstrDictExt instrSlice (normalizeExecStack stack)
+  runHandlerDirect execInstrDictExt instrSlice stack
 
 private def expectDecodeOk
     (label : String)
@@ -345,39 +334,39 @@ private def genDICTIDEL (rng0 : StdGen) : OracleCase × StdGen :=
   let (case0, rng2) :=
     match shape with
     | 0 =>
-        (mkCaseSigned "fuzz/signed-hit" #[(.cell dictSliceSignedN8One), intV 7, intV 8], rng1)
+        (mkCaseSigned "fuzz/signed-hit" #[intV 7, (.cell dictSliceSignedN8One), intV 8], rng1)
     | 1 =>
-        (mkCaseSigned "fuzz/signed-miss" #[(.cell dictSliceSignedN8One), intV 9, intV 8], rng1)
+        (mkCaseSigned "fuzz/signed-miss" #[intV 9, (.cell dictSliceSignedN8One), intV 8], rng1)
     | 2 =>
-        (mkCaseSigned "fuzz/signed-empty-root-miss" #[.null, intV 7, intV 8], rng1)
+        (mkCaseSigned "fuzz/signed-empty-root-miss" #[intV 7, .null, intV 8], rng1)
     | 3 =>
-        (mkCaseSigned "fuzz/signed-n0-hit" #[(.cell dictSliceSignedN0One), intV 0, intV 0], rng1)
+        (mkCaseSigned "fuzz/signed-n0-hit" #[intV 0, (.cell dictSliceSignedN0One), intV 0], rng1)
     | 4 =>
-        (mkCaseUnsigned "fuzz/unsigned-hit" #[(.cell dictSliceUnsignedN8One), intV 7, intV 8], rng1)
+        (mkCaseUnsigned "fuzz/unsigned-hit" #[intV 7, (.cell dictSliceUnsignedN8One), intV 8], rng1)
     | 5 =>
-        (mkCaseUnsigned "fuzz/unsigned-miss" #[(.cell dictSliceUnsignedN8One), intV 2, intV 8], rng1)
+        (mkCaseUnsigned "fuzz/unsigned-miss" #[intV 2, (.cell dictSliceUnsignedN8One), intV 8], rng1)
     | 6 =>
-        (mkCaseUnsigned "fuzz/unsigned-n0-hit" #[(.cell dictSliceUnsignedN0One), intV 0, intV 0], rng1)
+        (mkCaseUnsigned "fuzz/unsigned-n0-hit" #[intV 0, (.cell dictSliceUnsignedN0One), intV 0], rng1)
     | 7 =>
-        (mkCaseSlice "fuzz/slice-hit" #[(.cell dictSliceSignedN8One), .slice key7Slice, intV 8], rng1)
+        (mkCaseSlice "fuzz/slice-hit" #[.slice key7Slice, (.cell dictSliceSignedN8One), intV 8], rng1)
     | 8 =>
-        (mkCaseSlice "fuzz/slice-miss" #[(.cell dictSliceSignedN8One), .slice (mkSliceFromBits (natToBits 2 8)), intV 8], rng1)
+        (mkCaseSlice "fuzz/slice-miss" #[.slice (mkSliceFromBits (natToBits 2 8)), (.cell dictSliceSignedN8One), intV 8], rng1)
     | 9 =>
-        (mkCaseSlice "fuzz/slice-underflow" #[(.cell dictSliceSignedN8One), .slice key3ShortSlice, intV 8], rng1)
+        (mkCaseSlice "fuzz/slice-underflow" #[.slice key3ShortSlice, (.cell dictSliceSignedN8One), intV 8], rng1)
     | 10 =>
-        (mkCaseSigned "fuzz/n-type" #[(.cell dictSliceSignedN8One), intV 7, .tuple #[]], rng1)
+        (mkCaseSigned "fuzz/n-type" #[intV 7, (.cell dictSliceSignedN8One), .tuple #[]], rng1)
     | 11 =>
-        (mkCaseSigned "fuzz/n-negative" #[(.cell dictSliceSignedN8One), intV 7, intV (-1)], rng1)
+        (mkCaseSigned "fuzz/n-negative" #[intV 7, (.cell dictSliceSignedN8One), intV (-1)], rng1)
     | 12 =>
-        (mkCaseSigned "fuzz/n-too-large" #[(.cell dictSliceSignedN8One), intV 7, intV 2000], rng1)
+        (mkCaseSigned "fuzz/n-too-large" #[intV 7, (.cell dictSliceSignedN8One), intV 2000], rng1)
     | 13 =>
-        (mkCaseSigned "fuzz/key-range-high" #[(.cell dictSliceSignedN8One), intV 128, intV 8], rng1)
+        (mkCaseSigned "fuzz/key-range-high" #[intV 128, (.cell dictSliceSignedN8One), intV 8], rng1)
     | 14 =>
-        (mkCaseUnsigned "fuzz/key-range-negative" #[(.cell dictSliceUnsignedN8One), intV (-1), intV 8], rng1)
+        (mkCaseUnsigned "fuzz/key-range-negative" #[intV (-1), (.cell dictSliceUnsignedN8One), intV 8], rng1)
     | 15 =>
-        (mkCaseUnsigned "fuzz/key-range-too-large" #[(.cell dictSliceUnsignedN8One), intV 256, intV 8], rng1)
+        (mkCaseUnsigned "fuzz/key-range-too-large" #[intV 256, (.cell dictSliceUnsignedN8One), intV 8], rng1)
     | 16 =>
-        (mkCaseSlice "fuzz/key-type" #[(.cell dictSliceSignedN8One), intV 7, intV 8], rng1)
+        (mkCaseSlice "fuzz/key-type" #[intV 7, (.cell dictSliceSignedN8One), intV 8], rng1)
     | 17 =>
         (mkCaseSigned "fuzz/dict-type" #[intV 7, intV 7, intV 8], rng1)
     | 18 =>
@@ -387,13 +376,13 @@ private def genDICTIDEL (rng0 : StdGen) : OracleCase × StdGen :=
     | 20 =>
         (mkCaseProgram
             "fuzz/gas/exact-miss"
-            #[.null, intV 7, intV 8]
+            #[intV 7, .null, intV 8]
             #[.pushInt (.num baseGas), .tonEnvOp .setGasLimit, instrIntSigned]
             gasExact, rng1)
     | _ =>
         (mkCaseProgram
         "fuzz/gas/exact-minus-one-miss"
-            #[.null, intV 7, intV 8]
+            #[intV 7, .null, intV 8]
             #[.pushInt (.num baseGasMinusOne), .tonEnvOp .setGasLimit, instrIntSigned]
             gasExactMinusOne, rng1)
   let (tag, rng3) := randNat rng2 0 999_999
@@ -413,31 +402,31 @@ def suite : InstrSuite where
             throw (IO.userError s!"dispatch fallback: expected ok, got error {e}") },
     { name := "unit/exec/signed-hit" -- [B2] [B3] [B7]
       run := do
-        expectOkStack "signed-hit" (runSigned #[(.cell dictSliceSignedN8One), intV 7, intV 8]) #[.null, intV (-1)] },
+        expectOkStack "signed-hit" (runSigned #[intV 7, (.cell dictSliceSignedN8One), intV 8]) #[.null, intV (-1)] },
     { name := "unit/exec/signed-miss" -- [B7]
       run := do
-        expectOkStack "signed-miss" (runSigned #[(.cell dictSliceSignedN8One), intV 9, intV 8]) #[.cell dictSliceSignedN8One, intV 0] },
+        expectOkStack "signed-miss" (runSigned #[intV 9, (.cell dictSliceSignedN8One), intV 8]) #[.cell dictSliceSignedN8One, intV 0] },
     { name := "unit/exec/signed-zero" -- [B7]
       run := do
-        expectOkStack "signed-zero-hit" (runSigned #[(.cell dictSliceSignedN0One), intV 0, intV 0]) #[.null, intV (-1)] },
+        expectOkStack "signed-zero-hit" (runSigned #[intV 0, (.cell dictSliceSignedN0One), intV 0]) #[.null, intV (-1)] },
     { name := "unit/exec/unsigned-hit" -- [B7]
       run := do
-        expectOkStack "unsigned-hit" (runUnsigned #[(.cell dictSliceUnsignedN8One), intV 7, intV 8]) #[.null, intV (-1)] },
+        expectOkStack "unsigned-hit" (runUnsigned #[intV 7, (.cell dictSliceUnsignedN8One), intV 8]) #[.null, intV (-1)] },
     { name := "unit/exec/unsigned-miss" -- [B7]
       run := do
-        expectOkStack "unsigned-miss" (runUnsigned #[(.cell dictSliceUnsignedN8One), intV 9, intV 8]) #[.cell dictSliceUnsignedN8One, intV 0] },
+        expectOkStack "unsigned-miss" (runUnsigned #[intV 9, (.cell dictSliceUnsignedN8One), intV 8]) #[.cell dictSliceUnsignedN8One, intV 0] },
     { name := "unit/exec/unsigned-zero" -- [B7]
       run := do
-        expectOkStack "unsigned-zero-hit" (runUnsigned #[(.cell dictSliceUnsignedN0One), intV 0, intV 0]) #[.null, intV (-1)] },
+        expectOkStack "unsigned-zero-hit" (runUnsigned #[intV 0, (.cell dictSliceUnsignedN0One), intV 0]) #[.null, intV (-1)] },
     { name := "unit/exec/slice-hit" -- [B7]
       run := do
-        expectOkStack "slice-hit" (runSlice #[(.cell dictSliceSignedN8One), .slice key7Slice, intV 8]) #[.null, intV (-1)] },
+        expectOkStack "slice-hit" (runSlice #[.slice key7Slice, (.cell dictSliceSignedN8One), intV 8]) #[.null, intV (-1)] },
     { name := "unit/exec/slice-miss" -- [B7]
       run := do
-        expectOkStack "slice-miss" (runSlice #[(.cell dictSliceSignedN8One), .slice (mkSliceFromBits (natToBits 9 8)), intV 8]) #[.cell dictSliceSignedN8One, intV 0] },
+        expectOkStack "slice-miss" (runSlice #[.slice (mkSliceFromBits (natToBits 9 8)), (.cell dictSliceSignedN8One), intV 8]) #[.cell dictSliceSignedN8One, intV 0] },
     { name := "unit/exec/slice-underflow" -- [B6]
       run := do
-        expectErr "slice-key-underflow" (runSlice #[(.cell dictSliceSignedN8One), .slice key3ShortSlice, intV 8]) .cellUnd },
+        expectErr "slice-key-underflow" (runSlice #[.slice key3ShortSlice, (.cell dictSliceSignedN8One), intV 8]) .cellUnd },
     { name := "unit/exec/underflow-empty" -- [B2]
       run := do
         expectErr "underflow-empty" (runSigned #[]) .stkUnd },
@@ -446,34 +435,34 @@ def suite : InstrSuite where
         expectErr "underflow-one-item" (runSigned #[.cell dictSliceSignedN8One]) .stkUnd },
     { name := "unit/err/n-nan" -- [B3]
       run := do
-        expectErr "n-nan" (runSigned #[(.cell dictSliceSignedN8One), intV 7, .int .nan]) .rangeChk },
+        expectErr "n-nan" (runSigned #[intV 7, (.cell dictSliceSignedN8One), .int .nan]) .rangeChk },
     { name := "unit/err/n-negative" -- [B3]
       run := do
-        expectErr "n-negative" (runSigned #[(.cell dictSliceSignedN8One), intV 7, intV (-1)]) .rangeChk },
+        expectErr "n-negative" (runSigned #[intV 7, (.cell dictSliceSignedN8One), intV (-1)]) .rangeChk },
     { name := "unit/err/n-too-large" -- [B3]
       run := do
-        expectErr "n-too-large" (runSigned #[(.cell dictSliceSignedN8One), intV 7, intV 2000]) .rangeChk },
+        expectErr "n-too-large" (runSigned #[intV 7, (.cell dictSliceSignedN8One), intV 2000]) .rangeChk },
     { name := "unit/err/key-type-signed" -- [B5]
       run := do
-        expectErr "key-type-signed" (runSigned #[(.cell dictSliceSignedN8One), .slice key7Slice, intV 8]) .typeChk },
+        expectErr "key-type-signed" (runSigned #[.slice key7Slice, (.cell dictSliceSignedN8One), intV 8]) .typeChk },
     { name := "unit/err/key-type-slice" -- [B5]
       run := do
-        expectErr "key-type-slice" (runSlice #[(.cell dictSliceSignedN8One), intV 7, intV 8]) .typeChk },
+        expectErr "key-type-slice" (runSlice #[intV 7, (.cell dictSliceSignedN8One), intV 8]) .typeChk },
     { name := "unit/err/dict-type-signed" -- [B4]
       run := do
-        expectErr "dict-type-signed" (runSigned #[(.slice key7Slice), intV 7, intV 8]) .typeChk },
+        expectErr "dict-type-signed" (runSigned #[intV 7, .slice key7Slice, intV 8]) .typeChk },
     { name := "unit/err/dict-type-slice" -- [B4]
       run := do
-        expectErr "dict-type-slice" (runSlice #[.slice key7Slice, .slice key7Slice, intV 8]) .typeChk },
+        expectErr "dict-type-slice" (runSlice #[.slice key7Slice, .tuple #[], intV 8]) .typeChk },
     { name := "unit/err/key-range-signed-high" -- [B5]
       run := do
-        expectErr "key-range-signed-high" (runSigned #[(.cell dictSliceSignedN8One), intV 128, intV 8]) .rangeChk },
+        expectErr "key-range-signed-high" (runSigned #[intV 128, (.cell dictSliceSignedN8One), intV 8]) .rangeChk },
     { name := "unit/err/key-range-unsigned-negative" -- [B5]
       run := do
-        expectErr "key-range-unsigned-negative" (runUnsigned #[(.cell dictSliceUnsignedN8One), intV (-1), intV 8]) .rangeChk },
+        expectErr "key-range-unsigned-negative" (runUnsigned #[intV (-1), (.cell dictSliceUnsignedN8One), intV 8]) .rangeChk },
     { name := "unit/err/key-range-unsigned-high" -- [B5]
       run := do
-        expectErr "key-range-unsigned-high" (runUnsigned #[(.cell dictSliceUnsignedN8One), intV 256, intV 8]) .rangeChk },
+        expectErr "key-range-unsigned-high" (runUnsigned #[intV 256, (.cell dictSliceUnsignedN8One), intV 8]) .rangeChk },
     { name := "unit/decode/valid-opcodes" -- [B10]
       run := do
         let _ ← expectDecodeOk "decode-slice" instrSliceCode instrSlice
@@ -502,58 +491,58 @@ def suite : InstrSuite where
     -- [B2]
     mkCaseSigned "oracle/underflow-one-item" #[.cell dictSliceSignedN8One],
     -- [B3]
-    mkCaseSigned "oracle/n-negative" #[.cell dictSliceSignedN8One, intV 7, intV (-1)],
+    mkCaseSigned "oracle/n-negative" #[intV 7, .cell dictSliceSignedN8One, intV (-1)],
     -- [B3]
-    mkCaseSigned "oracle/n-too-large" #[.cell dictSliceSignedN8One, intV 7, intV 2000],
+    mkCaseSigned "oracle/n-too-large" #[intV 7, .cell dictSliceSignedN8One, intV 2000],
     -- [B3]
-    mkCaseSigned "oracle/n-type" #[(.cell dictSliceSignedN8One), intV 7, .tuple #[]],
-    mkCaseSigned "oracle/key-underflow" #[.cell dictSliceSignedN8One, .slice key3ShortSlice, intV 8],
+    mkCaseSigned "oracle/n-type" #[intV 7, (.cell dictSliceSignedN8One), .tuple #[]],
+    mkCaseSigned "oracle/key-underflow" #[.slice key3ShortSlice, .cell dictSliceSignedN8One, intV 8],
     -- [B3/B4]
-    mkCaseSigned "oracle/key-out-of-range-high" #[.cell dictSliceSignedN8One, intV 128, intV 8],
+    mkCaseSigned "oracle/key-out-of-range-high" #[intV 128, .cell dictSliceSignedN8One, intV 8],
     -- [B3/B4]
-    mkCaseSigned "oracle/key-out-of-range-low" #[.cell dictSliceSignedN8One, intV (-129), intV 8],
+    mkCaseSigned "oracle/key-out-of-range-low" #[intV (-129), .cell dictSliceSignedN8One, intV 8],
     -- [B4]
-    mkCaseSlice "oracle/key-underflow-slice" #[.cell dictSliceSignedN8One, .slice key3ShortSlice, intV 8],
+    mkCaseSlice "oracle/key-underflow-slice" #[.slice key3ShortSlice, .cell dictSliceSignedN8One, intV 8],
     -- [B4]
-    mkCaseSigned "oracle/key-non-int-signed" #[(.cell dictSliceSignedN8One), .tuple #[], intV 8],
+    mkCaseSigned "oracle/key-non-int-signed" #[.tuple #[], (.cell dictSliceSignedN8One), intV 8],
     -- [B4]
-    mkCaseSlice "oracle/key-non-int-slice" #[.cell dictSliceSignedN8One, .tuple #[], intV 8] ,
+    mkCaseSlice "oracle/key-non-int-slice" #[.tuple #[], .cell dictSliceSignedN8One, intV 8] ,
     -- [B4]
-    mkCaseSigned "oracle/dict-non-cell-signed" #[.tuple #[], intV 7, intV 8],
+    mkCaseSigned "oracle/dict-non-cell-signed" #[intV 7, .tuple #[], intV 8],
     -- [B4]
-    mkCaseSlice "oracle/dict-non-cell-slice" #[.tuple #[], .slice key7Slice, intV 8],
+    mkCaseSlice "oracle/dict-non-cell-slice" #[.slice key7Slice, .tuple #[], intV 8],
     -- [B5]
-    mkCaseSlice "oracle/signed-hit" #[(.cell dictSliceSignedN8One), .slice key7Slice, intV 8],
+    mkCaseSlice "oracle/signed-hit" #[.slice key7Slice, (.cell dictSliceSignedN8One), intV 8],
     -- [B5]
-    mkCaseSlice "oracle/signed-miss" #[(.cell dictSliceSignedN8One), .slice (mkSliceFromBits (natToBits 9 8)), intV 8],
+    mkCaseSlice "oracle/signed-miss" #[.slice (mkSliceFromBits (natToBits 9 8)), (.cell dictSliceSignedN8One), intV 8],
     -- [B5]
-    mkCaseSigned "oracle/signed-hit-single" #[(.cell dictSliceSignedN8One), intV 7, intV 8],
+    mkCaseSigned "oracle/signed-hit-single" #[intV 7, (.cell dictSliceSignedN8One), intV 8],
     -- [B5]
-    mkCaseSigned "oracle/signed-miss-single" #[(.cell dictSliceSignedN8One), intV 9, intV 8],
+    mkCaseSigned "oracle/signed-miss-single" #[intV 9, (.cell dictSliceSignedN8One), intV 8],
     -- [B5]
-    mkCaseSigned "oracle/signed-hit-many" #[(.cell dictSliceSignedN8Many), intV 127, intV 8],
+    mkCaseSigned "oracle/signed-hit-many" #[intV 127, (.cell dictSliceSignedN8Many), intV 8],
     -- [B5]
-    mkCaseSigned "oracle/signed-non-match" #[(.cell dictSliceSignedN8Many), intV 1, intV 8],
+    mkCaseSigned "oracle/signed-non-match" #[intV 1, (.cell dictSliceSignedN8Many), intV 8],
     -- [B5]
-    mkCaseSigned "oracle/signed-zero" #[(.cell dictSliceSignedN0One), intV 0, intV 0],
+    mkCaseSigned "oracle/signed-zero" #[intV 0, (.cell dictSliceSignedN0One), intV 0],
     -- [B5]
-    mkCaseUnsigned "oracle/unsigned-hit" #[(.cell dictSliceUnsignedN8One), intV 7, intV 8],
+    mkCaseUnsigned "oracle/unsigned-hit" #[intV 7, (.cell dictSliceUnsignedN8One), intV 8],
     -- [B5]
-    mkCaseUnsigned "oracle/unsigned-miss" #[(.cell dictSliceUnsignedN8One), intV 3, intV 8],
+    mkCaseUnsigned "oracle/unsigned-miss" #[intV 3, (.cell dictSliceUnsignedN8One), intV 8],
     -- [B5]
-    mkCaseUnsigned "oracle/unsigned-hit-many" #[(.cell dictSliceUnsignedN8Many), intV 255, intV 8],
+    mkCaseUnsigned "oracle/unsigned-hit-many" #[intV 255, (.cell dictSliceUnsignedN8Many), intV 8],
     -- [B5]
-    mkCaseUnsigned "oracle/unsigned-miss-many" #[(.cell dictSliceUnsignedN8Many), intV 2, intV 8],
+    mkCaseUnsigned "oracle/unsigned-miss-many" #[intV 2, (.cell dictSliceUnsignedN8Many), intV 8],
     -- [B5]
-    mkCaseUnsigned "oracle/unsigned-zero" #[(.cell dictSliceUnsignedN0One), intV 0, intV 0],
+    mkCaseUnsigned "oracle/unsigned-zero" #[intV 0, (.cell dictSliceUnsignedN0One), intV 0],
     -- [B5]
-    mkCaseUnsigned "oracle/unsigned-range-low" #[(.cell dictSliceUnsignedN8One), intV (-1), intV 8],
+    mkCaseUnsigned "oracle/unsigned-range-low" #[intV (-1), (.cell dictSliceUnsignedN8One), intV 8],
     -- [B5]
-    mkCaseUnsigned "oracle/unsigned-range-high" #[(.cell dictSliceUnsignedN8One), intV 256, intV 8],
+    mkCaseUnsigned "oracle/unsigned-range-high" #[intV 256, (.cell dictSliceUnsignedN8One), intV 8],
     -- [B8]
-    mkCaseSigned "oracle/malformed-a" #[(.cell malformedDictA), intV 7, intV 8],
+    mkCaseSigned "oracle/malformed-a" #[intV 7, (.cell malformedDictA), intV 8],
     -- [B8]
-    mkCaseUnsigned "oracle/malformed-b" #[(.cell malformedDictB), intV 7, intV 8],
+    mkCaseUnsigned "oracle/malformed-b" #[intV 7, (.cell malformedDictB), intV 8],
     -- [B10]
     mkCaseCode "oracle/decode/f459" #[] instrSliceCode,
     -- [B10]
@@ -567,22 +556,22 @@ def suite : InstrSuite where
     -- [B10]
     mkCaseCode "oracle/decode/truncated-8" #[] (raw8 0xf4),
     -- [B11]
-    mkCaseProgram "oracle/gas/exact-miss" (#[(.null), intV 7, intV 8])
+    mkCaseProgram "oracle/gas/exact-miss" (#[intV 7, (.null), intV 8])
       (#[.pushInt (.num baseGas), .tonEnvOp .setGasLimit, instrIntSigned]) gasExact,
     -- [B11]
-    mkCaseProgram "oracle/gas/exact-minus-one-miss" #[(.null), intV 7, intV 8]
+    mkCaseProgram "oracle/gas/exact-minus-one-miss" #[intV 7, (.null), intV 8]
       (#[.pushInt (.num baseGasMinusOne), .tonEnvOp .setGasLimit, instrIntSigned]) gasExactMinusOne,
     -- [B11]
-    mkCaseProgram "oracle/gas/hit-signed-exact" (#[(.cell dictSliceSignedN8Many), intV 127, intV 8])
+    mkCaseProgram "oracle/gas/hit-signed-exact" (#[intV 127, (.cell dictSliceSignedN8Many), intV 8])
       (#[.pushInt (.num hitSignedGas), .tonEnvOp .setGasLimit, instrIntSigned]) gasHitSignedExact,
     -- [B11]
-    mkCaseProgram "oracle/gas/hit-signed-exact-minus-one" #[(.cell dictSliceSignedN8Many), intV 127, intV 8]
+    mkCaseProgram "oracle/gas/hit-signed-exact-minus-one" #[intV 127, (.cell dictSliceSignedN8Many), intV 8]
       (#[.pushInt (.num hitSignedGasMinusOne), .tonEnvOp .setGasLimit, instrIntSigned]) gasHitSignedMinusOne,
     -- [B11]
-    mkCaseProgram "oracle/gas/hit-unsigned-exact" (#[(.cell dictSliceUnsignedN8Many), intV 255, intV 8])
+    mkCaseProgram "oracle/gas/hit-unsigned-exact" (#[intV 255, (.cell dictSliceUnsignedN8Many), intV 8])
       (#[.pushInt (.num hitUnsignedGas), .tonEnvOp .setGasLimit, instrIntUnsigned]) gasHitUnsignedExact,
     -- [B11]
-    mkCaseProgram "oracle/gas/hit-unsigned-exact-minus-one" #[(.cell dictSliceUnsignedN8Many), intV 255, intV 8]
+    mkCaseProgram "oracle/gas/hit-unsigned-exact-minus-one" #[intV 255, (.cell dictSliceUnsignedN8Many), intV 8]
       (#[.pushInt (.num hitUnsignedGasMinusOne), .tonEnvOp .setGasLimit, instrIntUnsigned]) gasHitUnsignedMinusOne
   ] ++ Tests.Gen.Dict.casesFor "DICTIDEL"
   fuzz := #[

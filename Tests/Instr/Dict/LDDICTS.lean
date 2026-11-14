@@ -314,7 +314,7 @@ private def genLDDICTSFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 31 then
       (mkCase "fuzz/err/noise-present" #[intV 11, .slice valSlicePresentTail], rng1)
     else if shape = 32 then
-      (mkCase "fuzz/ok/extra-noise-stack" #[intV 11, .slice valSlicePresentMultiRefs, .cell valCellC], rng1)
+      (mkCase "fuzz/ok/extra-noise-stack" #[intV 11, .cell valCellC, .slice valSlicePresentMultiRefs], rng1)
     else if shape = 33 then
       (mkCase "fuzz/ok/extra-noise-stack-absent" #[intV 11, .tuple #[], .slice valSliceAbsentTail], rng1)
     else if shape = 34 then

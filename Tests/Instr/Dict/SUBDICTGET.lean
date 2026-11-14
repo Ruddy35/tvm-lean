@@ -544,7 +544,8 @@ private def genSubdictGetFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
       mkCase "or/underflow-one" subdictSlice #[.slice (mkSliceFromBits (natToBits 0 4))],
       mkCase "or/underflow-two" subdictSlice #[.slice (mkSliceFromBits (natToBits 0 4)), .cell dictSlice4Root],
       mkCase "or/underflow-three" subdictSlice #[.slice (mkSliceFromBits (natToBits 0 4)), .cell dictSlice4Root, intV 4],
-      mkCase "or/underflow-four" subdictSlice #[.slice (mkSliceFromBits (natToBits 0 4)), .cell dictSlice4Root, intV 4, .int (.num 5)],
+      -- four items are enough; `n = 5` does not match the 4-bit dictionary: `dict_err`
+      mkCase "or/dicterr/four-items-n5" subdictSlice #[.slice (mkSliceFromBits (natToBits 0 4)), intV 4, .cell dictSlice4Root, .int (.num 5)],
       -- [B3]
       mkCase "or/n-type" subdictSlice #[.slice (mkSliceFromBits (natToBits 0 4)), intV 4, .cell dictSlice4Root, .tuple #[]],
       mkCase "or/n-negative" subdictSlice (stackSliceSubdict (natToBits 0 4) (.cell dictSlice4Root) 4 (-1)),

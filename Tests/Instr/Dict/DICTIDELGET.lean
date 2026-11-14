@@ -170,8 +170,10 @@ private def intSignedBadTwoRefsRoot4 : Cell :=
 private def intSignedBadNoRefRoot4 : Cell :=
   mkDictSliceRoot (keyBitsFor 5 4 false) (mkSliceFromBits #[])
 
+/-- The stack (bottom first) in the C++ pop order (`exec_dict_deleteget`, crypto/vm/dictops.cpp:406-411):
+`n` on top, then the dictionary, then the key. -/
 private def mkIntCaseStack (root : Value) (key : Int) (n : Int) : Array Value :=
-  #[root, intV key, intV n]
+  #[intV key, root, intV n]
 
 private def mkCase
     (name : String)
@@ -199,21 +201,15 @@ private def mkCaseCode
     fuel := fuel }
 
 private def runDictIDelGetDirect (stack : Array Value) : Except Excno (Array Value) :=
-  let normalized :=
-    if h : stack.size = 3 then
-      #[stack[1], stack[0], stack[2]]
-    else
-      stack
-  runHandlerDirect execInstrDictExt dictIdelGetInstr normalized
+  runHandlerDirect execInstrDictExt dictIdelGetInstr stack
 
 private def runDictIDelGetFallback (stack : Array Value) : Except Excno (Array Value) :=
   runHandlerDirectWithNext execInstrDictExt (.tonEnvOp .setGasLimit) (VM.push (intV dispatchSentinel)) stack
 
-private def dictIdelGetGas : Int :=
-  computeExactGasBudget dictIdelGetInstr
-
-private def dictIdelGetGasMinusOne : Int :=
-  computeExactGasBudgetMinusOne dictIdelGetInstr
+/-- The gas of the gas cases: the miss on a null root (`mkIntCaseStack .null 7 4`), the opcode alone in
+the code cell, implicit RET included. -/
+private def dictIdelGetMissGas : Int :=
+  modelGasUsed #[dictIdelGetInstr] (mkIntCaseStack .null 7 4)
 
 private def expectDecodeOk (label : String) (code : Cell) (expected : Instr) : IO Unit := do
   match decodeCp0WithBits (Slice.ofCell code) with
@@ -292,7 +288,7 @@ private def genDICTIDELGETFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
   else if shape = 10 then
     (mkCase s!"fuzz/underflow/two-items/{tag}" #[.cell intSignedRoot4, intV 7], rng2)
   else if shape = 11 then
-    (mkCase s!"/fuzz/type/key-non-int/{tag}" #[.cell intSignedRoot4, .slice (Slice.ofCell sampleCellC), intV 4], rng2)
+    (mkCase s!"/fuzz/type/key-non-int/{tag}" #[.slice (Slice.ofCell sampleCellC), .cell intSignedRoot4, intV 4], rng2)
   else if shape = 12 then
     let (badKey, rng3) := pickInt257OutOfRange rng2
     (mkCase s!"/fuzz/range/key-out-of-range/{tag}" (mkIntCaseStack (.cell intSignedRoot4) badKey 4), rng3)
@@ -307,10 +303,10 @@ private def genDICTIDELGETFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
   else if shape = 17 then
     (mkCaseCode (s!"/fuzz/decode/truncated-8/{tag}") #[] (Cell.mkOrdinary (natToBits 0xf4 8) #[]), rng2)
   else if shape = 18 then
-    (mkCase s!"/fuzz/gas/exact/{tag}" (mkIntCaseStack .null 7 4) (oracleGasLimitsExact dictIdelGetGas), rng2)
+    (mkCase s!"/fuzz/gas/exact/{tag}" (mkIntCaseStack .null 7 4) (oracleGasLimitsExact dictIdelGetMissGas), rng2)
   else if shape = 19 then
     (mkCase (s!"fuzz/gas/exact-minus-one/{tag}") (mkIntCaseStack .null 7 4)
-      (oracleGasLimitsExactMinusOne dictIdelGetGasMinusOne), rng2)
+      (oracleGasLimitsExactMinusOne dictIdelGetMissGas), rng2)
   else
     (mkCase s!"fuzz/malformed-root/{tag}" (mkIntCaseStack (.cell malformedRoot) 7 4), rng2)
 
@@ -372,7 +368,7 @@ def suite : InstrSuite where
     },
     { name := "unit/runtime/type/n-non-int"
       run := do
-        expectErr "runtime/type-non-int" (runDictIDelGetDirect #[(.cell intSignedRoot4), intV (-1), .slice (Slice.ofCell sampleCellA)]) .typeChk
+        expectErr "runtime/type-non-int" (runDictIDelGetDirect #[intV (-1), (.cell intSignedRoot4), .slice (Slice.ofCell sampleCellA)]) .typeChk
     },
     { name := "unit/runtime/type/dict-not-cell"
       run := do
@@ -380,27 +376,27 @@ def suite : InstrSuite where
     },
     { name := "unit/runtime/type/key-not-int"
       run := do
-        expectErr "runtime/type-key-not-int" (runDictIDelGetDirect #[.cell intSignedRoot4, .slice (Slice.ofCell sampleCellA), intV 4]) .typeChk
+        expectErr "runtime/type-key-not-int" (runDictIDelGetDirect #[.slice (Slice.ofCell sampleCellA), .cell intSignedRoot4, intV 4]) .typeChk
     },
     { name := "unit/runtime/range/n-negative"
       run := do
-        expectErr "runtime/range-n-negative" (runDictIDelGetDirect #[.cell intSignedRoot4, intV 2, intV (-1)]) .rangeChk
+        expectErr "runtime/range-n-negative" (runDictIDelGetDirect #[intV 2, .cell intSignedRoot4, intV (-1)]) .rangeChk
     },
     { name := "unit/runtime/range/n-too-large"
       run := do
-        expectErr "runtime/range-n-too-large" (runDictIDelGetDirect #[.cell intSignedRoot4, intV 2, intV 1024]) .rangeChk
+        expectErr "runtime/range-n-too-large" (runDictIDelGetDirect #[intV 2, .cell intSignedRoot4, intV 1024]) .rangeChk
     },
     { name := "unit/runtime/range/key-high"
       run := do
-        expectErr "runtime/range-key-high" (runDictIDelGetDirect #[.cell intSignedRoot4, intV 8, intV 4]) .rangeChk
+        expectErr "runtime/range-key-high" (runDictIDelGetDirect #[intV 8, .cell intSignedRoot4, intV 4]) .rangeChk
     },
     { name := "unit/runtime/range/key-low"
       run := do
-        expectErr "runtime/range-key-low" (runDictIDelGetDirect #[.cell intSignedRoot4, intV (-9), intV 4]) .rangeChk
+        expectErr "runtime/range-key-low" (runDictIDelGetDirect #[intV (-9), .cell intSignedRoot4, intV 4]) .rangeChk
     },
     { name := "unit/runtime/intov/key-nan"
       run := do
-        expectErr "runtime/intov-key-nan" (runDictIDelGetDirect #[.cell intSignedRoot4, .int .nan, intV 4]) .intOv
+        expectErr "runtime/intov-key-nan" (runDictIDelGetDirect #[.int .nan, .cell intSignedRoot4, intV 4]) .intOv
     },
     { name := "unit/decode/target"
       run := do
@@ -465,23 +461,23 @@ def suite : InstrSuite where
     -- [B2] two-item underflow.
     mkCase "oracle/underflow/two-items" #[.cell intSignedRoot4, intV 7],
     -- [B3] n non-int type path.
-    mkCase "oracle/type/n-non-int" #[.cell intSignedRoot4, intV (-1), .slice (Slice.ofCell sampleCellA)],
+    mkCase "oracle/type/n-non-int" #[intV (-1), .cell intSignedRoot4, .slice (Slice.ofCell sampleCellA)],
     -- [B3] dict root type-check error.
     mkCase "oracle/type/dict-not-cell" #[intV 4, intV 2, intV 4],
     -- [B3] key type-check error.
-    mkCase "oracle/type/key-not-int" #[.cell intSignedRoot4, .slice (Slice.ofCell sampleCellA), intV 4],
+    mkCase "oracle/type/key-not-int" #[.slice (Slice.ofCell sampleCellA), .cell intSignedRoot4, intV 4],
     -- [B3] NaN key is `int_ov` (`pop_int_finite`, crypto/vm/dictops.cpp:411).
     mkCase "oracle/intov/key-nan" #[.int .nan, .cell intSignedRoot4, intV 4],
     -- [B3] NaN key with a null root and the widest key is `int_ov` too.
     mkCase "oracle/intov/key-nan-null-n1023" #[.int .nan, .null, intV 1023],
     -- [B4] negative n.
-    mkCase "oracle/range/n-negative" #[.cell intSignedRoot4, intV 2, intV (-1)],
+    mkCase "oracle/range/n-negative" #[intV 2, .cell intSignedRoot4, intV (-1)],
     -- [B4] too-large n.
-    mkCase "oracle/range/n-too-large" #[.cell intSignedRoot4, intV 2, intV 1024],
+    mkCase "oracle/range/n-too-large" #[intV 2, .cell intSignedRoot4, intV 1024],
     -- [B4] too-large signed key (Lean range check branch).
-    mkCase "oracle/range/key-high" #[.cell intSignedRoot4, intV 8, intV 4],
+    mkCase "oracle/range/key-high" #[intV 8, .cell intSignedRoot4, intV 4],
     -- [B4] too-small signed key (Lean range check branch).
-    mkCase "oracle/range/key-low" #[.cell intSignedRoot4, intV (-9), intV 4],
+    mkCase "oracle/range/key-low" #[intV (-9), .cell intSignedRoot4, intV 4],
     -- [B4] key out-of-range by generator pool (should hit Lean/Reference boundary).
     mkCase "oracle/range/key-out-of-range-generated" (mkIntCaseStack (.cell intSignedRoot4) 99 4),
     -- [B6] malformed root shape should raise.
@@ -509,10 +505,10 @@ def suite : InstrSuite where
     -- [B8] decode truncated 15-bit failure.
     mkCaseCode "oracle/decode/truncated-15" #[] (Cell.mkOrdinary (natToBits (0xf464 >>> 1) 15) #[]),
     -- [B9] exact budget with miss path.
-    mkCase "oracle/gas/exact/miss" (mkIntCaseStack .null 7 4) (oracleGasLimitsExact dictIdelGetGas),
+    mkCase "oracle/gas/exact/miss" (mkIntCaseStack .null 7 4) (oracleGasLimitsExact dictIdelGetMissGas),
     -- [B9] exact-minus-one budget should fail before success.
     mkCase "oracle/gas/exact-minus-one/miss" (mkIntCaseStack .null 7 4)
-      (oracleGasLimitsExactMinusOne dictIdelGetGasMinusOne)
+      (oracleGasLimitsExactMinusOne dictIdelGetMissGas)
   ] ++ Tests.Gen.Dict.casesFor "DICTIDELGET"
   fuzz := #[
     {

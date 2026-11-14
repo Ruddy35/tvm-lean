@@ -20,7 +20,9 @@ DICTIGET branch map (Lean + C++ reference):
   - `/Users/daniil/Coding/ton/crypto/vm/dictops.cpp` (`exec_dict_get`).
 
 1. [Dispatch] – instruction dispatch and non-matching fallback.
-2. [Runtime guard] – underflow check (`checkUnderflow 3`) before any pops.
+2. [Runtime guard] – underflow check (`checkUnderflow 3`) before any pops; the stack is
+   `(key, dict, n)` bottom first: C++ `exec_dict_get` pops `n`, the dictionary, then the key
+   (crypto/vm/dictops.cpp:212-217).
 3. [n operand errors] – `n` type checks and range checks (`popNatUpTo 1023`):
    - `.typeChk` for non-int
    - `.rangeChk` for NaN/negative/>1023
@@ -137,6 +139,10 @@ private def dictIGetGasExactMinusOne : Int := computeExactGasBudgetMinusOne dict
 private def gasExact : OracleGasLimits := oracleGasLimitsExact dictIGetGasExact
 private def gasExactMinusOne : OracleGasLimits := oracleGasLimitsExactMinusOne dictIGetGasExact
 
+/-- The budget of `gas/exact-tail`: a hit, which loads cells (`exactGasBudgetOnStack`). -/
+private def dictIGetHitTailGas : Int :=
+  exactGasBudgetOnStack dictIGetInstr #[intV 77, intV 5, .cell dictN8Root, intV 8]
+
 private def mkCase
     (name : String)
     (stack : Array Value)
@@ -163,19 +169,11 @@ private def mkCaseCode
     gasLimits := gasLimits
     fuel := fuel }
 
-private def normalizeStackForDirect (stack : Array Value) : Array Value :=
-  if h3 : stack.size = 3 then
-    #[stack[1], stack[0], stack[2]]
-  else if h4 : stack.size = 4 then
-    #[stack[0], stack[2], stack[1], stack[3]]
-  else
-    stack
-
 private def runDictIGetDirect (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect execInstrDictDictGet dictIGetInstr (normalizeStackForDirect stack)
+  runHandlerDirect execInstrDictDictGet dictIGetInstr stack
 
 private def runDictIGetDirectRef (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect execInstrDictDictGet dictIGetInstrRef (normalizeStackForDirect stack)
+  runHandlerDirect execInstrDictDictGet dictIGetInstrRef stack
 
 private def runDictIGetDispatchFallback (instr : Instr) (stack : Array Value) : Except Excno (Array Value) :=
   runHandlerDirectWithNext execInstrDictDictGet instr (VM.push (intV 12345)) stack
@@ -217,41 +215,41 @@ private def genDictIGetFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
   let mkTag := s!"fuzz/{tag}/{shape}"
   let case0 :=
     if shape = 0 then
-      mkCase (s!"{mkTag}/hit/key-5") (#[.cell dictN8Root, intV 5, intV 8])
+      mkCase (s!"{mkTag}/hit/key-5") (#[intV 5, .cell dictN8Root, intV 8])
     else if shape = 1 then
-      mkCase (s!"{mkTag}/hit/key-neg1") (#[.cell dictN8Root, intV (-1), intV 8])
+      mkCase (s!"{mkTag}/hit/key-neg1") (#[intV (-1), .cell dictN8Root, intV 8])
     else if shape = 2 then
-      mkCase (s!"{mkTag}/miss-key-absent") (#[.cell dictN8Root, intV 7, intV 8])
+      mkCase (s!"{mkTag}/miss-key-absent") (#[intV 7, .cell dictN8Root, intV 8])
     else if shape = 3 then
-      mkCase (s!"{mkTag}/none-root-miss") (#[.null, intV 5, intV 8])
+      mkCase (s!"{mkTag}/none-root-miss") (#[intV 5, .null, intV 8])
     else if shape = 4 then
-      mkCase (s!"{mkTag}/key-range-pos") (#[.cell dictN8Root, intV 128, intV 8])
+      mkCase (s!"{mkTag}/key-range-pos") (#[intV 128, .cell dictN8Root, intV 8])
     else if shape = 5 then
-      mkCase (s!"{mkTag}/key-range-neg") (#[.cell dictN8Root, intV (-129), intV 8])
+      mkCase (s!"{mkTag}/key-range-neg") (#[intV (-129), .cell dictN8Root, intV 8])
     else if shape = 6 then
-      mkCase (s!"{mkTag}/n-boundary-max") (#[.cell dictN8Root, intV 0, intV 1023])
+      mkCase (s!"{mkTag}/n-boundary-max") (#[intV 0, .cell dictN8Root, intV 1023])
     else if shape = 7 then
-      mkCase (s!"{mkTag}/type-key-null") (#[.cell dictN8Root, .null, intV 8])
+      mkCase (s!"{mkTag}/type-key-null") (#[.null, .cell dictN8Root, intV 8])
     else if shape = 8 then
-      mkCase (s!"{mkTag}/type-dict-builder") (#[.builder Builder.empty, intV 5, intV 8])
+      mkCase (s!"{mkTag}/type-dict-builder") (#[intV 5, .builder Builder.empty, intV 8])
     else if shape = 9 then
-      mkCase (s!"{mkTag}/n-negative") (#[.cell dictN8Root, intV 5, intV (-1)])
+      mkCase (s!"{mkTag}/n-negative") (#[intV 5, .cell dictN8Root, intV (-1)])
     else if shape = 10 then
-      mkCase (s!"{mkTag}/gas/base-exact-success") #[.null, intV 7, intV 8]
+      mkCase (s!"{mkTag}/gas/base-exact-success") #[intV 7, .null, intV 8]
         (#[.pushInt (.num dictIGetGasExact), .tonEnvOp .setGasLimit, dictIGetInstr])
         gasExact
     else if shape = 11 then
-      mkCase (s!"{mkTag}/gas/base-exact-minus-one") #[.null, intV 7, intV 8]
+      mkCase (s!"{mkTag}/gas/base-exact-minus-one") #[intV 7, .null, intV 8]
         (#[.pushInt (.num dictIGetGasExactMinusOne), .tonEnvOp .setGasLimit, dictIGetInstr])
         gasExactMinusOne
     else if shape = 12 then
-      mkCase (s!"{mkTag}/byref-hit") (#[.cell dictN8ByRefRoot, intV 5, intV 8])
+      mkCase (s!"{mkTag}/byref-hit") (#[intV 5, .cell dictN8ByRefRoot, intV 8])
         (#[.dictGet true false true])
     else if shape = 13 then
-      mkCase (s!"{mkTag}/byref-malformed") (#[.cell dictN8ByRefRoot, intV 1, intV 8])
+      mkCase (s!"{mkTag}/byref-malformed") (#[intV 1, .cell dictN8ByRefRoot, intV 8])
         (#[.dictGet true false true])
     else
-      mkCase (s!"{mkTag}/malformed-root") (#[.cell malformedDictCell, intV 5, intV 8])
+      mkCase (s!"{mkTag}/malformed-root") (#[intV 5, .cell malformedDictCell, intV 8])
   (case0, rng2)
 
 def suite : InstrSuite where
@@ -266,7 +264,7 @@ def suite : InstrSuite where
           #[intV sentinel]
         expectHitWithPrefix
           "match/executes-dictiget"
-          (runDictIGetDirect #[.cell dictN8Root, intV 5, intV 8]) },
+          (runDictIGetDirect #[intV 5, .cell dictN8Root, intV 8]) },
     { name := "unit/underflow"
       run := do
         expectErr "empty-stack" (runDictIGetDirect #[]) .stkUnd
@@ -274,62 +272,62 @@ def suite : InstrSuite where
         expectErr "two-items" (runDictIGetDirect #[.cell dictN8Root, intV 5]) .stkUnd },
     { name := "unit/n-operand-type-and-range"
       run := do
-        expectErr "n-not-int" (runDictIGetDirect #[.cell dictN8Root, intV 5, .null]) .typeChk
-        expectErr "n-nan" (runDictIGetDirect #[.cell dictN8Root, intV 5, .int .nan]) .rangeChk
-        expectErr "n-negative" (runDictIGetDirect #[.cell dictN8Root, intV 5, intV (-1)]) .rangeChk
-        expectErr "n-too-large" (runDictIGetDirect #[.cell dictN8Root, intV 5, intV 1024]) .rangeChk },
+        expectErr "n-not-int" (runDictIGetDirect #[intV 5, .cell dictN8Root, .null]) .typeChk
+        expectErr "n-nan" (runDictIGetDirect #[intV 5, .cell dictN8Root, .int .nan]) .rangeChk
+        expectErr "n-negative" (runDictIGetDirect #[intV 5, .cell dictN8Root, intV (-1)]) .rangeChk
+        expectErr "n-too-large" (runDictIGetDirect #[intV 5, .cell dictN8Root, intV 1024]) .rangeChk },
     { name := "unit/dict-type-and-key-type-checks"
       run := do
-        expectErr "dict-not-null-or-cell" (runDictIGetDirect #[.builder Builder.empty, intV 5, intV 8]) .typeChk
-        expectErr "key-not-int" (runDictIGetDirect #[.cell dictN8Root, .null, intV 8]) .typeChk
-        expectErr "key-nan" (runDictIGetDirect #[.cell dictN8Root, .int .nan, intV 8]) .intOv
-        expectErr "key-cell" (runDictIGetDirect #[.cell dictN8Root, .cell Cell.empty, intV 8]) .typeChk },
+        expectErr "dict-not-null-or-cell" (runDictIGetDirect #[intV 5, .builder Builder.empty, intV 8]) .typeChk
+        expectErr "key-not-int" (runDictIGetDirect #[.null, .cell dictN8Root, intV 8]) .typeChk
+        expectErr "key-nan" (runDictIGetDirect #[.int .nan, .cell dictN8Root, intV 8]) .intOv
+        expectErr "key-cell" (runDictIGetDirect #[.cell Cell.empty, .cell dictN8Root, intV 8]) .typeChk },
     { name := "unit/key-range-and-miss"
       run := do
         expectOkStack
           "out-of-range-positive"
-          (runDictIGetDirect #[.cell dictN8Root, intV 128, intV 8])
+          (runDictIGetDirect #[intV 128, .cell dictN8Root, intV 8])
           #[intV 0]
         expectOkStack
           "out-of-range-negative"
-          (runDictIGetDirect #[.cell dictN8Root, intV (-129), intV 8])
+          (runDictIGetDirect #[intV (-129), .cell dictN8Root, intV 8])
           #[intV 0]
         expectOkStack
           "none-root"
-          (runDictIGetDirect #[.null, intV 7, intV 8])
+          (runDictIGetDirect #[intV 7, .null, intV 8])
           #[intV 0]
         expectOkStack
           "miss-in-root"
-          (runDictIGetDirect #[.cell dictN8Root, intV 7, intV 8])
+          (runDictIGetDirect #[intV 7, .cell dictN8Root, intV 8])
           #[intV 0]
         expectHitWithPrefix
           "hit-n1"
-          (runDictIGetDirect #[.cell dictN8Root, intV (-1), intV 8]) },
+          (runDictIGetDirect #[intV (-1), .cell dictN8Root, intV 8]) },
     { name := "unit/stack-preserve"
       run := do
         expectHitWithPrefix
           "hit-preserve-prefix"
-          (runDictIGetDirect #[intV 77, .cell dictN8Root, intV 5, intV 8])
+          (runDictIGetDirect #[intV 77, intV 5, .cell dictN8Root, intV 8])
           #[intV 77]
         expectOkStack
           "miss-preserve-prefix"
-          (runDictIGetDirect #[intV 77, .null, intV 7, intV 8])
+          (runDictIGetDirect #[intV 77, intV 7, .null, intV 8])
           #[intV 77, intV 0] },
     { name := "unit/n-zero-and-n-one"
       run := do
         expectHitWithPrefix
           "n0-hit"
-          (runDictIGetDirect #[.cell dictN0Root, intV 0, intV 0])
+          (runDictIGetDirect #[intV 0, .cell dictN0Root, intV 0])
         expectOkStack
           "n0-miss"
-          (runDictIGetDirect #[.cell dictN0Root, intV 1, intV 0])
+          (runDictIGetDirect #[intV 1, .cell dictN0Root, intV 0])
           #[intV 0]
         expectHitWithPrefix
           "n1-hit"
-          (runDictIGetDirect #[.cell dictN1Root, intV 0, intV 1])
+          (runDictIGetDirect #[intV 0, .cell dictN1Root, intV 1])
         expectOkStack
           "n1-miss"
-          (runDictIGetDirect #[.cell dictN1Root, intV 1, intV 1])
+          (runDictIGetDirect #[intV 1, .cell dictN1Root, intV 1])
           #[intV 0] },
     { name := "unit/asm-decode-paths"
       run := do
@@ -371,21 +369,21 @@ def suite : InstrSuite where
       run := do
         expectOkStack
           "ref-hit"
-          (runDictIGetDirectRef #[.cell dictN8ByRefRoot, intV 5, intV 8])
+          (runDictIGetDirectRef #[intV 5, .cell dictN8ByRefRoot, intV 8])
           #[byRefValueMarker, intV (-1)]
         expectErr
           "ref-malformed-value"
-          (runDictIGetDirectRef #[.cell dictN8ByRefRoot, intV 1, intV 8])
+          (runDictIGetDirectRef #[intV 1, .cell dictN8ByRefRoot, intV 8])
           .dictErr },
     { name := "unit/malformed-root"
       run := do
         expectErr
           "malformed-root"
-          (runDictIGetDirect #[.cell malformedDictCell, intV 0, intV 8])
+          (runDictIGetDirect #[intV 0, .cell malformedDictCell, intV 8])
           .dictErr
         expectErr
           "malformed-root-with-tail"
-          (runDictIGetDirect #[intV 77, .cell malformedDictCell, intV 0, intV 8])
+          (runDictIGetDirect #[intV 77, intV 0, .cell malformedDictCell, intV 8])
           .dictErr }
   ]
   oracle := #[
@@ -394,61 +392,61 @@ def suite : InstrSuite where
     mkCase "fallback/one-operand" #[intV 8],
 
     -- [B3] `n` errors.
-    mkCase "type/n-null" #[.cell dictN8Root, intV 5, .null],
-    mkCase "type/n-builder" #[.cell dictN8Root, intV 5, .builder Builder.empty],
-    mkCase "range/n-negative" #[.cell dictN8Root, intV 5, intV (-1)],
-    mkCase "range/n-too-large" #[.cell dictN8Root, intV 5, intV 1024],
-    mkCase "range/n-max" #[.cell dictN8Root, intV 5, intV 1023],
+    mkCase "type/n-null" #[intV 5, .cell dictN8Root, .null],
+    mkCase "type/n-builder" #[intV 5, .cell dictN8Root, .builder Builder.empty],
+    mkCase "range/n-negative" #[intV 5, .cell dictN8Root, intV (-1)],
+    mkCase "range/n-too-large" #[intV 5, .cell dictN8Root, intV 1024],
+    mkCase "range/n-max" #[intV 5, .cell dictN8Root, intV 1023],
 
     -- [B4] dictionary source type errors.
-    mkCase "type/dict-builder" #[.builder Builder.empty, intV 5, intV 8],
-    mkCase "type/dict-bool" (#[.tuple #[], intV 5, intV 8]),
+    mkCase "type/dict-builder" #[intV 5, .builder Builder.empty, intV 8],
+    mkCase "type/dict-bool" (#[intV 5, .tuple #[], intV 8]),
 
     -- [B5] key type/range checks.
-    mkCase "type/key-null" #[.cell dictN8Root, .null, intV 8],
-    mkCase "type/key-cell" #[.cell dictN8Root, .cell Cell.empty, intV 8],
-    mkCase "type/key-slice" #[.cell dictN8Root, .slice (Slice.ofCell (Cell.mkOrdinary (natToBits 1 1) #[])), intV 8],
+    mkCase "type/key-null" #[.null, .cell dictN8Root, intV 8],
+    mkCase "type/key-cell" #[.cell Cell.empty, .cell dictN8Root, intV 8],
+    mkCase "type/key-slice" #[.slice (Slice.ofCell (Cell.mkOrdinary (natToBits 1 1) #[])), .cell dictN8Root, intV 8],
 
     -- [B6] key-bit conversion misses.
-    mkCase "conversion/out-of-range-positive" #[.cell dictN8Root, intV 128, intV 8],
-    mkCase "conversion/out-of-range-negative" #[.cell dictN8Root, intV (-129), intV 8],
-    mkCase "conversion/out-of-range-n1-positive" #[.cell dictN1Root, intV 1, intV 1],
-    mkCase "conversion/out-of-range-n1-negative" #[.cell dictN1Root, intV (-2), intV 1],
-    mkCase "conversion/out-of-range-n0-positive" #[.cell dictN0Root, intV 1, intV 0],
+    mkCase "conversion/out-of-range-positive" #[intV 128, .cell dictN8Root, intV 8],
+    mkCase "conversion/out-of-range-negative" #[intV (-129), .cell dictN8Root, intV 8],
+    mkCase "conversion/out-of-range-n1-positive" #[intV 1, .cell dictN1Root, intV 1],
+    mkCase "conversion/out-of-range-n1-negative" #[intV (-2), .cell dictN1Root, intV 1],
+    mkCase "conversion/out-of-range-n0-positive" #[intV 1, .cell dictN0Root, intV 0],
 
     -- [B7] miss/no-root branches.
-    mkCase "lookup/none-root" #[.null, intV 7, intV 8],
-    mkCase "lookup/none-root-tail" #[intV 77, .null, intV 7, intV 8],
-    mkCase "lookup/miss-key-7" #[.cell dictN8Root, intV 7, intV 8],
-    mkCase "lookup/miss-key-large" #[.cell dictN8Root, intV 127, intV 8],
-    mkCase "lookup/miss-narrow" #[.cell dictN8Root, intV 9, intV 4],
+    mkCase "lookup/none-root" #[intV 7, .null, intV 8],
+    mkCase "lookup/none-root-tail" #[intV 77, intV 7, .null, intV 8],
+    mkCase "lookup/miss-key-7" #[intV 7, .cell dictN8Root, intV 8],
+    mkCase "lookup/miss-key-large" #[intV 127, .cell dictN8Root, intV 8],
+    mkCase "lookup/miss-narrow" #[intV 9, .cell dictN8Root, intV 4],
 
     -- [B7][B8] hit branches with different widths.
-    mkCase "lookup/hit-key-5" #[.cell dictN8Root, intV 5, intV 8],
-    mkCase "lookup/hit-key-6" #[.cell dictN8Root, intV 6, intV 8],
-    mkCase "lookup/hit-key-neg1" #[.cell dictN8Root, intV (-1), intV 8],
-    mkCase "lookup/hit-tail-preserved" #[intV 17, .cell dictN8Root, intV 5, intV 8],
-    mkCase "lookup/hit-n1-key-0" #[.cell dictN1Root, intV 0, intV 1],
-    mkCase "lookup/hit-n0-key-0" #[.cell dictN0Root, intV 0, intV 0],
+    mkCase "lookup/hit-key-5" #[intV 5, .cell dictN8Root, intV 8],
+    mkCase "lookup/hit-key-6" #[intV 6, .cell dictN8Root, intV 8],
+    mkCase "lookup/hit-key-neg1" #[intV (-1), .cell dictN8Root, intV 8],
+    mkCase "lookup/hit-tail-preserved" #[intV 17, intV 5, .cell dictN8Root, intV 8],
+    mkCase "lookup/hit-n1-key-0" #[intV 0, .cell dictN1Root, intV 1],
+    mkCase "lookup/hit-n0-key-0" #[intV 0, .cell dictN0Root, intV 0],
 
     -- [B9] malformed dict payload.
-    mkCase "error/malformed-root" #[.cell malformedDictCell, intV 5, intV 8],
-    mkCase "error/malformed-root-tail" #[intV 99, .cell malformedDictCell, intV 0, intV 8],
+    mkCase "error/malformed-root" #[intV 5, .cell malformedDictCell, intV 8],
+    mkCase "error/malformed-root-tail" #[intV 99, intV 0, .cell malformedDictCell, intV 8],
 
     -- [B8] by-ref path (success + malformed).
-    mkCase "byref/hit" (#[.cell dictN8ByRefRoot, intV 5, intV 8]) #[.dictGet true false true],
-    mkCase "byref/malformed-value" (#[.cell dictN8ByRefRoot, intV 1, intV 8]) #[.dictGet true false true],
+    mkCase "byref/hit" (#[intV 5, .cell dictN8ByRefRoot, intV 8]) #[.dictGet true false true],
+    mkCase "byref/malformed-value" (#[intV 1, .cell dictN8ByRefRoot, intV 8]) #[.dictGet true false true],
 
     -- [B11] gas exact and near-exact checks.
-    mkCase "gas/exact-base" #[.null, intV 7, intV 8]
+    mkCase "gas/exact-base" #[intV 7, .null, intV 8]
       (#[.pushInt (.num dictIGetGasExact), .tonEnvOp .setGasLimit, dictIGetInstr])
       gasExact,
-    mkCase "gas/exact-minus-one" #[.null, intV 7, intV 8]
+    mkCase "gas/exact-minus-one" #[intV 7, .null, intV 8]
       (#[.pushInt (.num dictIGetGasExactMinusOne), .tonEnvOp .setGasLimit, dictIGetInstr])
       gasExactMinusOne,
-    mkCase "gas/exact-tail" #[intV 77, .cell dictN8Root, intV 5, intV 8]
-      (#[.pushInt (.num dictIGetGasExact), .tonEnvOp .setGasLimit, dictIGetInstr])
-      gasExact,
+    mkCase "gas/exact-tail" #[intV 77, intV 5, .cell dictN8Root, intV 8]
+      (#[.pushInt (.num dictIGetHitTailGas), .tonEnvOp .setGasLimit, dictIGetInstr])
+      (oracleGasLimitsExact dictIGetHitTailGas),
 
     -- Assembly/decode corner cases via raw opcode fixtures.
     mkCaseCode "raw/decode/fallback-0xf410" #[] (Cell.mkOrdinary (natToBits 0xf410 16) #[]),

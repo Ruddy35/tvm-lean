@@ -19,6 +19,8 @@ BRANCH ANALYSIS (derived from Lean + C++ source):
    - `execInstrDictExt` handles only `.dictExt (.subdictGet ..)`, otherwise delegates to `next`.
 2. [B2] Stack arity:
    - `checkUnderflow 4` rejects too-short stacks.
+   - The stack is `(key, k, dict, n)` bottom first: C++ `exec_subdict_get` pops `n`, the dictionary,
+     `k`, then the key (crypto/vm/dictops.cpp:727-736).
 3. [B3] `n` parsing:
    - `.natUpTo 1023` for `n`; non-int and out-of-range fail.
 4. [B4] Root typing:
@@ -245,27 +247,27 @@ private def genSUBDICTIGETFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 14 then
       mkCase (s!"{tag}/fuzz/underflow-3") #[intV 8, .cell dictIntRoot, intV 8]
     else if shape = 15 then
-      mkCase (s!"{tag}/fuzz/n-type") (#[.cell dictIntRoot, intV 5, intV 8, .null])
+      mkCase (s!"{tag}/fuzz/n-type") (#[intV 5, intV 8, .cell dictIntRoot, .null])
     else if shape = 16 then
-      mkCase (s!"{tag}/fuzz/n-nan") (#[.cell dictIntRoot, intV 5, intV 8, .int .nan])
+      mkCase (s!"{tag}/fuzz/n-nan") (#[intV 5, intV 8, .cell dictIntRoot, .int .nan])
     else if shape = 17 then
-      mkCase (s!"{tag}/fuzz/n-negative") (#[.cell dictIntRoot, intV 5, intV 8, intV (-1)])
+      mkCase (s!"{tag}/fuzz/n-negative") (#[intV 5, intV 8, .cell dictIntRoot, intV (-1)])
     else if shape = 18 then
-      mkCase (s!"{tag}/fuzz/n-too-large") (#[.cell dictIntRoot, intV 5, intV 8, intV 1024])
+      mkCase (s!"{tag}/fuzz/n-too-large") (#[intV 5, intV 8, .cell dictIntRoot, intV 1024])
     else if shape = 19 then
-      mkCase (s!"{tag}/fuzz/k-type") (#[.cell dictIntRoot, intV 5, .tuple #[], intV 8])
+      mkCase (s!"{tag}/fuzz/k-type") (#[intV 5, .tuple #[], .cell dictIntRoot, intV 8])
     else if shape = 20 then
-      mkCase (s!"{tag}/fuzz/k-negative") (#[.cell dictIntRoot, intV 5, intV (-1), intV 8])
+      mkCase (s!"{tag}/fuzz/k-negative") (#[intV 5, intV (-1), .cell dictIntRoot, intV 8])
     else if shape = 21 then
-      mkCase (s!"{tag}/fuzz/k-signed-overflow") (#[.cell dictIntRoot, intV 5, intV 258, intV 300]) (program := #[subdictInt])
+      mkCase (s!"{tag}/fuzz/k-signed-overflow") (#[intV 5, intV 258, .cell dictIntRoot, intV 300]) (program := #[subdictInt])
     else if shape = 22 then
-      mkCase (s!"{tag}/fuzz/k-unsigned-overflow") (#[.cell dictUIntRoot, intV 5, intV 257, intV 300]) (program := #[subdictUInt])
+      mkCase (s!"{tag}/fuzz/k-unsigned-overflow") (#[intV 5, intV 257, .cell dictUIntRoot, intV 300]) (program := #[subdictUInt])
     else if shape = 23 then
-      mkCase (s!"{tag}/fuzz/key-type-int-in-slice") (#[.slice (mkSliceFromBits (natToBits 1 8)), .cell dictSliceRoot, intV 2, intV 8])
+      mkCase (s!"{tag}/fuzz/key-type-int-in-slice") (#[intV 7, intV 2, .cell dictSliceRoot, intV 8])
     else if shape = 24 then
-      mkCase (s!"{tag}/fuzz/key-type-slice-in-int") (#[.int (.num 5), .cell dictIntRoot, intV 2, intV 8]) (program := #[subdictInt])
+      mkCase (s!"{tag}/fuzz/key-type-slice-in-int") (#[.slice (mkSliceFromBits (natToBits 1 8)), intV 2, .cell dictIntRoot, intV 8]) (program := #[subdictInt])
     else if shape = 25 then
-      mkCase (s!"{tag}/fuzz/key-nan") (#[.cell dictIntRoot, .int .nan, intV 2, intV 8]) (program := #[subdictInt])
+      mkCase (s!"{tag}/fuzz/key-nan") (#[.int .nan, intV 2, .cell dictIntRoot, intV 8]) (program := #[subdictInt])
     else if shape = 26 then
       mkCase (s!"{tag}/fuzz/key-int-signed-over") (stackInt (.cell dictIntRoot) 128 8 8) (program := #[subdictInt])
     else if shape = 27 then
@@ -427,19 +429,19 @@ def suite : InstrSuite where
     mkCase "oracle/underflow-1" #[intV 8], -- [B2]
     mkCase "oracle/underflow-2" #[intV 8, .cell dictSliceRoot], -- [B2]
     mkCase "oracle/underflow-3" (stackSlice (.cell dictSliceRoot) (natToBits 1 8) 2 8), -- [B2]
-    mkCase "oracle/n-type" (#[.cell dictIntRoot, intV 5, intV 8, .null]), -- [B3]
-    mkCase "oracle/n-nan" (#[.cell dictIntRoot, intV 5, intV 8, .int .nan]), -- [B3]
-    mkCase "oracle/n-negative" (#[.cell dictIntRoot, intV 5, intV 8, intV (-1)]), -- [B3]
-    mkCase "oracle/n-too-large" (#[.cell dictIntRoot, intV 5, intV 8, intV 1024]), -- [B3]
-    mkCase "oracle/root-type" (#[.builder Builder.empty, intV 5, intV 2, intV 8]), -- [B4]
+    mkCase "oracle/n-type" (#[intV 5, intV 8, .cell dictIntRoot, .null]), -- [B3]
+    mkCase "oracle/n-nan" (#[intV 5, intV 8, .cell dictIntRoot, .int .nan]), -- [B3]
+    mkCase "oracle/n-negative" (#[intV 5, intV 8, .cell dictIntRoot, intV (-1)]), -- [B3]
+    mkCase "oracle/n-too-large" (#[intV 5, intV 8, .cell dictIntRoot, intV 1024]), -- [B3]
+    mkCase "oracle/root-type" (#[intV 5, intV 2, .builder Builder.empty, intV 8]), -- [B4]
     mkCase "oracle/root-null" (stackInt .null 5 8 8), -- [B4]
-    mkCase "oracle/k-type" (#[.cell dictIntRoot, intV 5, .tuple #[], intV 8]), -- [B5]
-    mkCase "oracle/k-negative" (#[.cell dictIntRoot, intV 5, intV (-1), intV 8]), -- [B5]
-    mkCase "oracle/k-overflow-signed" (#[.cell dictIntRoot, intV 5, intV 258, intV 300]), -- [B5]
-    mkCase "oracle/k-overflow-unsigned" (#[.cell dictUIntRoot, intV 5, intV 257, intV 300]), -- [B5]
-    mkCase "oracle/key-type-int-in-slice" (#[.cell dictSliceRoot, .slice (mkSliceFromBits (natToBits 1 8)), intV 2, intV 8]), -- [B6]
-    mkCase "oracle/key-type-slice-in-int" (#[.cell dictIntRoot, .int (.num 5), intV 2, intV 8]), -- [B6]
-    mkCase "oracle/key-nan" (#[.cell dictIntRoot, .int .nan, intV 2, intV 8]), -- [B6]
+    mkCase "oracle/k-type" (#[intV 5, .tuple #[], .cell dictIntRoot, intV 8]), -- [B5]
+    mkCase "oracle/k-negative" (#[intV 5, intV (-1), .cell dictIntRoot, intV 8]), -- [B5]
+    mkCase "oracle/k-overflow-signed" (#[intV 5, intV 258, .cell dictIntRoot, intV 300]) (program := #[subdictInt]), -- [B5]
+    mkCase "oracle/k-overflow-unsigned" (#[intV 5, intV 257, .cell dictUIntRoot, intV 300]) (program := #[subdictUInt]), -- [B5]
+    mkCase "oracle/key-type-int-in-slice" (#[intV 7, intV 2, .cell dictSliceRoot, intV 8]), -- [B6]
+    mkCase "oracle/key-type-slice-in-int" (#[.slice (mkSliceFromBits (natToBits 1 8)), intV 2, .cell dictIntRoot, intV 8]) (program := #[subdictInt]), -- [B6]
+    mkCase "oracle/key-nan" (#[.int .nan, intV 2, .cell dictIntRoot, intV 8]) (program := #[subdictInt]), -- [B6]
     mkCase "oracle/signed-key-overflow" (stackInt (.cell dictIntRoot) 128 8 8), -- [B7]
     mkCase "oracle/signed-key-underflow" (stackInt (.cell dictIntRoot) (-129) 8 8), -- [B7]
     mkCase "oracle/unsigned-key-overflow" (stackInt (.cell dictUIntRoot) 256 8 8), -- [B7]

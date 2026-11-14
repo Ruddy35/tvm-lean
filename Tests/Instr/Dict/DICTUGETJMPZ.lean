@@ -40,7 +40,8 @@ BRANCH ANALYSIS (derived from Lean + C++ reference):
      `0xf4bc..0xf4bf` (Z enabled).
    - masked decoding (`&&& 0xfffc`) means adjacency above/below these families is `invOpcode`.
 9. [B9] Gas accounting.
-   - base-cost-only path; exact-gas-success and exact-gas-minus-one paths.
+   - exact budget and exact-minus-one along the hit path (cell loads, the jump and the value's code
+     included: `exactGasBudgetOnStack`).
 
 TOTAL BRANCHES: 9
 
@@ -194,11 +195,14 @@ private def addSuffixToCaseName (name : String) (rng0 : StdGen) : String × StdG
   let (tag, rng1) := randNat rng0 0 999_999
   (s!"{name}/{tag}", rng1)
 
-private def dictExactGas : Int := computeExactGasBudget instrUnsignedJmpZ
-private def dictExactMinusOneGas : Int := computeExactGasBudgetMinusOne instrUnsignedJmpZ
+/-- The budgets of the gas cases: a hit, which loads cells and jumps to the value's code, which runs
+too (`exactGasBudgetOnStack`). -/
+private def dictExactGas : Int :=
+  exactGasBudgetOnStack instrUnsignedJmpZ #[intV 3, .cell dictUnsigned4HitRoot, intV 4]
+private def dictExactMinusOneGas : Int := dictExactGas - 1
 
 private def gasExact : OracleGasLimits := oracleGasLimitsExact dictExactGas
-private def gasMinusOne : OracleGasLimits := oracleGasLimitsExactMinusOne dictExactMinusOneGas
+private def gasMinusOne : OracleGasLimits := oracleGasLimitsExact dictExactMinusOneGas
 
 private def genDICTUGETJMPZ (rng0 : StdGen) : OracleCase × StdGen :=
   let (shape, rng1) := randNat rng0 0 29
@@ -210,13 +214,13 @@ private def genDICTUGETJMPZ (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 2 then
       mkCase "fuzz/underflow/2" instrUnsignedJmpZ #[(.null), (.cell dictUnsigned4HitRoot)]
     else if shape = 3 then
-      mkCase "fuzz/err/n-type" instrUnsignedJmpZ (#[(.cell dictUnsigned4HitRoot), intV 3, .slice (markerSlice 0x7777)])
+      mkCase "fuzz/err/n-type" instrUnsignedJmpZ (#[intV 3, (.cell dictUnsigned4HitRoot), .slice (markerSlice 0x7777)])
     else if shape = 4 then
-      mkCase "fuzz/err/n-nan" instrUnsignedJmpZ (#[(.cell dictUnsigned4HitRoot), intV 3, .int .nan])
+      mkCase "fuzz/err/n-nan" instrUnsignedJmpZ (#[intV 3, (.cell dictUnsigned4HitRoot), .int .nan])
     else if shape = 5 then
-      mkCase "fuzz/err/n-negative" instrUnsignedJmpZ (#[(.cell dictUnsigned4HitRoot), intV 3, intV (-1)])
+      mkCase "fuzz/err/n-negative" instrUnsignedJmpZ (#[intV 3, (.cell dictUnsigned4HitRoot), intV (-1)])
     else if shape = 6 then
-      mkCase "fuzz/err/n-too-large" instrUnsignedJmpZ (#[(.cell dictUnsigned4HitRoot), intV 3, intV 2048])
+      mkCase "fuzz/err/n-too-large" instrUnsignedJmpZ (#[intV 3, (.cell dictUnsigned4HitRoot), intV 2048])
     else if shape = 7 then
       mkCase "fuzz/err/dict-type" instrUnsignedJmpZ (#[intV 3, intV 3, intV 4])
     else if shape = 8 then
@@ -251,14 +255,14 @@ private def genDICTUGETJMPZ (rng0 : StdGen) : OracleCase × StdGen :=
       mkCase
         "fuzz/gas/exact"
         instrUnsignedJmpZ
-        (#[.cell dictUnsigned4HitRoot, intV 3, intV 4])
+        (#[intV 3, .cell dictUnsigned4HitRoot, intV 4])
         gasExact
         (program := #[.pushInt (.num dictExactGas), .tonEnvOp .setGasLimit, instrUnsignedJmpZ])
     else if shape = 23 then
       mkCase
         "fuzz/gas/exact-minus-one"
         instrUnsignedJmpZ
-        (#[.cell dictUnsigned4HitRoot, intV 3, intV 4])
+        (#[intV 3, .cell dictUnsigned4HitRoot, intV 4])
         gasMinusOne
         (program := #[.pushInt (.num dictExactMinusOneGas), .tonEnvOp .setGasLimit, instrUnsignedJmpZ])
     else if shape = 24 then
@@ -403,10 +407,10 @@ def suite : InstrSuite where
     mkCase "oracle/underflow/0" instrUnsignedJmpZ #[], -- [B2]
     mkCase "oracle/underflow/1" instrUnsignedJmpZ #[.null], -- [B2]
     mkCase "oracle/underflow/2" instrUnsignedJmpZ #[.null, .null], -- [B2]
-    mkCase "oracle/err/n-type" instrUnsignedJmpZ #[.cell dictUnsigned4HitRoot, intV 3, .slice (markerSlice 0xAAAA)], -- [B3]
-    mkCase "oracle/err/n-negative" instrUnsignedJmpZ #[.cell dictUnsigned4HitRoot, intV 3, intV (-1)], -- [B3]
-    mkCase "oracle/err/n-nan" instrUnsignedJmpZ #[.cell dictUnsigned4HitRoot, intV 3, .int .nan], -- [B3]
-    mkCase "oracle/err/n-too-large" instrUnsignedJmpZ #[.cell dictUnsigned4HitRoot, intV 3, intV 2048], -- [B3]
+    mkCase "oracle/err/n-type" instrUnsignedJmpZ #[intV 3, .cell dictUnsigned4HitRoot, .slice (markerSlice 0xAAAA)], -- [B3]
+    mkCase "oracle/err/n-negative" instrUnsignedJmpZ #[intV 3, .cell dictUnsigned4HitRoot, intV (-1)], -- [B3]
+    mkCase "oracle/err/n-nan" instrUnsignedJmpZ #[intV 3, .cell dictUnsigned4HitRoot, .int .nan], -- [B3]
+    mkCase "oracle/err/n-too-large" instrUnsignedJmpZ #[intV 3, .cell dictUnsigned4HitRoot, intV 2048], -- [B3]
     mkCase "oracle/err/dict-builder" instrUnsignedJmpZ #[intV 3, .builder Builder.empty, intV 4], -- [B3]
     mkCase "oracle/err/dict-slice" instrUnsignedJmpZ #[intV 3, .slice (markerSlice 0xBEEF), intV 4], -- [B3]
     mkCase "oracle/err/key-null" instrUnsignedJmpZ #[.null, (.cell dictUnsigned4HitRoot), intV 4], -- [B3]
@@ -448,12 +452,12 @@ def suite : InstrSuite where
     -- [B9] gas.
     mkCase -- [B9]
       "oracle/gas/exact" instrUnsignedJmpZ
-      (#[.cell dictUnsigned4HitRoot, intV 3, intV 4])
+      (#[intV 3, .cell dictUnsigned4HitRoot, intV 4])
       gasExact
       (program := #[.pushInt (.num dictExactGas), .tonEnvOp .setGasLimit, instrUnsignedJmpZ]),
     mkCase -- [B9]
       "oracle/gas/exact-minus-one" instrUnsignedJmpZ
-      (#[.cell dictUnsigned4HitRoot, intV 3, intV 4])
+      (#[intV 3, .cell dictUnsigned4HitRoot, intV 4])
       gasMinusOne
       (program := #[.pushInt (.num dictExactMinusOneGas), .tonEnvOp .setGasLimit, instrUnsignedJmpZ])
   ]

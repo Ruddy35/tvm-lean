@@ -20,7 +20,8 @@ BRANCH ANALYSIS (derived from reading Lean + C++ source):
      `runHandlerDirectWithNext`.
 
 2. [B2] Runtime preconditions.
-   - Stack underflow for the required 3 items (`n`, dict root, key hint/key int).
+   - Stack underflow for the required 3 items; the stack is `(key, dict, n)` bottom first: C++
+     `exec_dict_getnear` pops `n`, the dictionary root, then the key (crypto/vm/dictops.cpp:529-548).
    - `n` must be a finite int inside `popNatUpTo` bound.
    - dict root must satisfy `popMaybeCell`.
    - key is parsed according to key-mode (`popSlice` for slice mode; `popIntFinite`
@@ -49,7 +50,8 @@ BRANCH ANALYSIS (derived from reading Lean + C++ source):
 
 8. [B8] Gas accounting.
    - Base budget path and miss path should exactly consume base gas.
-   - Slice-key hit path adds `cellCreateGasPrice` for key reconstruction.
+   - Slice-key hit path loads cells and builds the key: its budget is the exact gas of the path
+     (`exactGasBudgetOnStack`).
 
 9. [B9] Success/miss stack shape.
    - Miss pushes `0`.
@@ -120,7 +122,9 @@ private def malformedDict : Cell := Cell.mkOrdinary (natToBits 0xF 4) #[]
 
 private def baseGas : Int := computeExactGasBudget instr
 private def baseGasMinusOne : Int := computeExactGasBudgetMinusOne instr
-private def sliceHitGas : Int := baseGas + cellCreateGasPrice
+/-- The budget of the slice-key hit gas cases: the path loads cells and builds the key
+(`exactGasBudgetOnStack`). -/
+private def sliceHitGas : Int := exactGasBudgetOnStack (.dictGetNear 5) #[mkSliceV 4 5, .cell dictSlice4, intV 4]
 private def sliceHitGasMinusOne : Int := if sliceHitGas > 0 then sliceHitGas - 1 else 0
 
 private def rawF474 : Cell := rawOpcode 4
@@ -176,53 +180,53 @@ def genDictGetPrevFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
   let (shape, rng1) := randNat rng0 0 16
   let (baseCase, rng2) :=
     if shape = 0 then
-      (mkCase "fuzz/slice/miss/null/4" (#[] ++ #[ .null, intV 4, mkSliceV 4 0 ]), rng1)
+      (mkCase "fuzz/slice/miss/null/4" (#[] ++ #[ mkSliceV 4 0, .null, intV 4 ]), rng1)
     else if shape = 1 then
-      (mkCase "fuzz/slice/hit-eq/4" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ])
+      (mkCase "fuzz/slice/hit-eq/4" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ])
         (program := #[.dictGetNear 5]), rng1)
     else if shape = 2 then
-      (mkCase "fuzz/slice/hit-eq/8" (#[] ++ #[ .cell dictSlice8, intV 8, mkSliceV 8 255 ])
+      (mkCase "fuzz/slice/hit-eq/8" (#[] ++ #[ mkSliceV 8 255, .cell dictSlice8, intV 8 ])
         (program := #[.dictGetNear 5]), rng1)
     else if shape = 3 then
-      (mkCase "fuzz/slice/underflow-key-bits" (#[] ++ #[ .cell dictSlice8, intV 8, mkSliceV 4 5 ]), rng1)
+      (mkCase "fuzz/slice/underflow-key-bits" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice8, intV 8 ]), rng1)
     else if shape = 4 then
-      (mkCase "fuzz/int/signed-eq/8" (#[] ++ #[ .cell dictInt8Signed, intV 8, intV 1 ])
+      (mkCase "fuzz/int/signed-eq/8" (#[] ++ #[ intV 1, .cell dictInt8Signed, intV 8 ])
         (program := #[.dictGetNear 13]), rng1)
     else if shape = 5 then
-      (mkCase "fuzz/int/unsigned-eq/8" (#[] ++ #[ .cell dictInt8Unsigned, intV 8, intV 1 ])
+      (mkCase "fuzz/int/unsigned-eq/8" (#[] ++ #[ intV 1, .cell dictInt8Unsigned, intV 8 ])
         (program := #[.dictGetNear 9]), rng1)
     else if shape = 6 then
-      (mkCase "fuzz/int/cond-false-large" (#[] ++ #[ .cell dictInt8Signed, intV 8, intV 200 ])
+      (mkCase "fuzz/int/cond-false-large" (#[] ++ #[ intV 200, .cell dictInt8Signed, intV 8 ])
         (program := #[.dictGetNear 12]), rng1)
     else if shape = 7 then
-      (mkCase "fuzz/int/cond-true-large" (#[] ++ #[ .cell dictInt8Signed, intV 8, intV (-200) ])
+      (mkCase "fuzz/int/cond-true-large" (#[] ++ #[ intV (-200), .cell dictInt8Signed, intV 8 ])
         (program := #[.dictGetNear 12]), rng1)
     else if shape = 8 then
-      (mkCase "fuzz/int/type-key-error" (#[] ++ #[ .cell dictInt8Signed, intV 8, .null ])
+      (mkCase "fuzz/int/type-key-error" (#[] ++ #[ .null, .cell dictInt8Signed, intV 8 ])
         (program := #[.dictGetNear 12]), rng1)
     else if shape = 9 then
-      (mkCase "fuzz/int/type-root-error" (#[] ++ #[ .int (.num 17), intV 8, intV 1 ])
+      (mkCase "fuzz/int/type-root-error" (#[] ++ #[ intV 1, .int (.num 17), intV 8 ])
         (program := #[.dictGetNear 12]), rng1)
     else if shape = 10 then
-      (mkCase "fuzz/int/malformed-root" (#[] ++ #[ .cell malformedDict, intV 8, intV 1 ])
+      (mkCase "fuzz/int/malformed-root" (#[] ++ #[ intV 1, .cell malformedDict, intV 8 ])
         (program := #[.dictGetNear 13]), rng1)
     else if shape = 11 then
-      (mkCase "fuzz/slice/malformed-root" (#[] ++ #[ .cell malformedDict, intV 8, mkSliceV 8 1 ])
+      (mkCase "fuzz/slice/malformed-root" (#[] ++ #[ mkSliceV 8 1, .cell malformedDict, intV 8 ])
         (program := #[.dictGetNear 4]), rng1)
     else if shape = 12 then
-      (mkCodeCase "fuzz/slice/raw/f474" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ]) rawF474, rng1)
+      (mkCodeCase "fuzz/slice/raw/f474" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ]) rawF474, rng1)
     else if shape = 13 then
-      (mkCase "fuzz/int/underflow-gas" (#[] ++ #[ .cell dictInt8Unsigned, intV 8, intV 1 ])
+      (mkCase "fuzz/int/underflow-gas" (#[] ++ #[ intV 1, .cell dictInt8Unsigned, intV 8 ])
         (program := #[.pushInt (.num baseGas), .tonEnvOp .setGasLimit, .dictGetNear 9])
         (gasLimits := oracleGasLimitsExact baseGas), rng1)
     else if shape = 14 then
-      (mkCase "fuzz/int/oog-gas" (#[] ++ #[ .cell dictInt8Unsigned, intV 8, intV 1 ])
+      (mkCase "fuzz/int/oog-gas" (#[] ++ #[ intV 1, .cell dictInt8Unsigned, intV 8 ])
         (program := #[.pushInt (.num baseGasMinusOne), .tonEnvOp .setGasLimit, .dictGetNear 9])
         (gasLimits := oracleGasLimitsExact baseGasMinusOne), rng1)
     else if shape = 15 then
-      (mkCodeCase "fuzz/int/raw/f47B" (#[] ++ #[ .cell dictInt8Signed, intV 8, intV 1 ]) rawF47B, rng1)
+      (mkCodeCase "fuzz/int/raw/f47B" (#[] ++ #[ intV 1, .cell dictInt8Signed, intV 8 ]) rawF47B, rng1)
     else
-      (mkCodeCase "fuzz/slice/raw/f47F" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ]) rawF47F, rng1)
+      (mkCodeCase "fuzz/slice/raw/f47F" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ]) rawF47F, rng1)
   let (tag, rng3) := randNat rng2 0 999_999
   ({ baseCase with name := s!"{baseCase.name}/{tag}" }, rng3)
 
@@ -276,90 +280,90 @@ def suite : InstrSuite where
       ,
     mkCase "err/underflow/two-item" (#[] ++ #[ .cell dictSlice4, intV 8 ]) -- [B2]
       ,
-    mkCase "err/n-not-int" (#[] ++ #[ .cell dictSlice4, .null, mkSliceV 4 0 ]) -- [B2]
+    mkCase "err/n-not-int" (#[] ++ #[ mkSliceV 4 0, .cell dictSlice4, .null ]) -- [B2]
       ,
-    mkCase "err/root-type-error-slice" (#[] ++ #[ .int (.num 17), intV 8, mkSliceV 8 1 ])
+    mkCase "err/root-type-error-slice" (#[] ++ #[ mkSliceV 8 1, .int (.num 17), intV 8 ])
       (program := #[.dictGetNear 4]) -- [B2]
       ,
-    mkCase "err/key-type-error-int" (#[] ++ #[ .cell dictInt8Signed, intV 8, .null ])
+    mkCase "err/key-type-error-int" (#[] ++ #[ .null, .cell dictInt8Signed, intV 8 ])
       (program := #[.dictGetNear 12]) -- [B2]
       ,
-    mkCase "err/key-type-error-slice" (#[] ++ #[ .cell dictSlice4, intV 4, .null ]) -- [B2]
+    mkCase "err/key-type-error-slice" (#[] ++ #[ .null, .cell dictSlice4, intV 4 ]) -- [B2]
       ,
-    mkCase "err/n-negative" (#[] ++ #[ .cell dictSlice4, intV (-1), mkSliceV 4 0 ]) -- [B2]
+    mkCase "err/n-negative" (#[] ++ #[ mkSliceV 4 0, .cell dictSlice4, intV (-1) ]) -- [B2]
       ,
-    mkCase "err/n-out-of-range-int" (#[] ++ #[ .cell dictInt8Signed, intV 258, intV 1 ])
+    mkCase "err/n-out-of-range-int" (#[] ++ #[ intV 1, .cell dictInt8Signed, intV 258 ])
       (program := #[.dictGetNear 12]) -- [B3]
       ,
-    mkCase "err/n-out-of-range-slice" (#[] ++ #[ .cell dictSlice8, intV 1024, mkSliceV 8 1 ]) -- [B3]
+    mkCase "err/n-out-of-range-slice" (#[] ++ #[ mkSliceV 8 1, .cell dictSlice8, intV 1024 ]) -- [B3]
       ,
-    mkCase "err/root-type-error" (#[] ++ #[ .null, intV 8, intV 1 ])
-      (program := #[.dictGetNear 12]) -- [B2]
+    mkCase "ok/int/null-root-accepted" (#[] ++ #[ intV 1, .null, intV 8 ])
+      (program := #[.dictGetNear 12]) -- [B2] a null root is accepted (`pop_maybe_cell`): a miss
       ,
-    mkCase "err/key-slice-too-short" (#[] ++ #[ .cell dictSlice8, intV 8, mkSliceV 2 1 ]) -- [B6]
+    mkCase "err/key-slice-too-short" (#[] ++ #[ mkSliceV 2 1, .cell dictSlice8, intV 8 ]) -- [B6]
       ,
-    mkCase "err/slice-root-malformed" (#[] ++ #[ .cell malformedDict, intV 8, mkSliceV 8 0 ]) -- [B7]
+    mkCase "err/slice-root-malformed" (#[] ++ #[ mkSliceV 8 0, .cell malformedDict, intV 8 ]) -- [B7]
       ,
-    mkCase "ok/slice/miss-empty" (#[] ++ #[ .null, intV 4, mkSliceV 4 0 ]) -- [B9]
+    mkCase "ok/slice/miss-empty" (#[] ++ #[ mkSliceV 4 0, .null, intV 4 ]) -- [B9]
       ,
-    mkCase "ok/slice/hit-prev" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ])
+    mkCase "ok/slice/hit-prev" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ])
       (program := #[.dictGetNear 5]) -- [B5][B9]
       ,
-    mkCase "ok/slice/hit-next-neighbor" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ])
+    mkCase "ok/slice/hit-next-neighbor" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ])
       (program := #[.dictGetNear 4]) -- [B5][B9]
       ,
-    mkCase "ok/slice/hit-intmode-255" (#[] ++ #[ .cell dictSlice8, intV 8, mkSliceV 8 255 ])
+    mkCase "ok/slice/hit-intmode-255" (#[] ++ #[ mkSliceV 8 255, .cell dictSlice8, intV 8 ])
       (program := #[.dictGetNear 5]) -- [B5]
       ,
-    mkCase "ok/int/cond-false-out-of-range" (#[] ++ #[ .cell dictInt8Signed, intV 8, intV 200 ])
+    mkCase "ok/int/cond-false-out-of-range" (#[] ++ #[ intV 200, .cell dictInt8Signed, intV 8 ])
       (program := #[.dictGetNear 12]) -- [B6][B5]
       ,
-    mkCase "ok/int/cond-false-out-of-range-unsigned" (#[] ++ #[ .cell dictInt8Unsigned, intV 8, intV (-1) ])
+    mkCase "ok/int/cond-false-out-of-range-unsigned" (#[] ++ #[ intV (-1), .cell dictInt8Unsigned, intV 8 ])
       (program := #[.dictGetNear 8]) -- [B6][B5]
       ,
-    mkCase "ok/int/cond-true-out-of-range" (#[] ++ #[ .cell dictInt8Signed, intV 8, intV (-200) ])
+    mkCase "ok/int/cond-true-out-of-range" (#[] ++ #[ intV (-200), .cell dictInt8Signed, intV 8 ])
       (program := #[.dictGetNear 12]) -- [B6][B5]
       ,
-    mkCase "ok/int/cond-false-positive" (#[] ++ #[ .cell dictInt8Unsigned, intV 8, intV (-1) ])
+    mkCase "ok/int/cond-false-positive" (#[] ++ #[ intV (-1), .cell dictInt8Unsigned, intV 8 ])
       (program := #[.dictGetNear 8]) -- [B6]
       ,
-    mkCase "ok/int/hit-signed-eq" (#[] ++ #[ .cell dictInt8Signed, intV 8, intV 1 ])
+    mkCase "ok/int/hit-signed-eq" (#[] ++ #[ intV 1, .cell dictInt8Signed, intV 8 ])
       (program := #[.dictGetNear 13]) -- [B5]
       ,
-    mkCase "ok/int/hit-unsigned-eq" (#[] ++ #[ .cell dictInt8Unsigned, intV 8, intV 1 ])
+    mkCase "ok/int/hit-unsigned-eq" (#[] ++ #[ intV 1, .cell dictInt8Unsigned, intV 8 ])
       (program := #[.dictGetNear 9]) -- [B5]
       ,
-    mkCase "ok/int/hit-n257" (#[] ++ #[ .cell dictInt257Signed, intV 257, intV 1 ])
+    mkCase "ok/int/hit-n257" (#[] ++ #[ intV 1, .cell dictInt257Signed, intV 257 ])
       (program := #[.dictGetNear 13]) -- [B5]
       ,
-    mkCase "ok/int/dicterr-nearest" (#[] ++ #[ .cell malformedDict, intV 8, intV 1 ])
+    mkCase "ok/int/dicterr-nearest" (#[] ++ #[ intV 1, .cell malformedDict, intV 8 ])
       (program := #[.dictGetNear 12]) -- [B7]
       ,
-    mkCase "ok/int/dicterr-minmax" (#[] ++ #[ .cell malformedDict, intV 8, intV (-200) ])
+    mkCase "ok/int/dicterr-minmax" (#[] ++ #[ intV (-200), .cell malformedDict, intV 8 ])
       (program := #[.dictGetNear 12]) -- [B7]
       ,
-    mkCodeCase "ok/raw/f474" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ]) rawF474 -- [B4]
+    mkCodeCase "ok/raw/f474" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ]) rawF474 -- [B4]
       ,
-    mkCodeCase "ok/raw/f475" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ]) rawF475 -- [B4]
+    mkCodeCase "ok/raw/f475" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ]) rawF475 -- [B4]
       ,
-    mkCodeCase "ok/raw/f47f" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ]) rawF47F -- [B4]
+    mkCodeCase "ok/raw/f47f" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ]) rawF47F -- [B4]
       ,
-    mkCodeCase "ok/raw/f47a" (#[] ++ #[ .cell dictInt8Unsigned, intV 8, intV 1 ]) rawF47A -- [B4]
+    mkCodeCase "ok/raw/f47a" (#[] ++ #[ intV 1, .cell dictInt8Unsigned, intV 8 ]) rawF47A -- [B4]
       ,
-    mkCodeCase "ok/raw/f47b" (#[] ++ #[ .cell dictInt8Signed, intV 8, intV 1 ]) rawF47B -- [B4]
+    mkCodeCase "ok/raw/f47b" (#[] ++ #[ intV 1, .cell dictInt8Signed, intV 8 ]) rawF47B -- [B4]
       ,
-    mkCodeCase "err/raw/truncated" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ]) rawTruncated8 -- [B4]
+    mkCodeCase "err/raw/truncated" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ]) rawTruncated8 -- [B4]
       ,
-    mkCase "gas/base-miss-exact" (#[] ++ #[ .null, intV 4, mkSliceV 4 0 ])
+    mkCase "gas/base-miss-exact" (#[] ++ #[ mkSliceV 4 0, .null, intV 4 ])
       (program := #[.pushInt (.num baseGas), .tonEnvOp .setGasLimit, instr])
       (gasLimits := oracleGasLimitsExact baseGas), -- [B8]
-    mkCase "gas/base-minus-one-oog" (#[] ++ #[ .null, intV 4, mkSliceV 4 0 ])
+    mkCase "gas/base-minus-one-oog" (#[] ++ #[ mkSliceV 4 0, .null, intV 4 ])
       (program := #[.pushInt (.num baseGasMinusOne), .tonEnvOp .setGasLimit, instr])
       (gasLimits := oracleGasLimitsExact baseGasMinusOne), -- [B8]
-    mkCase "gas/slice-hit-exact" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ])
+    mkCase "gas/slice-hit-exact" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ])
       (program := #[.pushInt (.num sliceHitGas), .tonEnvOp .setGasLimit, .dictGetNear 5])
       (gasLimits := oracleGasLimitsExact sliceHitGas), -- [B8]
-    mkCase "gas/slice-hit-minus-one-oog" (#[] ++ #[ .cell dictSlice4, intV 4, mkSliceV 4 5 ])
+    mkCase "gas/slice-hit-minus-one-oog" (#[] ++ #[ mkSliceV 4 5, .cell dictSlice4, intV 4 ])
       (program := #[.pushInt (.num sliceHitGasMinusOne), .tonEnvOp .setGasLimit, .dictGetNear 5])
       (gasLimits := oracleGasLimitsExact sliceHitGasMinusOne) -- [B8]
   ]

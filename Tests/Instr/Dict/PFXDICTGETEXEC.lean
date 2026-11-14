@@ -276,17 +276,17 @@ private def genPFXDICTGETEXEC (rng0 : StdGen) : OracleCase × StdGen :=
     | 0 => mkCase "fuzz/underflow/0" #[]
     | 1 => mkCase "fuzz/underflow/1" #[.slice (mkSliceFromBits key4A)]
     | 2 => mkCase "fuzz/underflow/2" #[.slice (mkSliceFromBits key4A), .cell dict4Root]
-    | 3 => mkCase "fuzz/err/n/not-int" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), .builder Builder.empty])
-    | 4 => mkCase "fuzz/err/n/not-int2" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), .tuple #[]])
-    | 5 => mkCase "fuzz/err/n/negative" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV (-1)])
-    | 6 => mkCase "fuzz/err/n/too-large" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV 1024])
-    | 7 => mkCase "fuzz/err/dict/builder" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV 4] |>.set! 1 (.builder Builder.empty))
-    | 8 => mkCase "fuzz/err/dict/tuple" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV 4] |>.set! 1 (.tuple #[]))
-    | 9 => mkCase "fuzz/err/dict/int" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV 4] |>.set! 1 (intV 7))
-    | 10 => mkCase "fuzz/err/key/null" (#[(.cell dict4Root), .null, intV 4])
-    | 11 => mkCase "fuzz/err/key/cell" (#[(.cell dict4Root), .cell Cell.empty, intV 4])
-    | 12 => mkCase "fuzz/err/key/builder" (#[(.cell dict4Root), .builder Builder.empty, intV 4])
-    | 13 => mkCase "fuzz/err/key/not-int2" (#[(.cell dict4Root), .tuple #[], intV 4])
+    | 3 => mkCase "fuzz/err/n/not-int" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), .builder Builder.empty])
+    | 4 => mkCase "fuzz/err/n/not-int2" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), .tuple #[]])
+    | 5 => mkCase "fuzz/err/n/negative" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV (-1)])
+    | 6 => mkCase "fuzz/err/n/too-large" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV 1024])
+    | 7 => mkCase "fuzz/err/dict/builder" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV 4] |>.set! 1 (.builder Builder.empty))
+    | 8 => mkCase "fuzz/err/dict/tuple" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV 4] |>.set! 1 (.tuple #[]))
+    | 9 => mkCase "fuzz/err/dict/int" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV 4] |>.set! 1 (intV 7))
+    | 10 => mkCase "fuzz/err/key/null" (#[.null, (.cell dict4Root), intV 4])
+    | 11 => mkCase "fuzz/err/key/cell" (#[.cell Cell.empty, (.cell dict4Root), intV 4])
+    | 12 => mkCase "fuzz/err/key/builder" (#[.builder Builder.empty, (.cell dict4Root), intV 4])
+    | 13 => mkCase "fuzz/err/key/not-int2" (#[.tuple #[], (.cell dict4Root), intV 4])
     | 14 => mkCase "fuzz/miss/null" (mkStack key4A (.null) 4)
     | 15 => mkCase "fuzz/miss/in-range" (mkStack key4D (.cell dict4Root) 4)
     | 16 => mkCase "fuzz/miss/key-short" (mkStack key2A (.cell dict4Root) 4)
@@ -398,17 +398,17 @@ def suite : InstrSuite where
     mkCase "oracle/underflow/0" #[] -- [B2]
     , mkCase "oracle/underflow/1" #[.slice (mkSliceFromBits key4A)] -- [B2]
     , mkCase "oracle/underflow/2" #[.slice (mkSliceFromBits key4A), .cell dict4Root] -- [B2]
-    , mkCase "oracle/err/n/not-int" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), .builder Builder.empty]) -- [B3]
-    , mkCase "oracle/err/n/not-int2" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), .tuple #[]]) -- [B3]
-    , mkCase "oracle/err/n/negative" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV (-1)]) -- [B3]
-    , mkCase "oracle/err/n/too-large" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV 1024]) -- [B3]
-    , mkCase "oracle/err/dict/builder" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV 4] |>.set! 1 (.builder Builder.empty)) -- [B4]
-    , mkCase "oracle/err/dict/tuple" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV 4] |>.set! 1 (.tuple #[])) -- [B4]
-    , mkCase "oracle/err/dict/int" (#[(.cell dict4Root), .slice (mkSliceFromBits key4A), intV 4] |>.set! 1 (intV 77)) -- [B4]
-    , mkCase "oracle/err/key/null" (#[(.cell dict4Root), .null, intV 4]) -- [B5]
-    , mkCase "oracle/err/key/cell" (#[(.cell dict4Root), .cell Cell.empty, intV 4]) -- [B5]
-    , mkCase "oracle/err/key/builder" (#[(.cell dict4Root), .builder Builder.empty, intV 4]) -- [B5]
-    , mkCase "oracle/err/key/not-int2" (#[(.cell dict4Root), .tuple #[], intV 4]) -- [B5]
+    , mkCase "oracle/err/n/not-int" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), .builder Builder.empty]) -- [B3]
+    , mkCase "oracle/err/n/not-int2" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), .tuple #[]]) -- [B3]
+    , mkCase "oracle/err/n/negative" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV (-1)]) -- [B3]
+    , mkCase "oracle/err/n/too-large" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV 1024]) -- [B3]
+    , mkCase "oracle/err/dict/builder" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV 4] |>.set! 1 (.builder Builder.empty)) -- [B4]
+    , mkCase "oracle/err/dict/tuple" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV 4] |>.set! 1 (.tuple #[])) -- [B4]
+    , mkCase "oracle/err/dict/int" (#[.slice (mkSliceFromBits key4A), (.cell dict4Root), intV 4] |>.set! 1 (intV 77)) -- [B4]
+    , mkCase "oracle/err/key/null" (#[.null, (.cell dict4Root), intV 4]) -- [B5]
+    , mkCase "oracle/err/key/cell" (#[.cell Cell.empty, (.cell dict4Root), intV 4]) -- [B5]
+    , mkCase "oracle/err/key/builder" (#[.builder Builder.empty, (.cell dict4Root), intV 4]) -- [B5]
+    , mkCase "oracle/err/key/not-int2" (#[.tuple #[], (.cell dict4Root), intV 4]) -- [B5]
     , mkCase "oracle/miss/null" #[.slice (mkSliceFromBits key4A), .null, intV 4] -- [B6]
     , mkCase "oracle/miss/in-range" (mkStack key4D (.cell dict4Root) 4) -- [B6]
     , mkCase "oracle/miss/key-short" (mkStack key2A (.cell dict4Root) 4) -- [B6]

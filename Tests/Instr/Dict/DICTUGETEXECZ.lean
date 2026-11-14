@@ -248,11 +248,11 @@ private def genDICTUGETEXECZFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 3 then
       mkNamed
         "fuzz/err-n-type"
-        #[.null, .tuple #[], intV 4]
+        #[intV 4, .null, .tuple #[]]
     else if shape = 4 then
       mkNamed
         "fuzz/err-n-too-large2"
-        #[.cell dictUnsigned4HitRoot, intV 3, intV 9999]
+        #[intV 3, .cell dictUnsigned4HitRoot, intV 9999]
     else if shape = 5 then
       mkNamed "fuzz/err-n-negative" (mkDictCaseStack 3 (.cell dictUnsigned4HitRoot) (-1))
     else if shape = 6 then

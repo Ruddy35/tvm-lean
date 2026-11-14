@@ -266,7 +266,7 @@ private def genSKIPDICTFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 13 then
       mkCase "fuzz/ok/bit0-refs" #[.slice skip0Refs]
     else if shape = 14 then
-      mkCase "fuzz/ok/bit0-deep" #[.slice skip0Deep, intV 9]
+      mkCase "fuzz/ok/bit0-deep" #[intV 9, .slice skip0Deep]
     else if shape = 15 then
       mkCase "fuzz/ok/bit1-with-ref" #[.slice skip1WithRef]
     else if shape = 16 then
@@ -290,7 +290,7 @@ private def genSKIPDICTFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 25 then
       mkCaseProgram "fuzz/gas/exact-minus-one" #[.slice skip1WithRef] skipDictProgramExactMinusOne (gasLimits := skipDictGasExactMinusOne)
     else if shape = 26 then
-      mkCase "fuzz/ok/bit0-deep-stack" #[intV 7, .slice skip0Tail, .cell refA]
+      mkCase "fuzz/ok/bit0-deep-stack" #[intV 7, .cell refA, .slice skip0Tail]
     else if shape = 27 then
       mkCase "fuzz/ok/bit1-deep-stack" #[.null, intV 9, .slice skip1WithRefs]
     else if shape = 28 then

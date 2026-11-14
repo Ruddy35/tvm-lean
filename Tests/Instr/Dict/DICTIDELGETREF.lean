@@ -139,8 +139,10 @@ private def intSignedBadNoRefRoot4 : Cell :=
 private def intSignedBadTwoRefsRoot4 : Cell :=
   mkDictSliceRoot (keyBitsFor 0 4 false) (Slice.ofCell valueCellTwoRefs)
 
+/-- The stack (bottom first) in the C++ pop order (`exec_dict_deleteget`, crypto/vm/dictops.cpp:406-411):
+`n` on top, then the dictionary, then the key. -/
 private def mkIntCaseStack (root : Value) (key : Int) (n : Int) : Array Value :=
-  #[root, intV key, intV n]
+  #[intV key, root, intV n]
 
 private def mkCase
     (name : String)
@@ -168,16 +170,15 @@ private def mkCaseCode
     fuel := fuel }
 
 private def runDictIdelGetRefDirect (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect execInstrDictExt dictIdelGetRefInstr
-    (match stack with
-     | #[dict, key, n] => #[key, dict, n]
-     | _ => stack)
+  runHandlerDirect execInstrDictExt dictIdelGetRefInstr stack
 
 private def runDictIdelGetRefFallback (stack : Array Value) : Except Excno (Array Value) :=
   runHandlerDirectWithNext execInstrDictExt .add (VM.push (intV dispatchSentinel)) stack
 
+/-- The gas of the gas cases: the miss on a null root (`mkIntCaseStack .null 7 4`), the opcode alone in
+the code cell, implicit RET included. -/
 private def dictIdelGetRefGas : Int :=
-  computeExactGasBudget dictIdelGetRefInstr
+  modelGasUsed #[dictIdelGetRefInstr] (mkIntCaseStack .null 7 4)
 
 private def dictIdelGetRefGasExact : OracleGasLimits :=
   oracleGasLimitsExact dictIdelGetRefGas
@@ -245,28 +246,28 @@ private def genDictIdelGetRefFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     (mkCase (s!"fuzz/ok/underflow/two-items/{tag}") #[.cell intSignedRoot4, intV 7], rng2)
   else if shape = 7 then
     let (tag, rng2) := randNat rng1 0 999_999
-    (mkCase (s!"fuzz/err/type-non-int/{tag}") #[.cell intSignedRoot4, intV (-1), .slice (Slice.ofCell sampleCellA)], rng2)
+    (mkCase (s!"fuzz/err/type-non-int/{tag}") #[intV (-1), .cell intSignedRoot4, .slice (Slice.ofCell sampleCellA)], rng2)
   else if shape = 8 then
     let (tag, rng2) := randNat rng1 0 999_999
     (mkCase (s!"fuzz/err/type-dict/{tag}") #[intV 4, intV 2, intV 4], rng2)
   else if shape = 9 then
     let (tag, rng2) := randNat rng1 0 999_999
-    (mkCase (s!"fuzz/err/type-key/{tag}") #[.cell intSignedRoot4, .cell sampleCellA, intV 4], rng2)
+    (mkCase (s!"fuzz/err/type-key/{tag}") #[.cell sampleCellA, .cell intSignedRoot4, intV 4], rng2)
   else if shape = 10 then
     let (tag, rng2) := randNat rng1 0 999_999
-    (mkCase (s!"fuzz/err/range/n-neg/{tag}") #[.cell intSignedRoot4, intV 2, intV (-1)], rng2)
+    (mkCase (s!"fuzz/err/range/n-neg/{tag}") #[intV 2, .cell intSignedRoot4, intV (-1)], rng2)
   else if shape = 11 then
     let (tag, rng2) := randNat rng1 0 999_999
-    (mkCase (s!"fuzz/err/range/n-too-large/{tag}") #[.cell intSignedRoot4, intV 2, intV 1024], rng2)
+    (mkCase (s!"fuzz/err/range/n-too-large/{tag}") #[intV 2, .cell intSignedRoot4, intV 1024], rng2)
   else if shape = 12 then
     let (tag, rng2) := randNat rng1 0 999_999
-    (mkCase (s!"fuzz/err/range/key-high/{tag}") #[.cell intSignedRoot4, intV 8, intV 4], rng2)
+    (mkCase (s!"fuzz/err/range/key-high/{tag}") #[intV 8, .cell intSignedRoot4, intV 4], rng2)
   else if shape = 13 then
     let (tag, rng2) := randNat rng1 0 999_999
-    (mkCase (s!"fuzz/err/range/key-low/{tag}") #[.cell intSignedRoot4, intV (-9), intV 4], rng2)
+    (mkCase (s!"fuzz/err/range/key-low/{tag}") #[intV (-9), .cell intSignedRoot4, intV 4], rng2)
   else if shape = 14 then
     let (tag, rng2) := randNat rng1 0 999_999
-    (mkCase (s!"fuzz/err/type/key-not-int/{tag}") #[.cell intSignedRoot4, .tuple #[], intV 4], rng2)
+    (mkCase (s!"fuzz/err/type/key-not-int/{tag}") #[.tuple #[], .cell intSignedRoot4, intV 4], rng2)
   else if shape = 15 then
     let (tag, rng2) := randNat rng1 0 999_999
     (mkCase (s!"fuzz/err/dicterr/bits/{tag}") (mkIntCaseStack (.cell intSignedBadBitsRoot4) 3 4), rng2)
@@ -323,7 +324,7 @@ def suite : InstrSuite where
     { name := "unit/runtime/type/n-non-int"
       run := do
         expectErr "runtime/type-non-int"
-          (runDictIdelGetRefDirect #[.cell intSignedRoot4, intV (-1), .slice (Slice.ofCell sampleCellA)])
+          (runDictIdelGetRefDirect #[intV (-1), .cell intSignedRoot4, .slice (Slice.ofCell sampleCellA)])
           .typeChk },
     { name := "unit/runtime/type/dict-not-cell"
       run := do
@@ -331,23 +332,23 @@ def suite : InstrSuite where
     { name := "unit/runtime/type/key-not-int"
       run := do
         expectErr "runtime/type-key-not-int"
-          (runDictIdelGetRefDirect #[.cell intSignedRoot4, .slice (Slice.ofCell sampleCellA), intV 4])
+          (runDictIdelGetRefDirect #[.slice (Slice.ofCell sampleCellA), .cell intSignedRoot4, intV 4])
           .typeChk },
     { name := "unit/runtime/range/n-negative"
       run := do
-        expectErr "runtime/range-n-negative" (runDictIdelGetRefDirect #[.cell intSignedRoot4, intV 2, intV (-1)]) .rangeChk },
+        expectErr "runtime/range-n-negative" (runDictIdelGetRefDirect #[intV 2, .cell intSignedRoot4, intV (-1)]) .rangeChk },
     { name := "unit/runtime/range/n-too-large"
       run := do
-        expectErr "runtime/range-n-too-large" (runDictIdelGetRefDirect #[.cell intSignedRoot4, intV 2, intV 1024]) .rangeChk },
+        expectErr "runtime/range-n-too-large" (runDictIdelGetRefDirect #[intV 2, .cell intSignedRoot4, intV 1024]) .rangeChk },
     { name := "unit/runtime/range/key-high"
       run := do
-        expectErr "runtime/range-key-high" (runDictIdelGetRefDirect #[.cell intSignedRoot4, intV 8, intV 4]) .rangeChk },
+        expectErr "runtime/range-key-high" (runDictIdelGetRefDirect #[intV 8, .cell intSignedRoot4, intV 4]) .rangeChk },
     { name := "unit/runtime/range/key-low"
       run := do
-        expectErr "runtime/range-key-low" (runDictIdelGetRefDirect #[.cell intSignedRoot4, intV (-9), intV 4]) .rangeChk },
+        expectErr "runtime/range-key-low" (runDictIdelGetRefDirect #[intV (-9), .cell intSignedRoot4, intV 4]) .rangeChk },
     { name := "unit/runtime/intov/key-nan"
       run := do
-        expectErr "runtime/intov-key-nan" (runDictIdelGetRefDirect #[.cell intSignedRoot4, .int .nan, intV 4]) .intOv },
+        expectErr "runtime/intov-key-nan" (runDictIdelGetRefDirect #[.int .nan, .cell intSignedRoot4, intV 4]) .intOv },
     { name := "unit/runtime/dicterr/payload-with-bits"
       run := do
         expectErr "runtime/dicterr/payload-with-bits"
@@ -409,19 +410,19 @@ def suite : InstrSuite where
     -- [B2] One-item underflow for key.
     , mkCase "err/underflow/one-item" #[.cell intSignedRoot4, intV 3]
     -- [B3] n type error.
-    , mkCase "err/type/n-not-int" #[.cell intSignedRoot4, intV (-1), .slice (Slice.ofCell sampleCellA)]
+    , mkCase "err/type/n-not-int" #[intV (-1), .cell intSignedRoot4, .slice (Slice.ofCell sampleCellA)]
     -- [B3] dict root type error.
     , mkCase "err/type/dict-not-cell" #[intV 4, intV 2, intV 4]
     -- [B3] key type error.
-    , mkCase "err/type/key-not-int" #[.cell intSignedRoot4, .cell sampleCellA, intV 4]
+    , mkCase "err/type/key-not-int" #[.cell sampleCellA, .cell intSignedRoot4, intV 4]
     -- [B3] n negative range check.
-    , mkCase "err/range/n-negative" #[.cell intSignedRoot4, intV 2, intV (-1)]
+    , mkCase "err/range/n-negative" #[intV 2, .cell intSignedRoot4, intV (-1)]
     -- [B3] n out-of-range high.
-    , mkCase "err/range/n-too-large" #[.cell intSignedRoot4, intV 2, intV 1024]
+    , mkCase "err/range/n-too-large" #[intV 2, .cell intSignedRoot4, intV 1024]
     -- [B3] int key out-of-range high.
-    , mkCase "err/range/key-high" #[.cell intSignedRoot4, intV 8, intV 4]
+    , mkCase "err/range/key-high" #[intV 8, .cell intSignedRoot4, intV 4]
     -- [B3] int key out-of-range low.
-    , mkCase "err/range/key-low" #[.cell intSignedRoot4, intV (-9), intV 4]
+    , mkCase "err/range/key-low" #[intV (-9), .cell intSignedRoot4, intV 4]
     -- [B5] Ref payload with non-zero bits.
     , mkCase "err/dicterr/payload-bits" (mkIntCaseStack (.cell intSignedBadBitsRoot4) 3 4)
     -- [B5] Ref payload with no refs.

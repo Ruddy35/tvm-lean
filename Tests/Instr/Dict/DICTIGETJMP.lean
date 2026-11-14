@@ -16,7 +16,8 @@ INSTRUCTION: DICTIGETJMP
 BRANCH ANALYSIS (derived from Lean + C++ reference):
 
 1. [B1] Dispatch.
-2. [B2] Runtime preconditions: `checkUnderflow 3`, `popNatUpTo 1023`, `popMaybeCell`, `popIntFinite` in order.
+2. [B2] Runtime preconditions: `checkUnderflow 3`, `popNatUpTo 1023`, `popMaybeCell`, `popIntFinite` in order
+   (C++ `exec_dict_get_exec`, crypto/vm/dictops.cpp:598-602), so the stack is `(key, dict, n)` bottom first.
 3. [B3] `n` type/range errors (`.typeChk`, `.rangeChk`).
 4. [B4] Dictionary root type errors (`.typeChk` for non-null, non-cell).
 5. [B5] Key type/range errors (`.typeChk`, `.intOv`) and key conversion miss via `dictKeyBits?`.
@@ -27,7 +28,8 @@ BRANCH ANALYSIS (derived from Lean + C++ reference):
 10. [B10] `doCall = true` => call transfer path and register new `c0` continuation.
 11. [B11] `dictErr` on malformed traversal roots.
 12. [B12] Encoding + decoding of opcode families `0xf4a0..0xf4a3` and `0xf4bc..0xf4bf`, and neighbors invalid.
-13. [B13] Gas accounting: base cost only, exact-success and exact-minus-one.
+13. [B13] Gas accounting: exact budget and exact-minus-one along the hit path (cell loads, the jump and
+    the value's code included: `exactGasBudgetOnStack`).
 
 TOTAL BRANCHES: 13
 
@@ -124,10 +126,14 @@ private def callReturnFromCc (oldCc : Continuation) (oldC0 : Continuation) : Con
   | _ =>
       .quit 0
 
-private def dictIGetJmpGasExact : Int := computeExactGasBudget instrSignedJmp
-private def dictIGetJmpGasExactMinusOne : Int := computeExactGasBudgetMinusOne instrSignedJmp
-private def dictIGetJmpUnsignedGasExact : Int := computeExactGasBudget instrUnsignedJmp
-private def dictIGetJmpUnsignedGasExactMinusOne : Int := computeExactGasBudgetMinusOne instrUnsignedJmp
+/-- The budgets of the gas cases: a hit, which loads cells and jumps to the value's code, which runs
+too (`exactGasBudgetOnStack`). -/
+private def dictIGetJmpGasExact : Int :=
+  exactGasBudgetOnStack instrSignedJmp #[intV 3, .cell dictSigned4Hit, intV 4]
+private def dictIGetJmpGasExactMinusOne : Int := dictIGetJmpGasExact - 1
+private def dictIGetJmpUnsignedGasExact : Int :=
+  exactGasBudgetOnStack instrUnsignedJmp #[intV 3, .cell dictUnsigned4Hit, intV 4]
+private def dictIGetJmpUnsignedGasExactMinusOne : Int := dictIGetJmpUnsignedGasExact - 1
 
 private def gasExact : OracleGasLimits := oracleGasLimitsExact dictIGetJmpGasExact
 private def gasExactMinusOne : OracleGasLimits := oracleGasLimitsExactMinusOne dictIGetJmpGasExact
@@ -157,17 +163,11 @@ private def mkCaseCode
     gasLimits := gasLimits
     fuel := fuel }
 
-private def normalizeStack (stack : Array Value) : Array Value :=
-  if h3 : stack.size = 3 then
-    #[stack[1], stack[0], stack[2]]
-  else
-    stack
-
 private def runDirect (instr : Instr) (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirect execInstrDictDictGetExec instr (normalizeStack stack)
+  runHandlerDirect execInstrDictDictGetExec instr stack
 
 private def runDispatchFallback (instr : Instr) (stack : Array Value) : Except Excno (Array Value) :=
-  runHandlerDirectWithNext execInstrDictDictGetExec instr (VM.push (intV dispatchSentinel)) (normalizeStack stack)
+  runHandlerDirectWithNext execInstrDictDictGetExec instr (VM.push (intV dispatchSentinel)) stack
 
 private def runRaw
     (instr : Instr)
@@ -176,7 +176,7 @@ private def runRaw
     (cc : Continuation := defaultCc) : Except Excno Unit × VmState :=
   let st0 : VmState :=
     { (VmState.initial Cell.empty) with
-      stack := normalizeStack stack
+      stack := stack
       regs := regs
       cc := cc }
   (execInstrDictDictGetExec instr (pure ())).run st0
@@ -267,84 +267,84 @@ private def genDICTIGETJMP (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 2 then
       mkCase "fuzz/underflow/2" instrSignedJmp (#[(.cell dictSigned4Root), intV 1])
     else if shape = 3 then
-      mkCase "fuzz/err/n-type" instrSignedJmp (#[(.cell dictSigned4Root), intV 3, .slice (markerSlice 0x77AA)])
+      mkCase "fuzz/err/n-type" instrSignedJmp (#[intV 3, (.cell dictSigned4Root), .slice (markerSlice 0x77AA)])
     else if shape = 4 then
-      mkCase "fuzz/err/n-negative" instrSignedJmp (#[(.cell dictSigned4Root), intV 3, intV (-1)])
+      mkCase "fuzz/err/n-negative" instrSignedJmp (#[intV 3, (.cell dictSigned4Root), intV (-1)])
     else if shape = 5 then
-      mkCase "fuzz/err/n-too-large" instrSignedJmp (#[(.cell dictSigned4Root), intV 3, intV 1024])
+      mkCase "fuzz/err/n-too-large" instrSignedJmp (#[intV 3, (.cell dictSigned4Root), intV 1024])
     else if shape = 6 then
-      mkCase "fuzz/err/dict-type" instrSignedJmp (#[(.builder Builder.empty), intV 3, intV 4])
+      mkCase "fuzz/err/dict-type" instrSignedJmp (#[intV 3, (.builder Builder.empty), intV 4])
     else if shape = 7 then
-      mkCase "fuzz/err/key-type" instrSignedJmp (#[(.cell dictSigned4Root), .slice (markerSlice 0x77AA), intV 4])
+      mkCase "fuzz/err/key-type" instrSignedJmp (#[.slice (markerSlice 0x77AA), (.cell dictSigned4Root), intV 4])
     else if shape = 8 then
-      mkCase "fuzz/err/key-not-int" instrSignedJmp (#[(.cell dictSigned4Root), .tuple #[], intV 4])
+      mkCase "fuzz/err/key-not-int" instrSignedJmp (#[.tuple #[], (.cell dictSigned4Root), intV 4])
     else if shape = 9 then
-      mkCase "fuzz/signed/miss/oob-pos" instrSignedJmp (#[(.cell dictSigned4Root), intV (-9), intV 4])
+      mkCase "fuzz/signed/miss/oob-pos" instrSignedJmp (#[intV (-9), (.cell dictSigned4Root), intV 4])
     else if shape = 10 then
-      mkCase "fuzz/signed/miss/oob-neg" instrSignedJmp (#[(.cell dictSigned4Root), intV 8, intV 4])
+      mkCase "fuzz/signed/miss/oob-neg" instrSignedJmp (#[intV 8, (.cell dictSigned4Root), intV 4])
     else if shape = 11 then
-      mkCase "fuzz/signed/miss/oob-pos-z" instrSignedJmpZ (#[(.cell dictSigned4Root), intV 8, intV 4])
+      mkCase "fuzz/signed/miss/oob-pos-z" instrSignedJmpZ (#[intV 8, (.cell dictSigned4Root), intV 4])
     else if shape = 12 then
-      mkCase "fuzz/signed/miss/oob-neg-z" instrSignedJmpZ (#[(.cell dictSigned4Root), intV (-9), intV 4])
+      mkCase "fuzz/signed/miss/oob-neg-z" instrSignedJmpZ (#[intV (-9), (.cell dictSigned4Root), intV 4])
     else if shape = 13 then
-      mkCase "fuzz/unsigned/miss/oob-pos" instrUnsignedJmp (#[(.cell dictUnsigned4Root), intV (-1), intV 4])
+      mkCase "fuzz/unsigned/miss/oob-pos" instrUnsignedJmp (#[intV (-1), (.cell dictUnsigned4Root), intV 4])
     else if shape = 14 then
-      mkCase "fuzz/unsigned/miss/oob-neg" instrUnsignedJmp (#[(.cell dictUnsigned4Root), intV 16, intV 4])
+      mkCase "fuzz/unsigned/miss/oob-neg" instrUnsignedJmp (#[intV 16, (.cell dictUnsigned4Root), intV 4])
     else if shape = 15 then
-      mkCase "fuzz/unsigned/miss/oob-pos-z" instrUnsignedJmpZ (#[(.cell dictUnsigned4Root), intV 16, intV 4])
+      mkCase "fuzz/unsigned/miss/oob-pos-z" instrUnsignedJmpZ (#[intV 16, (.cell dictUnsigned4Root), intV 4])
     else if shape = 16 then
-      mkCase "fuzz/unsigned/miss/oob-neg-z" instrUnsignedJmpZ (#[(.cell dictUnsigned4Root), intV (-1), intV 4])
+      mkCase "fuzz/unsigned/miss/oob-neg-z" instrUnsignedJmpZ (#[intV (-1), (.cell dictUnsigned4Root), intV 4])
     else if shape = 17 then
-      mkCase "fuzz/signed/hit/jump" instrSignedJmp (#[(.cell dictSigned4Hit), intV 3, intV 4])
+      mkCase "fuzz/signed/hit/jump" instrSignedJmp (#[intV 3, (.cell dictSigned4Hit), intV 4])
     else if shape = 18 then
-      mkCase "fuzz/signed/hit/call" instrSignedCall (#[(.cell dictSigned4Call), intV 3, intV 4])
+      mkCase "fuzz/signed/hit/call" instrSignedCall (#[intV 3, (.cell dictSigned4Call), intV 4])
     else if shape = 19 then
-      mkCase "fuzz/unsigned/hit/jump" instrUnsignedJmp (#[(.cell dictUnsigned4Hit), intV 3, intV 4])
+      mkCase "fuzz/unsigned/hit/jump" instrUnsignedJmp (#[intV 3, (.cell dictUnsigned4Hit), intV 4])
     else if shape = 20 then
-      mkCase "fuzz/unsigned/hit/call" instrUnsignedCall (#[(.cell dictUnsigned4Call), intV 3, intV 4])
+      mkCase "fuzz/unsigned/hit/call" instrUnsignedCall (#[intV 3, (.cell dictUnsigned4Call), intV 4])
     else if shape = 21 then
-      mkCase "fuzz/signed/miss/null" instrSignedJmp (#[(.null), intV 3, intV 4])
+      mkCase "fuzz/signed/miss/null" instrSignedJmp (#[intV 3, (.null), intV 4])
     else if shape = 22 then
-      mkCase "fuzz/unsigned/miss/null-z" instrUnsignedJmpZ (#[(.null), intV 3, intV 4])
+      mkCase "fuzz/unsigned/miss/null-z" instrUnsignedJmpZ (#[intV 3, (.null), intV 4])
     else if shape = 23 then
-      mkCase "fuzz/signed/boundary-n0-hit" instrSignedJmp (#[(.cell dictSignedN0), intV 0, intV 0])
+      mkCase "fuzz/signed/boundary-n0-hit" instrSignedJmp (#[intV 0, (.cell dictSignedN0), intV 0])
     else if shape = 24 then
-      mkCase "fuzz/unsigned/boundary-n0-hit" instrUnsignedJmp (#[(.cell dictUnsignedN0), intV 0, intV 0])
+      mkCase "fuzz/unsigned/boundary-n0-hit" instrUnsignedJmp (#[intV 0, (.cell dictUnsignedN0), intV 0])
     else if shape = 25 then
-      mkCase "fuzz/malformed/root" instrSignedJmp (#[(.cell malformedRoot), intV 1, intV 4])
+      mkCase "fuzz/malformed/root" instrSignedJmp (#[intV 1, (.cell malformedRoot), intV 4])
     else if shape = 26 then
       mkCase
         "fuzz/gas/exact-signed"
         instrSignedJmp
-        (#[(.cell dictSigned4Hit), intV 3, intV 4])
+        (#[intV 3, (.cell dictSigned4Hit), intV 4])
         gasExact
         (program := #[.pushInt (.num dictIGetJmpGasExact), .tonEnvOp .setGasLimit, instrSignedJmp])
     else if shape = 27 then
       mkCase
         "fuzz/gas/exact-minus-one-signed"
         instrSignedJmp
-        (#[(.cell dictSigned4Hit), intV 3, intV 4])
+        (#[intV 3, (.cell dictSigned4Hit), intV 4])
         gasExactMinusOne
         (program := #[.pushInt (.num dictIGetJmpGasExactMinusOne), .tonEnvOp .setGasLimit, instrSignedJmp])
     else if shape = 28 then
       mkCase
         "fuzz/gas/exact-unsigned"
         instrUnsignedJmp
-        (#[(.cell dictUnsigned4Hit), intV 3, intV 4])
+        (#[intV 3, (.cell dictUnsigned4Hit), intV 4])
         gasUnsignedExact
         (program := #[.pushInt (.num dictIGetJmpUnsignedGasExact), .tonEnvOp .setGasLimit, instrUnsignedJmp])
     else if shape = 29 then
       mkCase
         "fuzz/gas/exact-minus-one-unsigned"
         instrUnsignedJmp
-        (#[(.cell dictUnsigned4Hit), intV 3, intV 4])
+        (#[intV 3, (.cell dictUnsigned4Hit), intV 4])
         gasUnsignedMinusOne
         (program := #[.pushInt (.num dictIGetJmpUnsignedGasExactMinusOne), .tonEnvOp .setGasLimit, instrUnsignedJmp])
     else
       mkCase
         "fuzz/raw/invalid"
         instrSignedJmp
-        (#[(.cell dictSigned4Root), intV 3, intV 4])
+        (#[intV 3, (.cell dictSigned4Root), intV 4])
         (program := #[.pushInt (.num dictIGetJmpGasExact), .tonEnvOp .setGasLimit, instrSignedJmp])
   let (name', rng3) := addSuffixToCaseName case0.name rng2
   ({ case0 with name := name' }, rng3)
@@ -354,12 +354,12 @@ def suite : InstrSuite where
   unit := #[
     { name := "unit/dispatch/fallback" -- [B1]
       run := do
-        let init : Array Value := #[(.cell dictSigned4Hit), intV 3, intV 4]
+        let init : Array Value := #[intV 3, (.cell dictSigned4Hit), intV 4]
         let st := runDispatchFallback .add init
         expectOkStack "unit/dispatch/fallback" st #[intV 3, .cell dictSigned4Hit, intV 4, intV dispatchSentinel] },
     { name := "unit/dispatch/match" -- [B1]
       run := do
-        let init : Array Value := #[(.cell dictSigned4Hit), intV 3, intV 4]
+        let init : Array Value := #[intV 3, (.cell dictSigned4Hit), intV 4]
         let st := runDispatchFallback instrSignedJmp init
         expectOkStack "unit/dispatch/match" st #[] },
     { name := "unit/encode-decode/family" -- [B12]
@@ -382,7 +382,7 @@ def suite : InstrSuite where
         let st ←
           expectRawOk
             "unit/raw/jump"
-            (runRaw instrSignedJmp (#[(.cell dictSigned4Hit), intV 3, intV 4] ) regsWithSentinelC0 defaultCc)
+            (runRaw instrSignedJmp (#[intV 3, (.cell dictSigned4Hit), intV 4] ) regsWithSentinelC0 defaultCc)
         expectJumpTransfer
           "unit/raw/jump"
           jumpTargetSlice
@@ -395,7 +395,7 @@ def suite : InstrSuite where
             "unit/raw/call"
             (runRaw
               instrSignedCall
-              (#[(.cell dictSigned4Call), intV 3, intV 4])
+              (#[intV 3, (.cell dictSigned4Call), intV 4])
               regsWithSentinelC0
               sentinelCc)
         expectCallTransfer
@@ -409,7 +409,7 @@ def suite : InstrSuite where
         let _ ←
           expectRawErrDictLike
             "unit/raw/malformed-root"
-            (runRaw instrSignedJmp (#[(.cell malformedRoot), intV 3, intV 4])
+            (runRaw instrSignedJmp (#[intV 3, (.cell malformedRoot), intV 4])
             Regs.initial
             defaultCc)
         pure () }
@@ -421,60 +421,60 @@ def suite : InstrSuite where
     mkCase "oracle/underflow/0" instrSignedJmp #[],
     mkCase "oracle/underflow/1" instrSignedJmp (#[(.null)]),
     mkCase "oracle/underflow/2" instrSignedJmp (#[(.cell dictSigned4Hit), intV 3]),
-    mkCase "oracle/err/n-type" instrSignedJmp (#[(.cell dictSigned4Hit), intV 3, .slice (markerSlice 0xCA11)]),
-    mkCase "oracle/err/n-negative" instrSignedJmp (#[(.cell dictSigned4Hit), intV 3, intV (-1)]),
-    mkCase "oracle/err/n-too-large" instrSignedJmp (#[(.cell dictSigned4Hit), intV 3, intV 1024]),
+    mkCase "oracle/err/n-type" instrSignedJmp (#[intV 3, (.cell dictSigned4Hit), .slice (markerSlice 0xCA11)]),
+    mkCase "oracle/err/n-negative" instrSignedJmp (#[intV 3, (.cell dictSigned4Hit), intV (-1)]),
+    mkCase "oracle/err/n-too-large" instrSignedJmp (#[intV 3, (.cell dictSigned4Hit), intV 1024]),
 
-    -- [B4] Root type handling.
-    mkCase "oracle/err/dict-type-builder" instrSignedJmp (#[(.builder Builder.empty), intV 3, intV 4]),
-    mkCase "oracle/err/dict-type-tuple" instrSignedJmp (#[(.tuple #[]), intV 3, intV 4]),
-    mkCase "oracle/err/dict-type-null" instrSignedJmp (#[(.null), intV 3, intV 4]),
+    -- [B4] Root type handling (a null root is accepted by `pop_maybe_cell`: a miss).
+    mkCase "oracle/err/dict-type-builder" instrSignedJmp (#[intV 3, (.builder Builder.empty), intV 4]),
+    mkCase "oracle/err/dict-type-tuple" instrSignedJmp (#[intV 3, (.tuple #[]), intV 4]),
+    mkCase "oracle/dict-null-accepted" instrSignedJmp (#[intV 3, (.null), intV 4]),
 
     -- [B5] Key type/range and conversion miss.
-    mkCase "oracle/err/key-type" instrSignedJmp (#[(.cell dictSigned4Hit), .slice (markerSlice 0xCAFE), intV 4]),
-    mkCase "oracle/err/key-cell" instrSignedJmp (#[(.cell dictSigned4Hit), .cell Cell.empty, intV 4]),
-    mkCase "oracle/miss-signed-oob-positive-no-z" instrSignedJmp (#[(.cell dictSigned4Hit), intV 8, intV 4]),
-    mkCase "oracle/miss-signed-oob-negative-no-z" instrSignedJmp (#[(.cell dictSigned4Hit), intV (-9), intV 4]),
-    mkCase "oracle/miss-signed-oob-positive-z" instrSignedJmpZ (#[(.cell dictSigned4Hit), intV 8, intV 4]),
-    mkCase "oracle/miss-signed-oob-negative-z" instrSignedJmpZ (#[(.cell dictSigned4Hit), intV (-9), intV 4]),
-    mkCase "oracle/miss-unsigned-oob-positive-no-z" instrUnsignedJmp (#[(.cell dictUnsigned4Hit), intV 16, intV 4]),
-    mkCase "oracle/miss-unsigned-oob-negative-no-z" instrUnsignedJmp (#[(.cell dictUnsigned4Hit), intV (-1), intV 4]),
-    mkCase "oracle/miss-unsigned-oob-positive-z" instrUnsignedJmpZ (#[(.cell dictUnsigned4Hit), intV 16, intV 4]),
-    mkCase "oracle/miss-unsigned-oob-negative-z" instrUnsignedJmpZ (#[(.cell dictUnsigned4Hit), intV (-1), intV 4]),
+    mkCase "oracle/err/key-type" instrSignedJmp (#[.slice (markerSlice 0xCAFE), (.cell dictSigned4Hit), intV 4]),
+    mkCase "oracle/err/key-cell" instrSignedJmp (#[.cell Cell.empty, (.cell dictSigned4Hit), intV 4]),
+    mkCase "oracle/miss-signed-oob-positive-no-z" instrSignedJmp (#[intV 8, (.cell dictSigned4Hit), intV 4]),
+    mkCase "oracle/miss-signed-oob-negative-no-z" instrSignedJmp (#[intV (-9), (.cell dictSigned4Hit), intV 4]),
+    mkCase "oracle/miss-signed-oob-positive-z" instrSignedJmpZ (#[intV 8, (.cell dictSigned4Hit), intV 4]),
+    mkCase "oracle/miss-signed-oob-negative-z" instrSignedJmpZ (#[intV (-9), (.cell dictSigned4Hit), intV 4]),
+    mkCase "oracle/miss-unsigned-oob-positive-no-z" instrUnsignedJmp (#[intV 16, (.cell dictUnsigned4Hit), intV 4]),
+    mkCase "oracle/miss-unsigned-oob-negative-no-z" instrUnsignedJmp (#[intV (-1), (.cell dictUnsigned4Hit), intV 4]),
+    mkCase "oracle/miss-unsigned-oob-positive-z" instrUnsignedJmpZ (#[intV 16, (.cell dictUnsigned4Hit), intV 4]),
+    mkCase "oracle/miss-unsigned-oob-negative-z" instrUnsignedJmpZ (#[intV (-1), (.cell dictUnsigned4Hit), intV 4]),
 
     -- [B6][B7] Null/no-hit path and pushZ variants.
-    mkCase "oracle/miss-signed-no-root-no-z" instrSignedJmp (#[(.null), intV 3, intV 4]),
-    mkCase "oracle/miss-unsigned-no-root-no-z" instrUnsignedJmp (#[(.null), intV 3, intV 4]),
-    mkCase "oracle/miss-signed-no-root-z" instrSignedJmpZ (#[(.null), intV 3, intV 4]),
-    mkCase "oracle/miss-unsigned-no-root-z" instrUnsignedJmpZ (#[(.null), intV 3, intV 4]),
-    mkCase "oracle/miss-signed-in-range" instrSignedJmp (#[(.cell dictSigned4OnlyMiss), intV 2, intV 4]),
-    mkCase "oracle/miss-unsigned-in-range" instrUnsignedJmp (#[(.cell dictUnsigned4OnlyMiss), intV 2, intV 4]),
-    mkCase "oracle/miss-signed-in-range-z" instrSignedJmpZ (#[(.cell dictSigned4OnlyMiss), intV 2, intV 4]),
-    mkCase "oracle/miss-unsigned-in-range-z" instrUnsignedJmpZ (#[(.cell dictUnsigned4OnlyMiss), intV 2, intV 4]),
+    mkCase "oracle/miss-signed-no-root-no-z" instrSignedJmp (#[intV 3, (.null), intV 4]),
+    mkCase "oracle/miss-unsigned-no-root-no-z" instrUnsignedJmp (#[intV 3, (.null), intV 4]),
+    mkCase "oracle/miss-signed-no-root-z" instrSignedJmpZ (#[intV 3, (.null), intV 4]),
+    mkCase "oracle/miss-unsigned-no-root-z" instrUnsignedJmpZ (#[intV 3, (.null), intV 4]),
+    mkCase "oracle/miss-signed-in-range" instrSignedJmp (#[intV 2, (.cell dictSigned4OnlyMiss), intV 4]),
+    mkCase "oracle/miss-unsigned-in-range" instrUnsignedJmp (#[intV 2, (.cell dictUnsigned4OnlyMiss), intV 4]),
+    mkCase "oracle/miss-signed-in-range-z" instrSignedJmpZ (#[intV 2, (.cell dictSigned4OnlyMiss), intV 4]),
+    mkCase "oracle/miss-unsigned-in-range-z" instrUnsignedJmpZ (#[intV 2, (.cell dictUnsigned4OnlyMiss), intV 4]),
 
     -- [B8] Hit path and transfer target coverage.
-    mkCase "oracle/hit-signed-jump" instrSignedJmp (#[(.cell dictSigned4Hit), intV 3, intV 4]),
-    mkCase "oracle/hit-unsigned-jump" instrUnsignedJmp (#[(.cell dictUnsigned4Hit), intV 3, intV 4]),
-    mkCase "oracle/hit-signed-call" instrSignedCall (#[(.cell dictSigned4Call), intV 3, intV 4]),
-    mkCase "oracle/hit-unsigned-call" instrUnsignedCall (#[(.cell dictUnsigned4Call), intV 3, intV 4]),
+    mkCase "oracle/hit-signed-jump" instrSignedJmp (#[intV 3, (.cell dictSigned4Hit), intV 4]),
+    mkCase "oracle/hit-unsigned-jump" instrUnsignedJmp (#[intV 3, (.cell dictUnsigned4Hit), intV 4]),
+    mkCase "oracle/hit-signed-call" instrSignedCall (#[intV 3, (.cell dictSigned4Call), intV 4]),
+    mkCase "oracle/hit-unsigned-call" instrUnsignedCall (#[intV 3, (.cell dictUnsigned4Call), intV 4]),
 
     -- [B10] N=0 boundary entries.
-    mkCase "oracle/boundary-signed-n0-hit" instrSignedJmp (#[(.cell dictSignedN0), intV 0, intV 0]),
-    mkCase "oracle/boundary-unsigned-n0-hit" instrUnsignedJmp (#[(.cell dictUnsignedN0), intV 0, intV 0]),
+    mkCase "oracle/boundary-signed-n0-hit" instrSignedJmp (#[intV 0, (.cell dictSignedN0), intV 0]),
+    mkCase "oracle/boundary-unsigned-n0-hit" instrUnsignedJmp (#[intV 0, (.cell dictUnsignedN0), intV 0]),
 
     -- [B11] Malformed root errors.
-    mkCase "oracle/malformed-root-signed" instrSignedJmp (#[(.cell malformedRoot), intV 3, intV 4]),
-    mkCase "oracle/malformed-root-unsigned" instrUnsignedJmp (#[(.cell malformedRoot), intV 3, intV 4]),
+    mkCase "oracle/malformed-root-signed" instrSignedJmp (#[intV 3, (.cell malformedRoot), intV 4]),
+    mkCase "oracle/malformed-root-unsigned" instrUnsignedJmp (#[intV 3, (.cell malformedRoot), intV 4]),
 
     -- [B12] Decoder/encoder raw opcode coverage.
-    mkCaseCode "oracle/raw/f4a0" (#[(.cell dictSigned4Hit), intV 3, intV 4]) (rawOpcode16 0xF4A0),
-    mkCaseCode "oracle/raw/f4a1" (#[(.cell dictUnsigned4Hit), intV 3, intV 4]) (rawOpcode16 0xF4A1),
-    mkCaseCode "oracle/raw/f4a2" (#[(.cell dictSigned4Hit), intV 3, intV 4]) (rawOpcode16 0xF4A2),
-    mkCaseCode "oracle/raw/f4a3" (#[(.cell dictUnsigned4Hit), intV 3, intV 4]) (rawOpcode16 0xF4A3),
-    mkCaseCode "oracle/raw/f4bc" (#[(.cell dictSigned4Hit), intV 3, intV 4]) (rawOpcode16 0xF4BC),
-    mkCaseCode "oracle/raw/f4bd" (#[(.cell dictUnsigned4Hit), intV 3, intV 4]) (rawOpcode16 0xF4BD),
-    mkCaseCode "oracle/raw/f4be" (#[(.cell dictSigned4Hit), intV 3, intV 4]) (rawOpcode16 0xF4BE),
-    mkCaseCode "oracle/raw/f4bf" (#[(.cell dictUnsigned4Hit), intV 3, intV 4]) (rawOpcode16 0xF4BF),
+    mkCaseCode "oracle/raw/f4a0" (#[intV 3, (.cell dictSigned4Hit), intV 4]) (rawOpcode16 0xF4A0),
+    mkCaseCode "oracle/raw/f4a1" (#[intV 3, (.cell dictUnsigned4Hit), intV 4]) (rawOpcode16 0xF4A1),
+    mkCaseCode "oracle/raw/f4a2" (#[intV 3, (.cell dictSigned4Hit), intV 4]) (rawOpcode16 0xF4A2),
+    mkCaseCode "oracle/raw/f4a3" (#[intV 3, (.cell dictUnsigned4Hit), intV 4]) (rawOpcode16 0xF4A3),
+    mkCaseCode "oracle/raw/f4bc" (#[intV 3, (.cell dictSigned4Hit), intV 4]) (rawOpcode16 0xF4BC),
+    mkCaseCode "oracle/raw/f4bd" (#[intV 3, (.cell dictUnsigned4Hit), intV 4]) (rawOpcode16 0xF4BD),
+    mkCaseCode "oracle/raw/f4be" (#[intV 3, (.cell dictSigned4Hit), intV 4]) (rawOpcode16 0xF4BE),
+    mkCaseCode "oracle/raw/f4bf" (#[intV 3, (.cell dictUnsigned4Hit), intV 4]) (rawOpcode16 0xF4BF),
     mkCaseCode "oracle/raw/invalid-f4a4" #[] (rawOpcode16 0xF4A4),
     mkCaseCode "oracle/raw/invalid-f4c0" #[] (rawOpcode16 0xF4C0),
 
@@ -482,25 +482,25 @@ def suite : InstrSuite where
     mkCase
       "oracle/gas/exact-signed"
       instrSignedJmp
-      (#[(.cell dictSigned4Hit), intV 3, intV 4])
+      (#[intV 3, (.cell dictSigned4Hit), intV 4])
       gasExact
       (program := #[.pushInt (.num dictIGetJmpGasExact), .tonEnvOp .setGasLimit, instrSignedJmp]),
     mkCase
       "oracle/gas/exact-minus-one-signed"
       instrSignedJmp
-      (#[(.cell dictSigned4Hit), intV 3, intV 4])
+      (#[intV 3, (.cell dictSigned4Hit), intV 4])
       gasExactMinusOne
       (program := #[.pushInt (.num dictIGetJmpGasExactMinusOne), .tonEnvOp .setGasLimit, instrSignedJmp]),
     mkCase
       "oracle/gas/exact-unsigned"
       instrUnsignedJmp
-      (#[(.cell dictUnsigned4Hit), intV 3, intV 4])
+      (#[intV 3, (.cell dictUnsigned4Hit), intV 4])
       gasUnsignedExact
       (program := #[.pushInt (.num dictIGetJmpUnsignedGasExact), .tonEnvOp .setGasLimit, instrUnsignedJmp]),
     mkCase
       "oracle/gas/exact-minus-one-unsigned"
       instrUnsignedJmp
-      (#[(.cell dictUnsigned4Hit), intV 3, intV 4])
+      (#[intV 3, (.cell dictUnsigned4Hit), intV 4])
       gasUnsignedMinusOne
       (program := #[.pushInt (.num dictIGetJmpUnsignedGasExactMinusOne), .tonEnvOp .setGasLimit, instrUnsignedJmp])
   ]

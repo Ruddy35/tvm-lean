@@ -20,7 +20,8 @@ BRANCH ANALYSIS (derived from reading Lean + C++ source):
 
 2. [B2] Runtime stack underflow:
    - `VM.checkUnderflow 4` is enforced.
-   - Valid stack shape is `[keySlice, k:Int, dictRoot:Option Cell, n:Int]` (top is `n`).
+   - Valid stack shape is `[keySlice, k:Int, dictRoot:Option Cell, n:Int]` (top is `n`): C++
+     `exec_subdict_get` pops `n`, the dictionary, `k`, then the key (crypto/vm/dictops.cpp:727-736).
 
 3. [B3] `n` parsing:
    - `popNatUpTo 1023` accepts `0..1023`.
@@ -62,7 +63,8 @@ BRANCH ANALYSIS (derived from reading Lean + C++ source):
 
 12. [B12] Gas accounting:
    - Base instruction gas is `instrGas (.dictExt (.subdictGet false false true)) 16`.
-   - Exact-gas and exact-minus-one limits are tested as success/failure boundaries.
+   - Exact-gas and exact-minus-one limits are tested as success/failure boundaries, with the exact gas of
+     the case's path, prelude included (`exactGasBudgetOnStack`).
    - Dynamic `created` surcharge exists (`consumeCreatedGas`) in successful prefix-match/rewrite branches; fuzz keeps this path probabilistically covered.
 
 TOTAL BRANCHES: 12
@@ -171,7 +173,7 @@ private def stack4
     (dictVal : Value)
     (k : Int)
     (n : Int) : Array Value :=
-  #[.slice (mkSliceFromBits key), dictVal, intV k, intV n]
+  #[.slice (mkSliceFromBits key), intV k, dictVal, intV n]
 
 private def mkCase
     (name : String)
@@ -196,18 +198,13 @@ private def mkGasProgram (gasLimit : Int) : Cell :=
 private def subdictRpGetBaseGas : Int :=
   instrGas subdictRpGetInstr 16
 
-private def subdictRpGetBaseGasMinusOne : Int :=
-  if subdictRpGetBaseGas > 0 then subdictRpGetBaseGas - 1 else 0
+/-- The budgets of the gas cases (`mkGasProgram b` on a null root with `k = n = 0` or `1023`): the
+exact gas of that path, prelude and implicit RET included (`exactGasBudgetOnStack`). -/
+private def subdictRpGetGasK0 : Int :=
+  exactGasBudgetOnStack subdictRpGetInstr (stack4 keyBits0 .null 0 0)
 
-private def subdictRpGetGasExact : OracleGasLimits :=
-  { gasLimit := subdictRpGetBaseGas
-    gasMax := subdictRpGetBaseGas
-    gasCredit := 0 }
-
-private def subdictRpGetGasExactMinusOne : OracleGasLimits :=
-  { gasLimit := subdictRpGetBaseGasMinusOne
-    gasMax := subdictRpGetBaseGasMinusOne
-    gasCredit := 0 }
+private def subdictRpGetGasK1023 : Int :=
+  exactGasBudgetOnStack subdictRpGetInstr (stack4 keyBits1023 .null 1023 1023)
 
 private def expectDecodeOk
     (label : String)
@@ -261,8 +258,8 @@ private def expectAssembleExact
 private def runDispatchFallback (instr : Instr) : Except Excno (Array Value) :=
   runHandlerDirectWithNext execInstrDictExt instr (VM.push (intV dispatchSentinel)) #[
     .slice (mkSliceFromBits keyA4),
-    .cell dict4Single,
     intV 2,
+    .cell dict4Single,
     intV 4
   ]
 
@@ -304,31 +301,31 @@ private def genSUBDICTRPGETFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 14 then
       (s!"fuzz/err/n-negative/{tag}", mkCase (s!"{tag}/err/n-negative") (stack4 keyA4 (.cell dict4Single) 1 (-1)), rng2)
     else if shape = 15 then
-      (s!"fuzz/err/n-nan/{tag}", mkCase (s!"{tag}/err/n-nan") #[.slice (mkSliceFromBits keyA4), .cell dict4Single, intV 1, .int .nan], rng2)
+      (s!"fuzz/err/n-nan/{tag}", mkCase (s!"{tag}/err/n-nan") #[.slice (mkSliceFromBits keyA4), intV 1, .cell dict4Single, .int .nan], rng2)
     else if shape = 16 then
       (s!"fuzz/err/k-over-n/{tag}", mkCase (s!"{tag}/err/k-over-n") (stack4 keyA4 (.cell dict4Single) 1 0), rng2)
     else if shape = 17 then
       (s!"fuzz/err/k-negative/{tag}", mkCase (s!"{tag}/err/k-negative") (stack4 keyA4 (.cell dict4Single) (-1) 4), rng2)
     else if shape = 18 then
-      (s!"fuzz/err/k-nan/{tag}", mkCase (s!"{tag}/err/k-nan") #[.slice (mkSliceFromBits keyA4), .cell dict4Single, .int .nan, intV 4], rng2)
+      (s!"fuzz/err/k-nan/{tag}", mkCase (s!"{tag}/err/k-nan") #[.slice (mkSliceFromBits keyA4), .int .nan, .cell dict4Single, intV 4], rng2)
     else if shape = 19 then
-      (s!"fuzz/err/dict-type/{tag}", mkCase (s!"{tag}/err/dict-type") #[.slice (mkSliceFromBits keyA4), .int (.num 5), intV 1, intV 4], rng2)
+      (s!"fuzz/err/dict-type/{tag}", mkCase (s!"{tag}/err/dict-type") #[.slice (mkSliceFromBits keyA4), intV 1, .int (.num 5), intV 4], rng2)
     else if shape = 20 then
-      (s!"fuzz/err/key-type/{tag}", mkCase (s!"{tag}/err/key-type") #[.int (.num 5), .cell dict4Single, intV 1, intV 4], rng2)
+      (s!"fuzz/err/key-type/{tag}", mkCase (s!"{tag}/err/key-type") #[.int (.num 5), intV 1, .cell dict4Single, intV 4], rng2)
     else if shape = 21 then
-      (s!"fuzz/err/key-type-null/{tag}", mkCase (s!"{tag}/err/key-type-null") #[.null, .cell dict4Single, intV 1, intV 4], rng2)
+      (s!"fuzz/err/key-type-null/{tag}", mkCase (s!"{tag}/err/key-type-null") #[.null, intV 1, .cell dict4Single, intV 4], rng2)
     else if shape = 22 then
-      (s!"fuzz/err/key-type-slice-0/{tag}", mkCase (s!"{tag}/err/key-type-slice-0") #[.slice (mkSliceFromBits keyA4), .cell dict4Single, intV 0, .int .nan], rng2)
+      (s!"fuzz/err/key-type-slice-0/{tag}", mkCase (s!"{tag}/err/key-type-slice-0") #[.slice (mkSliceFromBits keyA4), intV 0, .cell dict4Single, .int .nan], rng2)
     else if shape = 23 then
       (s!"fuzz/err/malformed/{tag}", mkCase (s!"{tag}/err/malformed") (stack4 keyA4 (.cell malformedDict) 1 1), rng2)
     else if shape = 24 then
-      (s!"fuzz/gas/exact/{tag}", mkCase (s!"{tag}/fuzz/gas/exact") (stack4 keyBits0 .null 0 0) (mkGasProgram subdictRpGetBaseGas) subdictRpGetGasExact, rng2)
+      (s!"fuzz/gas/exact/{tag}", mkCase (s!"{tag}/fuzz/gas/exact") (stack4 keyBits0 .null 0 0) (mkGasProgram subdictRpGetGasK0) (oracleGasLimitsExact subdictRpGetGasK0), rng2)
     else if shape = 25 then
-      (s!"fuzz/gas/exact-minus-one/{tag}", mkCase (s!"{tag}/fuzz/gas/exact-minus-one") (stack4 keyBits0 .null 0 0) (mkGasProgram subdictRpGetBaseGasMinusOne) subdictRpGetGasExactMinusOne, rng2)
+      (s!"fuzz/gas/exact-minus-one/{tag}", mkCase (s!"{tag}/fuzz/gas/exact-minus-one") (stack4 keyBits0 .null 0 0) (mkGasProgram (subdictRpGetGasK0 - 1)) (oracleGasLimitsExact (subdictRpGetGasK0 - 1)), rng2)
     else if shape = 26 then
-      (s!"fuzz/gas/exact-k1023/{tag}", mkCase (s!"{tag}/fuzz/gas/exact-k1023") (stack4 keyBits1023 .null 1023 1023) (mkGasProgram subdictRpGetBaseGas) subdictRpGetGasExact, rng2)
+      (s!"fuzz/gas/exact-k1023/{tag}", mkCase (s!"{tag}/fuzz/gas/exact-k1023") (stack4 keyBits1023 .null 1023 1023) (mkGasProgram subdictRpGetGasK1023) (oracleGasLimitsExact subdictRpGetGasK1023), rng2)
     else if shape = 27 then
-      (s!"fuzz/gas/exact-minus-one-k1023/{tag}", mkCase (s!"{tag}/fuzz/gas/exact-minus-one-k1023") (stack4 keyBits1023 .null 1023 1023) (mkGasProgram subdictRpGetBaseGasMinusOne) subdictRpGetGasExactMinusOne, rng2)
+      (s!"fuzz/gas/exact-minus-one-k1023/{tag}", mkCase (s!"{tag}/fuzz/gas/exact-minus-one-k1023") (stack4 keyBits1023 .null 1023 1023) (mkGasProgram (subdictRpGetGasK1023 - 1)) (oracleGasLimitsExact (subdictRpGetGasK1023 - 1)), rng2)
     else if shape = 28 then
       let (k, rng3') := randNat rng2 0 4
       let (n, rng3'') := randNat rng3' 1 1023
@@ -355,8 +352,8 @@ def suite : InstrSuite where
         let out := runDispatchFallback .add
         let expected : Array Value := #[
           .slice (mkSliceFromBits keyA4),
-          .cell dict4Single,
           intV 2,
+          .cell dict4Single,
           intV 4,
           intV dispatchSentinel
         ]
@@ -404,21 +401,21 @@ def suite : InstrSuite where
     mkCase "err/underflow-3" #[.slice (mkSliceFromBits keyA4), .cell dict4Single, intV 1], -- [B2]
     mkCase "err/n-too-large" (stack4 keyA4 (.cell dict4Single) 1 1024), -- [B3]
     mkCase "err/n-negative" (stack4 keyA4 (.cell dict4Single) 1 (-1)), -- [B3]
-    mkCase "err/n-nan" #[.slice (mkSliceFromBits keyA4), .cell dict4Single, intV 1, .int .nan], -- [B3]
+    mkCase "err/n-nan" #[.slice (mkSliceFromBits keyA4), intV 1, .cell dict4Single, .int .nan], -- [B3]
     mkCase "err/k-over-n" (stack4 keyA4 (.cell dict4Single) 1 0), -- [B5]
     mkCase "err/k-negative" (stack4 keyA4 (.cell dict4Single) (-1) 4), -- [B5]
-    mkCase "err/k-nan" #[.slice (mkSliceFromBits keyA4), .cell dict4Single, .int .nan, intV 4], -- [B5][B6]
-    mkCase "err/dict-type-int" #[.slice (mkSliceFromBits keyA4), .int (.num 7), intV 1, intV 4], -- [B4]
-    mkCase "err/dict-type-slice" #[.slice (mkSliceFromBits keyA4), .slice (mkSliceFromBits keyC4), intV 1, intV 4], -- [B4]
-    mkCase "err/key-type-int" #[.int (.num 5), .cell dict4Single, intV 1, intV 4], -- [B5][B6]
-    mkCase "err/key-type-null" #[.null, .cell dict4Single, intV 1, intV 4], -- [B5][B6]
+    mkCase "err/k-nan" #[.slice (mkSliceFromBits keyA4), .int .nan, .cell dict4Single, intV 4], -- [B5][B6]
+    mkCase "err/dict-type-int" #[.slice (mkSliceFromBits keyA4), intV 1, .int (.num 7), intV 4], -- [B4]
+    mkCase "err/dict-type-slice" #[.slice (mkSliceFromBits keyA4), intV 1, .slice (mkSliceFromBits keyC4), intV 4], -- [B4]
+    mkCase "err/key-type-int" #[.int (.num 5), intV 1, .cell dict4Single, intV 4], -- [B5][B6]
+    mkCase "err/key-type-null" #[.null, intV 1, .cell dict4Single, intV 4], -- [B5][B6]
     mkCase "err/key-short" (stack4 keyBits1 (.cell dict4Single) 4 4), -- [B6]
     mkCase "err/key-short-zero" (stack4 keyBits0 (.cell dict4Single) 4 4), -- [B6]
     mkCase "err/malformed" (stack4 keyA4 (.cell malformedDict) 1 1), -- [B9]
-    mkCase "gas/exact-null-k0" (stack4 keyBits0 .null 0 0) (mkGasProgram subdictRpGetBaseGas) subdictRpGetGasExact, -- [B12]
-    mkCase "gas/exact-minus-one-null-k0" (stack4 keyBits0 .null 0 0) (mkGasProgram subdictRpGetBaseGasMinusOne) subdictRpGetGasExactMinusOne, -- [B12]
-    mkCase "gas/exact-null-k1023" (stack4 keyBits1023 .null 1023 1023) (mkGasProgram subdictRpGetBaseGas) subdictRpGetGasExact, -- [B12]
-    mkCase "gas/exact-minus-one-null-k1023" (stack4 keyBits1023 .null 1023 1023) (mkGasProgram subdictRpGetBaseGasMinusOne) subdictRpGetGasExactMinusOne -- [B12]
+    mkCase "gas/exact-null-k0" (stack4 keyBits0 .null 0 0) (mkGasProgram subdictRpGetGasK0) (oracleGasLimitsExact subdictRpGetGasK0), -- [B12]
+    mkCase "gas/exact-minus-one-null-k0" (stack4 keyBits0 .null 0 0) (mkGasProgram (subdictRpGetGasK0 - 1)) (oracleGasLimitsExact (subdictRpGetGasK0 - 1)), -- [B12]
+    mkCase "gas/exact-null-k1023" (stack4 keyBits1023 .null 1023 1023) (mkGasProgram subdictRpGetGasK1023) (oracleGasLimitsExact subdictRpGetGasK1023), -- [B12]
+    mkCase "gas/exact-minus-one-null-k1023" (stack4 keyBits1023 .null 1023 1023) (mkGasProgram (subdictRpGetGasK1023 - 1)) (oracleGasLimitsExact (subdictRpGetGasK1023 - 1)) -- [B12]
   ]
   fuzz := #[
     { seed := fuzzSeedForInstr subdictRpGetId

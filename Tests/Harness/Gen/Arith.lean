@@ -1,5 +1,6 @@
 import Tests.Harness.Registry
 import TvmLean
+import TvmLean.Validation.Oracle.Runner
 
 open TvmLean
 
@@ -162,6 +163,31 @@ def computeExactGasBudget (instr : Instr) : Int :=
 def computeExactGasBudgetMinusOne (instr : Instr) : Int :=
   let budget := computeExactGasBudget instr
   if budget > 0 then budget - 1 else 0
+
+/-- The gas the Lean model charges for the cp0 `program` on `stack` (bottom first), the implicit RET
+included, with the oracle's default c7 (`TvmLeanOracleValidate.runLean`); 0 if it does not assemble.
+For gas cases along a path that loads or creates cells, or throws: the oracle runs the case on C++ too,
+so a wrong model price shows up there. -/
+def modelGasUsed (program : Array Instr) (stack : Array Value) : Int :=
+  match assembleCp0 program.toList with
+  | .error _ => 0
+  | .ok code =>
+      match TvmLeanOracleValidate.runLean code stack with
+      | .halt _ st => st.gas.gasConsumed
+      | .continue st => st.gas.gasConsumed
+
+private def exactGasBudgetOnStackAux (instr : Instr) (stack : Array Value) : Nat → Int → Int
+  | 0, n => n
+  | k + 1, n =>
+      let n' := modelGasUsed #[.pushInt (.num n), .tonEnvOp .setGasLimit, instr] stack
+      if n' = n then n else exactGasBudgetOnStackAux instr stack k n'
+
+/-- The budget `b` with which `PUSHINT b; SETGASLIMIT; instr` on `stack` uses exactly `b` gas in the
+Lean model (`computeExactGasBudget` along the path the stack takes: cell loads, created cells and
+exceptions included). Iterated from above, where the run never runs out of gas: the price of
+`PUSHINT b` only falls with `b`. -/
+def exactGasBudgetOnStack (instr : Instr) (stack : Array Value) : Int :=
+  exactGasBudgetOnStackAux instr stack 16 1_000_000
 
 def runHandlerDirectWithNext
     (handler : Instr → VM Unit → VM Unit)

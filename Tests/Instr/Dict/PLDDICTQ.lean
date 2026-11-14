@@ -182,7 +182,7 @@ private def genPLDDICTQFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
         (#[.null, .int (.num 88), .slice missSliceB]), rng1)
     else if shape = 13 then
       (mkCase "fuzz/prefix/no-bits"
-        (#[.slice emptyBitsSlice, .int (.num 101)]), rng1)
+        (#[.int (.num 101), .slice emptyBitsSlice]), rng1)
     else if shape = 14 then
       (mkCodeCase "fuzz/raw/f407" #[] rawF407, rng1)
     else if shape = 15 then
@@ -298,7 +298,7 @@ def suite : InstrSuite where
     mkCase "oracle/present-one-ref" #[(.slice presentSliceA)],
     mkCase "oracle/present-multi-refs" #[(.slice presentSliceB)],
     mkCase "oracle/present-with-noise-top" #[.int (.num 1), .cell valueA, .slice presentSliceC],
-    mkCase "oracle/present-with-prefix-2" #[.slice presentSliceB, .int (.num 12), .cell valueC],
+    mkCase "oracle/present-with-prefix-2" #[.int (.num 12), .cell valueC, .slice presentSliceB],
     -- [B6][B7]
     mkCase "oracle/miss-simple" #[(.slice missSliceA)],
     mkCase "oracle/miss-tail" #[(.slice missSliceB)],
@@ -330,11 +330,11 @@ def suite : InstrSuite where
     -- Additional branches to exceed 30 oracle tests
     mkCase "oracle/no-bits-noise-top" #[.int (.num 7), .slice emptyBitsSlice],
     mkCase "oracle/missing-ref-noise-top" #[.builder Builder.empty, .slice presentSliceNoRef],
-    mkCase "oracle/miss-top-with-bits" #[.slice missSliceA, .cell valueC],
-    mkCase "oracle/present-top-with-bits" #[.slice presentSliceC, .tuple #[]],
+    mkCase "oracle/miss-top-with-bits" #[.cell valueC, .slice missSliceA],
+    mkCase "oracle/present-top-with-bits" #[.tuple #[], .slice presentSliceC],
     mkCase "oracle/present-extra-depth" #[.cell valueA, .int (.num 5), .int (.num 9), .slice presentSliceB],
     mkCase "oracle/miss-extra-depth" #[.null, .builder Builder.empty, .int (.num 1), .slice missSliceA],
-    mkCase "oracle/no-bits-extra-depth" #[.slice emptyBitsSlice, .cont (.quit 0), .tuple #[]],
+    mkCase "oracle/no-bits-extra-depth" #[.cont (.quit 0), .tuple #[], .slice emptyBitsSlice],
     mkCase "oracle/missing-ref-extra-depth" #[.int (.num 17), .int (.num 19), .slice presentSliceNoRef],
     mkCase "oracle/type-scalar-top" #[.int (.num 0), .int (.num 1), .cell valueB, .slice missSliceB]
   ]

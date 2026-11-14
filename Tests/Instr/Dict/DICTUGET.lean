@@ -172,6 +172,8 @@ private def malformedDictCell : Cell := Cell.mkOrdinary (natToBits 0b10 2) #[]
 
 private def dictUGasExact : Int := computeExactGasBudget dictUGet
 private def dictUGasExactMinusOne : Int := computeExactGasBudgetMinusOne dictUGet
+/-- The budget of `or/gas/tail-preserved`: a hit, which loads cells (`exactGasBudgetOnStack`). -/
+private def dictUGasTailHit : Int := exactGasBudgetOnStack dictUGet #[intV 99, intV 1, .cell dictU8Root, intV 8]
 
 private def rawF40e : Cell := Cell.mkOrdinary (natToBits 0xf40e 16) #[]
 private def rawF40f : Cell := Cell.mkOrdinary (natToBits 0xf40f 16) #[]
@@ -259,15 +261,15 @@ private def genDictUGetFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 8 then
       mkCase (s!"{base}/n-too-large") (stackIntKey 0 (.cell dictU8Root) 1024)
     else if shape = 9 then
-      mkCase (s!"{base}/n-not-int2") (#[.cell dictU8Root, intV 0, .tuple #[]])
+      mkCase (s!"{base}/n-not-int2") (#[intV 0, .cell dictU8Root, .tuple #[]])
     else if shape = 10 then
-      mkCase (s!"{base}/key-null") (#[.cell dictU8Root, .null, intV 8])
+      mkCase (s!"{base}/key-null") (#[.null, .cell dictU8Root, intV 8])
     else if shape = 11 then
-      mkCase (s!"{base}/key-builder") (#[.cell dictU8Root, .builder Builder.empty, intV 8])
+      mkCase (s!"{base}/key-builder") (#[.builder Builder.empty, .cell dictU8Root, intV 8])
     else if shape = 12 then
-      mkCase (s!"{base}/key-not-int2") (#[.cell dictU8Root, .tuple #[], intV 8])
+      mkCase (s!"{base}/key-not-int2") (#[.tuple #[], .cell dictU8Root, intV 8])
     else if shape = 13 then
-      mkCase (s!"{base}/dict-bool") (#[.tuple #[], .cell Cell.empty, intV 8])
+      mkCase (s!"{base}/dict-bool") (#[.cell Cell.empty, .tuple #[], intV 8])
     else if shape = 14 then
       mkCase (s!"{base}/dict-malformed") (stackIntKey 0 (.cell malformedDictCell) 8)
     else if shape = 15 then
@@ -463,31 +465,31 @@ def suite : InstrSuite where
 
     -- [B3] `n` type/range
     -- [B3]
-    mkCase "or/type/n-not-int" #[.cell dictU8Root, intV 1, .null],
+    mkCase "or/type/n-not-int" #[intV 1, .cell dictU8Root, .null],
     -- [B3]
-    mkCase "or/type/n-builder" #[.cell dictU8Root, intV 1, .builder Builder.empty],
+    mkCase "or/type/n-builder" #[intV 1, .cell dictU8Root, .builder Builder.empty],
     -- [B3]
-    mkCase "or/type/n-not-int2" #[.cell dictU8Root, intV 1, .tuple #[]],
+    mkCase "or/type/n-not-int2" #[intV 1, .cell dictU8Root, .tuple #[]],
     -- [B3]
-    mkCase "or/range/n-negative" #[.cell dictU8Root, intV 1, intV (-1)],
+    mkCase "or/range/n-negative" #[intV 1, .cell dictU8Root, intV (-1)],
     -- [B3]
-    mkCase "or/range/n-too-large" #[.cell dictU8Root, intV 1, intV 1024],
+    mkCase "or/range/n-too-large" #[intV 1, .cell dictU8Root, intV 1024],
     -- [B3]
-    mkCase "or/range/n-max" #[.cell dictU8Root, intV 1, intV 1023],
+    mkCase "or/range/n-max" #[intV 1, .cell dictU8Root, intV 1023],
 
     -- [B4] dictionary type errors
     -- [B4]
-    mkCase "or/type/dict-builder" #[.builder Builder.empty, intV 1, intV 8],
+    mkCase "or/type/dict-builder" #[intV 1, .builder Builder.empty, intV 8],
     -- [B4]
-    mkCase "or/type/dict-tuple" #[.tuple #[], intV 1, intV 8],
+    mkCase "or/type/dict-tuple" #[intV 1, .tuple #[], intV 8],
 
     -- [B5] key type checks
     -- [B5]
-    mkCase "or/type/key-null" #[.cell dictU8Root, .null, intV 8],
+    mkCase "or/type/key-null" #[.null, .cell dictU8Root, intV 8],
     -- [B5]
-    mkCase "or/type/key-cell" #[.cell dictU8Root, .cell Cell.empty, intV 8],
+    mkCase "or/type/key-cell" #[.cell Cell.empty, .cell dictU8Root, intV 8],
     -- [B5]
-    mkCase "or/type/key-not-int2" #[.cell dictU8Root, .tuple #[], intV 8],
+    mkCase "or/type/key-not-int2" #[.tuple #[], .cell dictU8Root, intV 8],
 
     -- [B6] key conversion miss
     -- [B6]
@@ -519,9 +521,9 @@ def suite : InstrSuite where
     -- [B7]
     mkCase "or/lookup/n1-hit" (stackIntKey 0 (.cell dictU1Root) 1),
     -- [B7]
-    mkCase "or/lookup/preserve-hit" (#[intV 77, .cell dictU8Root, intV 1, intV 8]),
+    mkCase "or/lookup/preserve-hit" (#[intV 77, intV 1, .cell dictU8Root, intV 8]),
     -- [B7]
-    mkCase "or/lookup/preserve-miss" (#[intV 77, .null, intV 7, intV 8]),
+    mkCase "or/lookup/preserve-miss" (#[intV 77, intV 7, .null, intV 8]),
 
     -- [B8] by-ref retrieval
     -- [B8]
@@ -537,7 +539,7 @@ def suite : InstrSuite where
     -- [B9]
     mkCase "or/error/malformed-root" (stackIntKey 0 (.cell malformedDictCell) 8),
     -- [B9]
-    mkCase "or/error/malformed-root-tail" (#[intV 99, .cell malformedDictCell, intV 0, intV 8]),
+    mkCase "or/error/malformed-root-tail" (#[intV 99, intV 0, .cell malformedDictCell, intV 8]),
 
     -- [B10] [B11] assembler/decoder boundaries
     -- [B10] [B11]
@@ -569,9 +571,9 @@ def suite : InstrSuite where
       (#[.pushInt (.num dictUGasExactMinusOne), .tonEnvOp .setGasLimit, dictUGet])
       (oracleGasLimitsExactMinusOne dictUGasExactMinusOne),
     -- [B12] [B13]
-    mkCase "or/gas/tail-preserved" (#[intV 99, .cell dictU8Root, intV 1, intV 8])
-      (#[.pushInt (.num dictUGasExact), .tonEnvOp .setGasLimit, dictUGet])
-      (oracleGasLimitsExact dictUGasExact)
+    mkCase "or/gas/tail-preserved" (#[intV 99, intV 1, .cell dictU8Root, intV 8])
+      (#[.pushInt (.num dictUGasTailHit), .tonEnvOp .setGasLimit, dictUGet])
+      (oracleGasLimitsExact dictUGasTailHit)
   ] ++ Tests.Gen.VmCore.casesFor "DICTUGET"
   fuzz := #[
     { seed := fuzzSeedForInstr dictUGetId

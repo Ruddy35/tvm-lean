@@ -52,7 +52,8 @@ BRANCH ANALYSIS (derived from reading Lean + C++ source):
 
 9. [B9] Gas accounting.
    - Base budget success and minus-one failure on miss path.
-   - Replace-hit path adds `cellCreateGasPrice * created`.
+   - Replace-hit path loads and creates cells: its budget is the exact gas of the path
+     (`exactGasBudgetOnStack`).
 
 TOTAL BRANCHES: 9
 
@@ -101,14 +102,6 @@ private def mkDictSetRefRoot! (label : String) (n : Nat) (entries : Array (Int Ã
     | some r => r
     | none => panic! s!"{label}: empty dict construction"
 
-private def mkDictSetRefReplaceCreated (root : Cell) (n : Nat) (key : Int) (newValue : Cell) : Nat :=
-  match dictKeyBits? key n false with
-  | some keyBits =>
-      match dictSetRefWithCells (some root) keyBits newValue .replace with
-      | .ok (_newRoot?, _ok, created, _loaded) => created
-      | .error _ => 0
-  | none => 0
-
 private def dictSingle8 : Cell :=
   mkDictSetRefRoot! "dictSingle8" 8 #[(5, valueA)]
 
@@ -124,26 +117,21 @@ private def dictSingle0 : Cell :=
 private def dictSingle257 : Cell :=
   mkDictSetRefRoot! "dictSingle257" 257 #[(0, valueA)]
 
-private def singleHitCreated : Nat :=
-  mkDictSetRefReplaceCreated dictSingle8 8 5 valueB
-
-private def doubleHitCreated : Nat :=
-  mkDictSetRefReplaceCreated dictDouble8 8 (-1) valueC
-
 private def baseGas : Int :=
   computeExactGasBudget instr
 
 private def baseGasMinusOne : Int :=
   computeExactGasBudgetMinusOne instr
 
+/-- The budgets of the hit gas cases: the path loads and creates cells (`exactGasBudgetOnStack`). -/
 private def hitSingleGas : Int :=
-  baseGas + (Int.ofNat singleHitCreated * cellCreateGasPrice)
+  exactGasBudgetOnStack instr #[.cell valueB, intV 5, .cell dictSingle8, intV 8]
 
 private def hitSingleGasMinusOne : Int :=
   if hitSingleGas > 0 then hitSingleGas - 1 else 0
 
 private def hitDoubleGas : Int :=
-  baseGas + (Int.ofNat doubleHitCreated * cellCreateGasPrice)
+  exactGasBudgetOnStack instr #[.cell valueC, intV (-1), .cell dictDouble8, intV 8]
 
 private def hitDoubleGasMinusOne : Int :=
   if hitDoubleGas > 0 then hitDoubleGas - 1 else 0
@@ -192,51 +180,51 @@ def genDICTIReplaceRefFuzzCase (rng0 : StdGen) : OracleCase Ã— StdGen :=
   let (shape, rng1) := randNat rng0 0 19
   let (case0, rng2) :=
     if shape = 0 then
-      (mkCase "fuzz/ok/hit/single8" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueB ]), rng1)
+      (mkCase "fuzz/ok/hit/single8" (#[ .cell valueB, intV 5, .cell dictSingle8, intV 8 ]), rng1)
     else if shape = 1 then
-      (mkCase "fuzz/ok/hit/double8" (#[ .cell dictDouble8, intV 8, intV (-1), .cell valueC ]), rng1)
+      (mkCase "fuzz/ok/hit/double8" (#[ .cell valueC, intV (-1), .cell dictDouble8, intV 8 ]), rng1)
     else if shape = 2 then
-      (mkCase "fuzz/ok/hit/zero-width" (#[ .cell dictSingle0, intV 0, intV 0, .cell valueA ]), rng1)
+      (mkCase "fuzz/ok/hit/zero-width" (#[ .cell valueA, intV 0, .cell dictSingle0, intV 0 ]), rng1)
     else if shape = 3 then
-      (mkCase "fuzz/ok/miss/null" (#[dictNull, intV 8, intV 6, .cell valueA]), rng1)
+      (mkCase "fuzz/ok/miss/null" (#[.cell valueA, intV 6, dictNull, intV 8]), rng1)
     else if shape = 4 then
-      (mkCase "fuzz/ok/miss/narrow-width" (#[ .cell dictSingle8, intV 4, intV 5, .cell valueA ]), rng1)
+      (mkCase "fuzz/ok/miss/narrow-width" (#[ .cell valueA, intV 5, .cell dictSingle8, intV 4 ]), rng1)
     else if shape = 5 then
-      (mkCase "fuzz/ok/miss/wide-n" (#[ .cell dictDouble8, intV 257, intV 0, .cell valueB ]), rng1)
+      (mkCase "fuzz/ok/miss/wide-n" (#[ .cell valueB, intV 0, .cell dictDouble8, intV 257 ]), rng1)
     else if shape = 6 then
-      (mkCase "fuzz/ok/program-trimmed" (#[ intV 777, .cell dictSingle8, intV 8, intV 5, .cell valueB ]), rng1)
+      (mkCase "fuzz/ok/program-trimmed" (#[ intV 777, .cell valueB, intV 5, .cell dictSingle8, intV 8 ]), rng1)
     else if shape = 7 then
       (mkCase "fuzz/err/underflow-empty" #[], rng1)
     else if shape = 8 then
-      (mkCase "fuzz/gas/miss-exact" (#[dictNull, intV 8, intV 0, .cell valueA])
+      (mkCase "fuzz/gas/miss-exact" (#[.cell valueA, intV 0, dictNull, intV 8])
         (#[.pushInt (.num baseGas), .tonEnvOp .setGasLimit, instr]) (oracleGasLimitsExact baseGas), rng1)
     else if shape = 9 then
-      (mkCase "fuzz/gas/miss-minus-one" (#[dictNull, intV 8, intV 0, .cell valueA])
+      (mkCase "fuzz/gas/miss-minus-one" (#[.cell valueA, intV 0, dictNull, intV 8])
         (#[.pushInt (.num baseGasMinusOne), .tonEnvOp .setGasLimit, instr]) (oracleGasLimitsExactMinusOne baseGas), rng1)
     else if shape = 10 then
-      (mkCase "fuzz/gas/hit-single-exact" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueB ])
+      (mkCase "fuzz/gas/hit-single-exact" (#[ .cell valueB, intV 5, .cell dictSingle8, intV 8 ])
         (#[.pushInt (.num hitSingleGas), .tonEnvOp .setGasLimit, instr]) (oracleGasLimitsExact hitSingleGas), rng1)
     else if shape = 11 then
-      (mkCase "fuzz/gas/hit-single-minus-one" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueB ])
+      (mkCase "fuzz/gas/hit-single-minus-one" (#[ .cell valueB, intV 5, .cell dictSingle8, intV 8 ])
         (#[.pushInt (.num hitSingleGasMinusOne), .tonEnvOp .setGasLimit, instr]) (oracleGasLimitsExactMinusOne hitSingleGas), rng1)
     else if shape = 12 then
-      (mkCase "fuzz/gas/hit-double-exact" (#[ .cell dictDouble8, intV 8, intV (-1), .cell valueC ])
+      (mkCase "fuzz/gas/hit-double-exact" (#[ .cell valueC, intV (-1), .cell dictDouble8, intV 8 ])
         (#[.pushInt (.num hitDoubleGas), .tonEnvOp .setGasLimit, instr]) (oracleGasLimitsExact hitDoubleGas), rng1)
     else if shape = 13 then
-      (mkCase "fuzz/gas/hit-double-minus-one" (#[ .cell dictDouble8, intV 8, intV (-1), .cell valueC ])
+      (mkCase "fuzz/gas/hit-double-minus-one" (#[ .cell valueC, intV (-1), .cell dictDouble8, intV 8 ])
         (#[.pushInt (.num hitDoubleGasMinusOne), .tonEnvOp .setGasLimit, instr]) (oracleGasLimitsExactMinusOne hitDoubleGas), rng1)
     else if shape = 14 then
-      (mkCase "fuzz/err/type-dict" (#[ .tuple #[], intV 8, intV 5, .cell valueA ]), rng1)
+      (mkCase "fuzz/err/type-dict" (#[ .cell valueA, intV 5, .tuple #[], intV 8 ]), rng1)
     else if shape = 15 then
-      (mkCase "fuzz/err/type-key" (#[ .cell dictSingle8, intV 8, .slice badKeySlice, .cell valueA ]), rng1)
+      (mkCase "fuzz/err/type-key" (#[ .cell valueA, .slice badKeySlice, .cell dictSingle8, intV 8 ]), rng1)
     else if shape = 16 then
-      (mkCase "fuzz/err/type-value" (#[ .cell dictSingle8, intV 8, intV 5, intV 5 ]), rng1)
+      (mkCase "fuzz/err/type-value" (#[ intV 5, intV 5, .cell dictSingle8, intV 8 ]), rng1)
     else if shape = 17 then
-      (mkCase "fuzz/err/n-too-large2" (#[ .cell dictSingle8, intV 9999, intV 5, .cell valueA ]), rng1)
+      (mkCase "fuzz/err/n-too-large2" (#[ .cell valueA, intV 5, .cell dictSingle8, intV 9999 ]), rng1)
     else if shape = 18 then
-      (mkCase "fuzz/err/key-oob" (#[ .cell dictSingle8, intV 1, intV 1, .cell valueA ]), rng1)
+      (mkCase "fuzz/err/key-oob" (#[ .cell valueA, intV 1, .cell dictSingle8, intV 1 ]), rng1)
     else
-      (mkCodeCase "fuzz/code/raw/f425" #[.cell dictSingle8, intV 8, intV 5, .cell valueA] rawOpcodeF425, rng1)
+      (mkCodeCase "fuzz/code/raw/f425" #[.cell valueA, intV 5, .cell dictSingle8, intV 8] rawOpcodeF425, rng1)
   let (tag, rng3) := randNat rng2 0 999_999
   ({ case0 with name := s!"{case0.name}/{tag}" }, rng3)
 
@@ -294,48 +282,48 @@ def suite : InstrSuite where
     }
   ]
   oracle := #[
-    mkCase "ok/hit/single8" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueB ]), -- [B4][B6]
-    mkCase "ok/hit/double8-1" (#[ .cell dictDouble8, intV 8, intV (-1), .cell valueA ]), -- [B4][B6]
-    mkCase "ok/hit/double8-2" (#[ .cell dictDouble8, intV 8, intV 5, .cell valueC ]), -- [B4][B6]
-    mkCase "ok/hit/zero-width" (#[ .cell dictSingle0, intV 0, intV 0, .cell valueA ]), -- [B4][B6]
-    mkCase "ok/hit/triple8" (#[ .cell dictTriple8, intV 8, intV 1, .cell valueA ]), -- [B4][B6]
-    mkCase "ok/hit/program-trimmed-stack" (#[ intV 777, .cell dictSingle8, intV 8, intV 5, .cell valueB ]), -- [B4][B6]
-    mkCase "ok/hit/wide-key" (#[ .cell dictSingle257, intV 257, intV 0, .cell valueB ]), -- [B4][B6]
-    mkCase "ok/miss/null-8" (#[dictNull, intV 8, intV 5, .cell valueA]), -- [B4][B6]
-    mkCase "ok/miss/null-0" (#[dictNull, intV 0, intV 0, .cell valueA]), -- [B4][B6][B6]
-    mkCase "ok/miss/key-miss" (#[ .cell dictSingle8, intV 8, intV 6, .cell valueA ]), -- [B4][B6]
-    mkCase "ok/miss/width-mismatch-8->4" (#[ .cell dictSingle8, intV 4, intV 5, .cell valueA ]), -- [B4][B6]
-    mkCase "ok/miss/wide-width-257" (#[ .cell dictSingle8, intV 257, intV 1, .cell valueA ]), -- [B4][B6]
+    mkCase "ok/hit/single8" (#[ .cell valueB, intV 5, .cell dictSingle8, intV 8 ]), -- [B4][B6]
+    mkCase "ok/hit/double8-1" (#[ .cell valueA, intV (-1), .cell dictDouble8, intV 8 ]), -- [B4][B6]
+    mkCase "ok/hit/double8-2" (#[ .cell valueC, intV 5, .cell dictDouble8, intV 8 ]), -- [B4][B6]
+    mkCase "ok/hit/zero-width" (#[ .cell valueA, intV 0, .cell dictSingle0, intV 0 ]), -- [B4][B6]
+    mkCase "ok/hit/triple8" (#[ .cell valueA, intV 1, .cell dictTriple8, intV 8 ]), -- [B4][B6]
+    mkCase "ok/hit/program-trimmed-stack" (#[ intV 777, .cell valueB, intV 5, .cell dictSingle8, intV 8 ]), -- [B4][B6]
+    mkCase "ok/hit/wide-key" (#[ .cell valueB, intV 0, .cell dictSingle257, intV 257 ]), -- [B4][B6]
+    mkCase "ok/miss/null-8" (#[.cell valueA, intV 5, dictNull, intV 8]), -- [B4][B6]
+    mkCase "ok/miss/null-0" (#[.cell valueA, intV 0, dictNull, intV 0]), -- [B4][B6][B6]
+    mkCase "ok/miss/key-miss" (#[ .cell valueA, intV 6, .cell dictSingle8, intV 8 ]), -- [B4][B6]
+    mkCase "ok/miss/width-mismatch-8->4" (#[ .cell valueA, intV 5, .cell dictSingle8, intV 4 ]), -- [B4][B6]
+    mkCase "ok/miss/wide-width-257" (#[ .cell valueA, intV 1, .cell dictSingle8, intV 257 ]), -- [B4][B6]
     mkCase "err/underflow/empty" (#[] : Array Value), -- [B2]
     mkCase "err/underflow/one-item" #[.cell dictSingle8], -- [B2]
     mkCase "err/underflow/two" #[.cell dictSingle8, intV 8], -- [B2]
     mkCase "err/underflow/three" #[.cell dictSingle8, intV 8, intV 5], -- [B2]
-    mkCase "err/type/value-not-cell" (#[ .cell dictSingle8, intV 8, intV 5, intV 5 ]), -- [B5][B2]
-    mkCase "err/type/dict-not-cell" (#[ .tuple #[], intV 8, intV 5, .cell valueA ]), -- [B2]
-    mkCase "err/type/key-not-int" (#[ .cell dictSingle8, intV 8, .slice badKeySlice, .cell valueA ]), -- [B2][B3]
-    mkCase "err/n/negative" (#[ .cell dictSingle8, intV (-1), intV 5, .cell valueA ]), -- [B3]
-    mkCase "err/n/too-large" (#[ .cell dictSingle8, intV 1024, intV 5, .cell valueA ]), -- [B3]
-    mkCase "err/key/out-of-range-n0" (#[ .cell dictSingle0, intV 0, intV 1, .cell valueA ]), -- [B6][B3]
-    mkCase "err/key/out-of-range-n1" (#[ .cell dictSingle8, intV 1, intV 1, .cell valueA ]), -- [B6][B3]
-    mkCase "err/key/out-of-range-n4" (#[ .cell dictSingle8, intV 4, intV (-9), .cell valueA ]), -- [B6][B3]
-    mkCodeCase "ok/code/raw/f425" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueA ]) rawOpcodeF425, -- [B7][B8]
-    mkCodeCase "ok/code/raw/f424" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueA ]) rawOpcodeF424, -- [B7][B8]
-    mkCodeCase "ok/code/raw/f426" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueA ]) rawOpcodeF426, -- [B7][B8]
-    mkCodeCase "ok/code/raw/f427" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueA ]) rawOpcodeF427, -- [B7][B8]
+    mkCase "err/type/value-not-cell" (#[ intV 5, intV 5, .cell dictSingle8, intV 8 ]), -- [B5][B2]
+    mkCase "err/type/dict-not-cell" (#[ .cell valueA, intV 5, .tuple #[], intV 8 ]), -- [B2]
+    mkCase "err/type/key-not-int" (#[ .cell valueA, .slice badKeySlice, .cell dictSingle8, intV 8 ]), -- [B2][B3]
+    mkCase "err/n/negative" (#[ .cell valueA, intV 5, .cell dictSingle8, intV (-1) ]), -- [B3]
+    mkCase "err/n/too-large" (#[ .cell valueA, intV 5, .cell dictSingle8, intV 1024 ]), -- [B3]
+    mkCase "err/key/out-of-range-n0" (#[ .cell valueA, intV 1, .cell dictSingle0, intV 0 ]), -- [B6][B3]
+    mkCase "err/key/out-of-range-n1" (#[ .cell valueA, intV 1, .cell dictSingle8, intV 1 ]), -- [B6][B3]
+    mkCase "err/key/out-of-range-n4" (#[ .cell valueA, intV (-9), .cell dictSingle8, intV 4 ]), -- [B6][B3]
+    mkCodeCase "ok/code/raw/f425" (#[ .cell valueA, intV 5, .cell dictSingle8, intV 8 ]) rawOpcodeF425, -- [B7][B8]
+    mkCodeCase "ok/code/raw/f424" (#[ .cell valueA, intV 5, .cell dictSingle8, intV 8 ]) rawOpcodeF424, -- [B7][B8]
+    mkCodeCase "ok/code/raw/f426" (#[ .cell valueA, intV 5, .cell dictSingle8, intV 8 ]) rawOpcodeF426, -- [B7][B8]
+    mkCodeCase "ok/code/raw/f427" (#[ .cell valueA, intV 5, .cell dictSingle8, intV 8 ]) rawOpcodeF427, -- [B7][B8]
     mkCodeCase "err/code/truncated8" (#[] : Array Value) rawOpcodeTruncated8, -- [B8]
-    mkCase "gas/base-exact-miss" (#[dictNull, intV 8, intV 5, .cell valueA ])
+    mkCase "gas/base-exact-miss" (#[.cell valueA, intV 5, dictNull, intV 8 ])
       (#[.pushInt (.num baseGas), .tonEnvOp .setGasLimit, instr])
       (oracleGasLimitsExact baseGas), -- [B9]
-    mkCase "gas/base-exact-minus-one" (#[dictNull, intV 8, intV 5, .cell valueA ])
+    mkCase "gas/base-exact-minus-one" (#[.cell valueA, intV 5, dictNull, intV 8 ])
       (#[.pushInt (.num baseGasMinusOne), .tonEnvOp .setGasLimit, instr])
       (oracleGasLimitsExactMinusOne baseGas), -- [B9]
-    mkCase "gas/hit-single-exact" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueB ])
+    mkCase "gas/hit-single-exact" (#[ .cell valueB, intV 5, .cell dictSingle8, intV 8 ])
       (#[.pushInt (.num hitSingleGas), .tonEnvOp .setGasLimit, instr])
       (oracleGasLimitsExact hitSingleGas), -- [B9]
-    mkCase "gas/hit-single-minus-one" (#[ .cell dictSingle8, intV 8, intV 5, .cell valueB ])
+    mkCase "gas/hit-single-minus-one" (#[ .cell valueB, intV 5, .cell dictSingle8, intV 8 ])
       (#[.pushInt (.num hitSingleGasMinusOne), .tonEnvOp .setGasLimit, instr])
       (oracleGasLimitsExactMinusOne hitSingleGas), -- [B9]
-    mkCase "gas/hit-double-exact" (#[ .cell dictDouble8, intV 8, intV 5, .cell valueC ])
+    mkCase "gas/hit-double-exact" (#[ .cell valueC, intV 5, .cell dictDouble8, intV 8 ])
       (#[.pushInt (.num hitDoubleGas), .tonEnvOp .setGasLimit, instr])
       (oracleGasLimitsExact hitDoubleGas) -- [B9]
   ]

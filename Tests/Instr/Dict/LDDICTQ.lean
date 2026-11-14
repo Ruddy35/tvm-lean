@@ -280,12 +280,11 @@ private def genLddictqFuzzCase (rng0 : StdGen) : OracleCase × StdGen :=
     else if shape = 33 then
       mkCase (s!"{baseName}/type-error/top-cont") (addNoisePrefix (.cont (.quit 0))) #[lddictP]
     else
-      let caseShape :=
-        if shape % 2 = 0 then
-          mkCase (s!"{baseName}/boundary/miss/noise") (#[.slice presentSliceA, intV 17]) #[lddictP]
-        else
-          mkCase (s!"{baseName}/boundary/present/noise") (#[.slice missSliceC, intV 17]) #[lddictNP]
-      { caseShape with initStack := caseShape.initStack.push (if shape % 2 = 0 then .cell loadValueD else .cell loadValueC) }
+      -- the noise sits below the slice operand, which C++ `exec_load_dict` pops from the top
+      if shape % 2 = 0 then
+        mkCase (s!"{baseName}/boundary/miss/noise") (#[intV 17, .cell loadValueD, .slice missSliceC]) #[lddictP]
+      else
+        mkCase (s!"{baseName}/boundary/present/noise") (#[intV 17, .cell loadValueC, .slice presentSliceA]) #[lddictNP]
   let (tag, rng3) := randNat rng2 0 999_999
   ({ case0 with name := s!"{case0.name}/{tag}" }, rng3)
 
