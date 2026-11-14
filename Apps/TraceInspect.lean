@@ -13,7 +13,7 @@ structure CliOpts where
   stopAfterMatch : Bool := true
   deriving Repr
 
-partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
+def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
   match args with
   | [] => pure opts
   | "--case" :: path :: rest =>
@@ -44,6 +44,7 @@ partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :
       parseArgs rest opts
   | arg :: _ =>
       throw (IO.userError s!"unknown argument: {arg}")
+termination_by structural args
 
 def byteToHex (b : UInt8) : String :=
   let hex : Array Char := "0123456789abcdef".data.toArray
@@ -169,7 +170,7 @@ def buildVmState (opts : CliOpts) (tc : TestCase) : IO VmState := do
     { base with stack := initStack, regs := { base.regs with c4 := dataCell, c7 := initC7 } }
   pure st0
 
-partial def containsSubstr (haystack needle : String) : Bool :=
+def containsSubstr (haystack needle : String) : Bool :=
   if needle.isEmpty then
     true
   else
@@ -178,12 +179,14 @@ partial def containsSubstr (haystack needle : String) : Bool :=
     let nLen := n.length
     let hLen := h.length
     let rec go (i : Nat) : Bool :=
-      if i + nLen > hLen then
+      if hi : i + nLen > hLen then
         false
       else if (h.drop i).take nLen == n then
         true
       else
         go (i + 1)
+    termination_by hLen + 1 - i
+    decreasing_by omega
     go 0
 
 def shouldDump (opts : CliOpts) (step : Nat) (event : String) : Bool :=

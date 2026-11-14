@@ -12,7 +12,7 @@ structure CliOpts where
   maxActions : Nat := 20
   deriving Repr
 
-partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
+def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
   match args with
   | [] => pure opts
   | "--case" :: path :: rest =>
@@ -33,6 +33,7 @@ partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :
       parseArgs rest opts
   | arg :: _ =>
       throw (IO.userError s!"unknown argument: {arg}")
+termination_by structural args
 
 def byteToHex (b : UInt8) : String :=
   let hex : Array Char := "0123456789abcdef".data.toArray
@@ -130,16 +131,27 @@ def parseActionNode (c : Cell) : Except Excno ParsedAction := do
   else
     return .unknown tag c
 
-partial def parseOutList (c5 : Cell) : Except Excno (Array ParsedAction) := do
-  let mut cur : Cell := c5
-  let mut out : Array ParsedAction := #[]
-  while !(cur.bits.isEmpty && cur.refs.isEmpty) do
-    if cur.refs.isEmpty then
+/-- The actions of the list `c5`, from its head: each node is an action and its first reference
+the rest of the list, down to the empty cell. -/
+def parseOutList (c5 : Cell) : Except Excno (Array ParsedAction) :=
+  go c5 #[]
+where
+  /-- `out` and the actions from `cur` on; it terminates on the size of `cur`, the rest of the list
+  being a reference of it. -/
+  go (cur : Cell) (out : Array ParsedAction) : Except Excno (Array ParsedAction) :=
+    if cur.bits.isEmpty && cur.refs.isEmpty then
+      pure out
+    else if h : 0 < cur.refs.size then do
+      let a ← parseActionNode cur
+      go cur.refs[0] (out.push a)
+    else
       throw .cellUnd
-    let a ← parseActionNode cur
-    out := out.push a
-    cur := cur.refs[0]!
-  return out
+  termination_by sizeOf cur
+  decreasing_by
+    rcases cur with ⟨bits, refs, special, levelMask⟩
+    have h1 := Array.sizeOf_lt_of_mem (Array.getElem_mem (xs := refs) h)
+    simp only [Cell.mk.sizeOf_spec]
+    omega
 
 def actionSummary : ParsedAction → String
   | .sendRawMsg mode msg =>

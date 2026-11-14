@@ -7,7 +7,7 @@ structure CliOpts where
   c4 : Nat := 41
   deriving Repr
 
-partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
+def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
   match args with
   | [] => pure opts
   | "--trace" :: rest =>
@@ -26,6 +26,7 @@ partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :
       parseArgs rest opts
   | arg :: _ =>
       throw (IO.userError s!"unknown argument: {arg}")
+termination_by structural args
 
 def runWithTrace (fuel : Nat) (st : TvmLean.VmState) : IO TvmLean.StepResult := do
   match fuel with

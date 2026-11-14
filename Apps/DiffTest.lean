@@ -20,7 +20,7 @@ structure CliOpts where
   outPath? : Option System.FilePath := none
   deriving Repr
 
-partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
+def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
   match args with
   | [] => pure opts
   | "--case" :: path :: rest =>
@@ -71,6 +71,7 @@ partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :
       parseArgs rest opts
   | arg :: _ =>
       throw (IO.userError s!"unknown argument: {arg}")
+termination_by structural args
 
 def writeReport (path : System.FilePath) (results : Array TestResult) : IO Unit := do
   let json := Json.arr (results.map ToJson.toJson)

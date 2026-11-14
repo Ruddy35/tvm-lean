@@ -14,7 +14,7 @@ structure CliOpts where
   outPath? : Option System.FilePath := none
   deriving Repr
 
-partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
+def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :=
   match args with
   | [] => pure opts
   | "--format" :: "json" :: rest =>
@@ -29,6 +29,7 @@ partial def parseArgs (args : List String) (opts : CliOpts := {}) : IO CliOpts :
       parseArgs rest opts
   | arg :: _ =>
       throw (IO.userError s!"unknown argument: {arg}")
+termination_by structural args
 
 def render (format : OutputFormat) (report : TvmLean.CoverageReport) : String :=
   match format with
