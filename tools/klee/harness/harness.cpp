@@ -24,16 +24,18 @@
 // and at least one NaN integer on the stack (NaN reaches the oracle through a code prelude,
 // Tests/Harness/OracleHarness.lean, that costs gas: large limit only); C = gas 10^6, the control
 // registers c0..c2 and the continuations on the stack made by a code prelude, control windows
-// (control-flow families); T = gas 10^6, a symbolic c7 (families of tonops.cpp that read it).
-// The code of classes C and T is the prelude, then (implicit JMPREF) the instruction's own cell.
+// (control-flow families); T = gas 10^6, a symbolic c7 (families of tonops.cpp that read it);
+// D = gas 10^6, dictionaries of every shape of 1-3 entries (families with a dictionary on the
+// stack). The code of classes C and T is the prelude, then (implicit JMPREF) the instruction's
+// own cell.
 //
 // Input shape: the global version (0..16, symbolic), the gas limit, the stack entries of the slots
 // (type from the slot's set; an integer by its role: symbolic int16, int64, +-2^k+d near the word
 // and 257-bit bounds, any 257-bit value, or one of a list of values around the bounds of widths,
 // indices, counts; cells, slices and builders of boundary bit lengths with symbolic bits and
-// 0/1/3/4 references, a library cell; tuples of boundary sizes; three concrete dictionaries),
-// then the code cell and the stack depth (each a path of its own). Entries below the slots are
-// concrete integers.
+// 0/1/3/4 references, a library cell; tuples of boundary sizes; three concrete dictionaries, or
+// in class D one of every shape of 1-3 entries), then the code cell and the stack depth (each a
+// path of its own). Entries below the slots are concrete integers.
 //
 // Path signatures: every basic block of the TON code calls tvm_cov(id) or, inside the folded
 // functions, tvm_covf(id) (cov_instrument.py: outside namespace vm, the bit-level methods of
@@ -245,12 +247,14 @@ struct FormSpec {
   unsigned char nslots;
   const int* depths;
   unsigned char ndepths;
-  unsigned char flags;  // F_CONTROL, F_C7
+  unsigned char flags;  // F_CONTROL, F_C7, F_DICT
 };
 // a control-flow family: class C, and windows that follow the control transfer
 constexpr unsigned char F_CONTROL = 1;
 // a family whose handler reads c7 (tonops): class T
 constexpr unsigned char F_C7 = 2;
+// a family with a dictionary on the stack: class D
+constexpr unsigned char F_DICT = 4;
 
 #include "families.inc"
 
@@ -274,13 +278,13 @@ static const FormSpec* find_form(const std::string& n) {
 static bool parse_run(const char* run) {
   std::string r = run;
   size_t dot = r.rfind('.');
-  if (dot == std::string::npos || dot + 2 != r.size() || std::strchr("SGNCT", r[dot + 1]) == nullptr) {
+  if (dot == std::string::npos || dot + 2 != r.size() || std::strchr("SGNCTD", r[dot + 1]) == nullptr) {
     return false;
   }
   g_form = find_form(r.substr(0, dot));
   g_class = r[dot + 1];
   return g_form != nullptr && (g_class != 'C' || (g_form->flags & F_CONTROL)) &&
-         (g_class != 'T' || (g_form->flags & F_C7));
+         (g_class != 'T' || (g_form->flags & F_C7)) && (g_class != 'D' || (g_form->flags & F_DICT));
 }
 
 // the family of a step's opcode (24 bits, zero-padded as the dispatch reads it), -1 if none
@@ -604,7 +608,7 @@ static RefInt256 make_int(const std::string& t, unsigned role, bool& nan) {
 }
 
 // concrete dictionaries with 4-bit keys: slice values, cell values, one entry
-static Ref<vm::Cell> make_dict(int which) {
+static Ref<vm::Cell> make_fixed_dict(int which) {
   vm::Dictionary dict{4};
   unsigned char key[1];
   if (which == 0) {
@@ -624,6 +628,33 @@ static Ref<vm::Cell> make_dict(int which) {
     vm::CellBuilder cb;
     cb.store_long(0x7, 3);
     dict.set(td::ConstBitPtr{key}, 4, vm::load_cell_slice_ref(cb.finalize_novm()));
+  }
+  return dict.get_root_cell();
+}
+
+// a dictionary: one of the three concrete ones; class D: one of every shape a dictionary of 1 to 3
+// entries can have, its keys concrete on each path: any set of 4-bit keys, or 8-bit keys from
+// boundary patterns (with symbolic key bytes, the labels' lengths became symbolic offsets of every
+// later bit access, and the first solver query alone ran past 20 s). A class of its own: the key
+// sets multiply the paths, and the other classes keep their breadth.
+static Ref<vm::Cell> make_dict(const std::string& t) {
+  if (g_class != 'D') {
+    return make_fixed_dict(pick_index(3, (t + ".dict").c_str()));
+  }
+  static const int kKey8[] = {0x00, 0x01, 0x0f, 0x7f, 0x80, 0xaa, 0xf0, 0xfe, 0xff};
+  static const int kKeyLens[] = {4, 8};
+  int n = pick(kKeyLens, 2, (t + ".klen").c_str());  // concrete (`wide ? 8 : 4` became a select)
+  bool wide = n == 8;
+  int cnt = 1 + pick_index(3, (t + ".dcount").c_str());
+  vm::Dictionary dict{n};
+  for (int i = 0; i < cnt; i++) {
+    unsigned char key[1];
+    std::string kt = t + ".key" + std::to_string(i);
+    key[0] = (unsigned char)(wide ? pick(kKey8, sizeof(kKey8) / sizeof(int), kt.c_str())
+                                  : pick_index(16, kt.c_str()) << 4);
+    vm::CellBuilder cb;
+    cb.store_long(0x100 + i, 12);
+    dict.set(td::ConstBitPtr{key}, n, vm::load_cell_slice_ref(cb.finalize_novm()));
   }
   return dict.get_root_cell();
 }
@@ -732,7 +763,7 @@ static vm::StackEntry make_entry(const std::string& t, const SlotDesc& sp, bool&
       }
       return vm::StackEntry{Ref<vm::Continuation>{Ref<vm::QuitCont>{true, 0}}};
     default:
-      return make_dict(sym_range(0, 2, (t + ".dict").c_str()));
+      return make_dict(t);
   }
 }
 
@@ -754,7 +785,7 @@ static Ref<vm::Cell> code_cell(const CodeAlt& a) {
         break;
       }
       case 'd':
-        cb.store_ref(make_dict(0));
+        cb.store_ref(make_fixed_dict(0));
         break;
       case 'p':
         cb.store_ref(make_pfx_dict());
@@ -1044,7 +1075,7 @@ static int run_vm(const Input& in, Ref<vm::Tuple> c7 = {}) {
 #ifdef TVM_KLEE_SYMBOLIC
 int main(int argc, char** argv) {
   if (argc < 2 || !parse_run(argv[1])) {
-    std::fprintf(stderr, "usage: harness <FAMILY>.<S|G|N|C|T>\n");
+    std::fprintf(stderr, "usage: harness <FAMILY>.<S|G|N|C|T|D>\n");
     return 2;
   }
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL));  // td LOG(DEBUG) lines: off
@@ -1297,8 +1328,8 @@ int main(int argc, char** argv) {
   std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "families") {
     for (const FormSpec& f : kForms) {
-      std::printf("%s\t%06x\t%06x\tSG%s%s%s\n", f.name, f.lo, f.hi, has_int_slot(f) ? "N" : "",
-                  f.flags & F_CONTROL ? "C" : "", f.flags & F_C7 ? "T" : "");
+      std::printf("%s\t%06x\t%06x\tSG%s%s%s%s\n", f.name, f.lo, f.hi, has_int_slot(f) ? "N" : "",
+                  f.flags & F_CONTROL ? "C" : "", f.flags & F_C7 ? "T" : "", f.flags & F_DICT ? "D" : "");
     }
     return 0;
   }

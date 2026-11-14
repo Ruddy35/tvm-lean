@@ -261,7 +261,11 @@ tools/klee/build.sh --native        # locally, no setup: replay only (system cla
   the VM's implicit RET/JMPREF steps and exception handling up to the next instruction; `T`
   (tonops that read c7) a symbolic c7 as a tuple token, installed by a prelude (`POPCTR c7`):
   parameters with symbolic times, balances and fees, the unpacked config with storage, gas and
-  forwarding prices in their TL-B forms. The instruction runs through `VmState::run`.
+  forwarding prices in their TL-B forms; `D` (families with a dictionary on the stack) a
+  dictionary of every shape of 1-3 entries: any set of 4-bit keys, or 8-bit keys from boundary
+  patterns, concrete on each path (symbolic key bytes made the labels' lengths symbolic offsets and
+  the solver the bottleneck; its own class: the key sets multiply the paths). The instruction runs
+  through `VmState::run`.
   `replay sample <run> <n>` builds n random inputs natively (a smoke test of a family).
 - `run.sh <run> <seconds>`: KLEE (`--libc=uclibc --libcxx`, C++ exceptions included; depth-first:
   random-path and coverage-guided search crashed KLEE or kept tens of thousands of states without
