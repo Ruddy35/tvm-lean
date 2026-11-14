@@ -8,6 +8,7 @@ import Tests.Harness.Gen.OwnOpcode
 import Tests.Harness.Gen.Versions
 import Tests.Harness.Gen.AdvancedSlices
 import Tests.Harness.Gen.Klee
+import Tests.Harness.Gen.GasSweep
 import TvmLean.Spec.Index
 
 namespace Tests
@@ -148,17 +149,29 @@ def shortStackCases (suite : InstrSuite) : Array OracleCase :=
         (Array.range 6).map fun k =>
           { base with name := s!"sweep/short-stack/{vl}{k}", initStack := Array.replicate k v }
 
+/-- `isSuiteOpcode` with the prefixes of the suite's spec row given (`none`: no spec row), for a test
+made at every step of a run (`Tests.Gen.GasSweep`). -/
+def hasSuitePrefix (pfxs? : Option (Array TvmLean.BitString)) (i : TvmLean.Instr) : Bool :=
+  match pfxs? with
+  | none => true
+  | some pfxs =>
+      match TvmLean.encodeCp0 i with
+      | .ok e => pfxs.any fun p => e.size ≥ p.size && e.extract 0 p.size == p
+      | .error _ => false
+
 /-- Every oracle case run for `suite`: its own, the short stacks, and the generators run for every
 suite (`Tests.Gen.CellDepth`, `Tests.Gen.OwnOpcode`, `Tests.Gen.Loops`, the overflow, label and library cases of `Tests.Gen.Dict`,
-`Tests.Gen.Versions`, `Tests.Gen.Klee`), and its own cases on advanced slices
-(`Tests.Gen.AdvancedSlices`). -/
+`Tests.Gen.Versions`, `Tests.Gen.Klee`), its own cases on advanced slices
+(`Tests.Gen.AdvancedSlices`) and with small gas limits (`Tests.Gen.GasSweep`). -/
 def suiteOracleCases (suite : InstrSuite) : Array OracleCase :=
+  let pfxs? := (TvmLean.allInstrRows.find? (fun r => r.id.name == suite.id.name)).map specRowPrefixes
   suite.oracle ++ Tests.Gen.AdvancedSlices.casesOf suite.oracle ++ shortStackCases suite ++
     Tests.Gen.CellDepth.casesFor suite.id.name ++
     Tests.Gen.OwnOpcode.casesFor suite.id.name ++ Tests.Gen.Loops.casesFor suite.id.name ++
     Tests.Gen.Dict.overflowCasesFor suite.id.name ++ Tests.Gen.Dict.labelCasesFor suite.id.name ++
     Tests.Gen.Dict.libCasesFor suite.id.name ++
-    Tests.Gen.Versions.casesFor suite.id.name ++ Tests.Gen.Klee.casesFor suite.id.name
+    Tests.Gen.Versions.casesFor suite.id.name ++ Tests.Gen.Klee.casesFor suite.id.name ++
+    Tests.Gen.GasSweep.casesFor (hasSuitePrefix pfxs?) suite.oracle
 
 private def runSuite (opts : RunnerOpts) (suite : InstrSuite) : IO SuiteRunResult := do
   let mut out : SuiteRunResult := { suiteId := suite.id }

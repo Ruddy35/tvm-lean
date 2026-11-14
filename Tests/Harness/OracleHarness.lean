@@ -125,7 +125,7 @@ private def oracleSeedState (code : Cell) (initStack : Array Value) : VmState :=
   | .halt _ st => st
   | .continue st => st
 
-private def runLeanCase (code : Cell) (c : OracleCase) : StepResult :=
+private def leanInitState (code : Cell) (c : OracleCase) : VmState :=
   let seed := oracleSeedState code c.initStack
   let regs0 := applyInitCregs seed.regs c.initCregs
   let regs :=
@@ -133,13 +133,22 @@ private def runLeanCase (code : Cell) (c : OracleCase) : StepResult :=
       regs0
     else
       { regs0 with c7 := c.initC7 }
-  let st0 :=
-    { seed with
-      stack := c.initStack
-      regs := regs
-      libraries := c.initLibraries
-      gas := GasLimits.ofLimits c.gasLimits.gasLimit c.gasLimits.gasMax c.gasLimits.gasCredit }
-  VmState.run c.fuel st0
+  { seed with
+    stack := c.initStack
+    regs := regs
+    libraries := c.initLibraries
+    gas := GasLimits.ofLimits c.gasLimits.gasLimit c.gasLimits.gasMax c.gasLimits.gasCredit }
+
+private def runLeanCase (code : Cell) (c : OracleCase) : StepResult :=
+  VmState.run c.fuel (leanInitState code c)
+
+/-- The state the Lean model runs the case `c` from in `runOracleCase`: its code with the NaN
+prelude, its stack, registers, `c7`, libraries and gas limits, at the process's global version. For
+generators that derive cases from a case's run on the model (`Tests.Gen.GasSweep`). -/
+def oracleLeanInitState (c : OracleCase) : Except String VmState := do
+  let code0 ← assembleCaseCode c
+  let (code, initStack) ← injectNaNPrelude code0 c.initStack
+  pure (leanInitState code { c with initStack := initStack })
 
 private def leanCanonResult (res : StepResult) : Except String CanonResult := do
   match res with
