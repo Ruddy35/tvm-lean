@@ -200,6 +200,66 @@ Run the extensive all-instruction multi-seed matrix:
 tools/run_oracle_validate_extensive.sh
 ```
 
+## Path-complete check of C++ handlers (KLEE)
+
+KLEE runs one C++ instruction handler of the reference (ton @ 3d478cb) on a symbolic input and
+finds every feasible C++ path through it, with one concrete input per path; each input is then run
+on the Lean model and on C++ (`fift runvmx`, as the oracle suites), and compared with the paths the
+existing oracle and fuzz suites take. On a build server (no root needed), from the repository root:
+
+```sh
+tools/klee/setup.sh                 # once per server, ~3 min: everything under ~/ws/klee
+tools/klee/build.sh                 # ~1 min: ~/ws/klee/build/harness.bc (KLEE) and replay (native)
+lake build tvm-lean-tests
+tools/klee/run.sh ADD 3600          # KLEE on one instruction family, ~/ws/klee/runs/ADD
+tools/klee/measure.sh ADD           # Lean vs C++ on every path's input, at versions 0..16; coverage
+tools/klee/pilot.sh 3000 ADD MUL    # build, run.sh in parallel, measure.sh: the whole check
+```
+
+- `setup.sh`: LLVM/clang 18, cmake, ninja, Z3 and sqlite from conda-forge (micromamba), libc++
+  and libc++abi as bitcode (wllvm, single-threaded, as KLEE's own scripts build them),
+  klee-uclibc, KLEE 3.3, the reference sources at the commit. Each stage is skipped when done.
+- `build.sh`: the VM (dispatch, opcode tables, every op family but `tonops`), cells, slices,
+  builders, dictionaries, BOC, the bigint and the parts of tdutils they use, compiled to one
+  bitcode module against KLEE's libc++. Replaced: SHA-256 of cells by a counter (cell hashes are
+  unique per cell, not per content), crc32c by a software one, `register_ton_ops` by nothing (the
+  TON-specific opcodes are not in the table), `std::mutex`/`std::thread` by single-threaded
+  stand-ins (`harness/compat`). The one source change: hooks where `VmState::step()` starts and
+  where the step ends (after its gas check, or where the VM catches what it threw). Every basic
+  block of the TON code reports its id (`cov_instrument.py`): over the steps of the instruction
+  under test the ids give two path signatures, the block sequence (the exact path) and the set of
+  block-to-block edges (the path up to loop iteration counts). The same module is linked natively
+  as `replay`.
+- `harness/harness.cpp`: the instruction families (`kSpecs`) and the input of each: the global
+  version (0..16, symbolic), the gas limit (0..400 symbolic, or 10^6; `<SPEC>+G`: 10^6 only), the
+  opcode and its immediate arguments, the stack depth from a set, every entry the instruction
+  reads (its type; an integer as a symbolic int16, int64, +-2^k+d near the word and 257-bit bounds
+  or any 257-bit value, or NaN; cells, slices and builders of boundary bit lengths with symbolic
+  bits and 0/1/3/4 references; a few concrete dictionaries). The opcodes, stack indices, bit
+  widths and key lengths are enumerated over the values around their bounds, each a path of its
+  own: symbolic, they turn the dispatch's table lookup and every later stack or bit access into
+  symbolic-pointer or symbolic-offset reads, and the solver into the bottleneck. The instruction
+  runs through `VmState::run` on a one-instruction code cell.
+- `run.sh <SPEC> <seconds>`: KLEE (`--libc=uclibc --libcxx`, C++ exceptions included; depth-first:
+  random-path and coverage-guided search crashed KLEE or kept tens of thousands of states without
+  finishing one). `info.txt` says whether the exploration finished (no `HaltTimer`; the partially
+  completed paths are then the inputs the harness discards, NaN with a small gas limit): every
+  feasible path of the family within the input bounds. `cases.tsv` holds each test as a case
+  (signatures, version, gas, code BOC, oracle stack tokens), made by `replay ktest`, which reruns
+  each test natively and checks it takes the path KLEE recorded.
+- `measure.sh <SPEC>`: the cases as case lines (`Tests/Harness/CaseFile.lean`), run back through
+  `replay cases` (each must take KLEE's path again), then on the Lean model and C++
+  (`tvm-lean-tests --cases-file`, `runOracleCase`: exit code, gas, stack, c4/c5 hashes): each case
+  at the version KLEE found it at (at most `CAP`, default 20000), one case per exact path at every
+  version 0..16; the suites
+  whose opcodes meet the family's ranges dumped with `tvm-lean-tests --dump-cases` (oracle and fuzz
+  cases, as `runvmx` gets them) and run through `replay cases` at every version; `coverage.txt`:
+  KLEE's paths, the suites' paths, how many of KLEE's the suites reach; `missed.tsv`: one case per
+  path they do not reach.
+- `klee_cases.py lean docs/progress/tvm_spec_index.json <runs>/*/missed.tsv`: those cases, one per
+  path over all the runs, as `Tests/Harness/Gen/Klee.lean`, each under the suite of its opcode;
+  `Tests.Gen.Klee` adds them to the suites' oracle cases (run at every version like the rest).
+
 ## Collect and promote diff fixtures
 
 Build collector and sweep:

@@ -1,0 +1,23 @@
+// -*- C++ -*-
+// See compat/mutex: single-threaded stand-ins for KLEE's thread-less libc++.
+#pragma once
+#include <mutex>
+#if defined(_LIBCPP_HAS_NO_THREADS) && !defined(TVM_KLEE_COMPAT_SHARED_MUTEX)
+#define TVM_KLEE_COMPAT_SHARED_MUTEX
+_LIBCPP_BEGIN_NAMESPACE_STD
+class shared_mutex : public mutex {
+ public:
+  void lock_shared() {}
+  bool try_lock_shared() { return true; }
+  void unlock_shared() {}
+};
+using shared_timed_mutex = shared_mutex;
+template <class M>
+class shared_lock {
+  M* m_ = nullptr;
+ public:
+  shared_lock() noexcept = default;
+  explicit shared_lock(M& m) : m_(&m) {}
+};
+_LIBCPP_END_NAMESPACE_STD
+#endif

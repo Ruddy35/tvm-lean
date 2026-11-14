@@ -1,0 +1,29 @@
+// -*- C++ -*-
+// See compat/mutex: single-threaded stand-ins for KLEE's thread-less libc++ (tdutils' MpmcWaiter,
+// reached through crypto/vm/boc.h -> vm/db -> tdactor headers; never run by the VM).
+#pragma once
+#include_next <condition_variable>
+#include <mutex>
+#include <chrono>
+#if defined(_LIBCPP_HAS_NO_THREADS) && !defined(TVM_KLEE_COMPAT_CONDVAR)
+#define TVM_KLEE_COMPAT_CONDVAR
+_LIBCPP_BEGIN_NAMESPACE_STD
+enum class cv_status { no_timeout, timeout };
+class condition_variable {
+ public:
+  condition_variable() = default;
+  void notify_one() noexcept {}
+  void notify_all() noexcept {}
+  void wait(unique_lock<mutex>&) {}
+  template <class P>
+  void wait(unique_lock<mutex>&, P) {}
+  template <class R, class Pe>
+  cv_status wait_for(unique_lock<mutex>&, const chrono::duration<R, Pe>&) { return cv_status::timeout; }
+  template <class R, class Pe, class P>
+  bool wait_for(unique_lock<mutex>&, const chrono::duration<R, Pe>&, P p) { return p(); }
+  template <class C, class D>
+  cv_status wait_until(unique_lock<mutex>&, const chrono::time_point<C, D>&) { return cv_status::timeout; }
+};
+class condition_variable_any : public condition_variable {};
+_LIBCPP_END_NAMESPACE_STD
+#endif

@@ -1,0 +1,44 @@
+// -*- C++ -*-
+// See compat/mutex: KLEE's libc++ has no <thread>; single-threaded stand-ins.
+#pragma once
+#include <__config>
+#include <chrono>
+#include <functional>
+#ifdef _LIBCPP_HAS_NO_THREADS
+#ifndef TVM_KLEE_COMPAT_THREAD
+#define TVM_KLEE_COMPAT_THREAD
+_LIBCPP_BEGIN_NAMESPACE_STD
+class thread {
+ public:
+  class id {
+    unsigned long v_ = 0;
+   public:
+    id() noexcept = default;
+    explicit id(unsigned long v) : v_(v) {}
+    friend bool operator==(id a, id b) noexcept { return a.v_ == b.v_; }
+    friend bool operator!=(id a, id b) noexcept { return a.v_ != b.v_; }
+    friend bool operator<(id a, id b) noexcept { return a.v_ < b.v_; }
+    unsigned long value() const noexcept { return v_; }
+  };
+  thread() noexcept = default;
+  bool joinable() const noexcept { return false; }
+  void join() {}
+  void detach() {}
+  id get_id() const noexcept { return id{}; }
+  static unsigned hardware_concurrency() noexcept { return 1; }
+};
+namespace this_thread {
+inline thread::id get_id() noexcept { return thread::id{1}; }
+inline void yield() noexcept {}
+template <class R, class P>
+void sleep_for(const chrono::duration<R, P>&) {}
+}  // namespace this_thread
+template <>
+struct hash<thread::id> {
+  size_t operator()(thread::id i) const noexcept { return i.value(); }
+};
+_LIBCPP_END_NAMESPACE_STD
+#endif
+#else
+#include_next <thread>
+#endif
