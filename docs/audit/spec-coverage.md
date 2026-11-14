@@ -1,6 +1,6 @@
 # Покрытие инструкций символьным исполнением
 
-Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `3d01f35`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
+Сгенерировано `tools/spec-coverage/spec_coverage.py` на коммите `6e5e027`; руками не править. Пересоздать (на сервере сборки: нужна собранная библиотека доказательств, Fift эталона — только для `--regen`):
 
 ```sh
 export LEAN_NUM_THREADS=1   # процессов × потоков не больше ядер: под перегрузкой пробы упираются в тайм-аут
@@ -14,7 +14,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 
 - **Формы инструкций** — 919 форм таблицы декодирования C++ (по одному набору тестов на форму): диапазоны 24-битных опкодов из `third_party/tvm-specification/tvm-specification.json` без `EXTCALL` (в эталоне его нет) и с `GETEXTRABALANCE` (в снимке его нет). Семейства — по категориям снимка (`continuation_cond_loop` — циклы; `codepage` — в cont/flow; `address` — в msg/actions; `config`, `globals`, `prng`, `basic_gas` — в tonenv/c7).
 - Каждая форма перебирается по аргументам (все значения, если их не больше 256, иначе 64 по диапазону); опкод с хвостом из 999 нулей (иначе единиц) и четырьмя пустыми ссылками декодируется декодером модели, как его декодирует `vm_step`.
-- **Лемма**: лемма `vm_spec`, чья инструкция унифицируется с декодированной (`withReducible isDefEq`, как `applySpec` в `TvmLean/Proofs/Exec/Tactic.lean`), из модулей, которые импортирует `TvmLean.Proofs.Check.Tactic` (их видит модуль `tools/contract-check`). Условия леммы на состояние (форма стека, факт кода) — то, что должен дать прогон.
+- **Лемма**: лемма `vm_spec`, чья инструкция унифицируется с декодированной (`withReducible isDefEq`, как `applySpec` в `TvmLean/Proofs/Exec/Tactic.lean`), из модулей, которые импортирует `TvmLean.Proofs.Check.Tactic` (их видит модуль `tools/contract-check`). Условия леммы на состояние (форма стека, факт кода) — то, что должен дать прогон. Лемма не подходит, если после унификации её условие замкнуто (нет ни переменных леммы, ни состояния) и ложно: `decide` от него сводится к `false` (`whnf`, `closedFalse`; например, `mode ≠ .del` лемм `Spec.dictSetGet*` на формах `DELGET`) — такая лемма на этой инструкции не сработает никогда; условие без `Decidable` или не сводящееся остаётся условием.
 - **Обработчик**: если ни одна лемма не подходит, `runInstr` исполняет обработчик модели (диспетчеры `execInstr` пройдены, программы VM считаются леммами `vm_run` или разворачиваются, `unfoldModelRun`). Статически: каждая программа VM обработчика либо считается леммой `vm_run`, либо разворачивается (нерекурсивное определение модели), либо **блокирует** (рекурсивная программа, комбинатор вне модели: `forIn`, ...).
 - **Обрамлённый шаг**: инструкции, которые `check_framed` (`TvmLean/Proofs/Check/Framed.lean`, `FramedStep.of?`; `check_extra_step` пробует его раньше лемм) исполняет на ячейке или срезе, которых прогон не знает (словарь из сообщения, адрес из тела, конфигурация): что верно для любой такой ячейки — стек после инструкции из заданного множества, газ и загруженные ячейки любые, исключение ничего не фиксирует (`ExecFramed`, `TvmLean/Proofs/Exec/Framed.lean`). На ячейке, которую прогон знает, инструкцию исполняют лемма или обработчик.
 - **Прогон** (`--deep`): первая выборка формы исполняется на символьном состоянии — стек из значений сигнатуры формы (целые, срезы, ячейки, построители, простые продолжения, кортежи; по снимку спецификации) поверх неизвестного стека, `c0` — простое продолжение возврата, `c7` — кортеж фазы исполнения из одного неизвестного значения, остальное неизвестно: (1) срабатывает ли лемма (`simp` только с `applySpec`, с разрядчиком `vm_disch`); (2) считается ли обработчик (`vm_simp`): в цели не остаётся ни `execInstr`, ни прогона программы (`ExceptT.run`), только `if` и `match` по неизвестным значениям (на них `vm_split` делит путь). Это приближение одного шага на самом общем состоянии: в настоящем прогоне состояние конкретнее (например, `CALLCC` и `AGAINBRK` здесь не посчитаны — `simp` упирается в глубину рекурсии, — а их пробы ниже проходят), и наоборот, посчитанный шаг не значит, что путь дойдёт до конца (`CONFIGOPTPARAM`); целые пути проверяют пробы шаблонов.
@@ -51,7 +51,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | misc | 4 | 4 | 0 | 0 | 0 (0) | 0 | 0 | 4 / 0 / 0 |
 | **всего** | **919** | **692** | **157** | **70** | **0** **(0)** | **0** | **0** | **919 / 0 / 0** |
 
-Лемм `vm_spec`: 710, из них в импортах contract-check 710; вне их: нет.
+Лемм `vm_spec`: 714, из них в импортах contract-check 714; вне их: нет.
 
 ## Шаблоны управления
 
@@ -700,7 +700,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `JMPXARGS` | лемма | jmpxArgs | развёртка | лемма срабатывает; стоит на VM.jump; остаются термами: VM.jump |
 | `RETARGS` | лемма | retArgs | развёртка | лемма срабатывает; стоит на VM.jump; остаются термами: VM.jump |
 | `RETURNARGS` | лемма | returnArgs_ord, returnArgs_quit | развёртка | лемма срабатывает; предел heartbeats |
-| `SETCONTARGS` | лемма с условием | setContArgs_ord | развёртка | предел глубины рекурсии simp |
+| `SETCONTARGS` | лемма с условием | setContArgs_ord (240/256 аргументов) | развёртка | предел глубины рекурсии simp |
 | `BLESSARGS` | лемма | blessArgs | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `IFBITJMP` | лемма | ifbitjmp | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
 | `IFNBITJMP` | лемма | ifnbitjmp | развёртка | лемма срабатывает; посчитан, ветвлений 6 |
@@ -723,7 +723,7 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `SAVECTR` | лемма | saveCtr0, saveCtr1, saveCtr2, saveCtr3, saveCtr4, saveCtr5, saveCtr7 | развёртка | лемма срабатывает; посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `SAVEALTCTR` | лемма | saveAltCtr | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `SAVEBOTHCTR` | лемма | saveBothCtr | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
-| `RUNVM` v4 | лемма с условием | runvm, runvm_c, runvm_cd, runvm_cdl, runvm_cdlm, runvm_cdlmr, runvm_cdlr, runvm_cdm, runvm_cdmr, runvm_cdr, runvm_cl, runvm_clm, runvm_clmr, runvm_clr, runvm_cm, runvm_cmr, runvm_cr, runvm_d, runvm_dl, runvm_dlm, runvm_dlmr, runvm_dlr, runvm_dm, runvm_dmr, runvm_dr, runvm_l, runvm_lm, runvm_lmr, runvm_lr, runvm_m, runvm_mr, runvm_r | развёртка | предел глубины рекурсии simp |
+| `RUNVM` v4 | лемма с условием | runvm, runvm_dmr, runvm_dr, runvm_m (8/64 аргументов) | развёртка | предел глубины рекурсии simp |
 | `CALLDICT` | лемма | callDict | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `CALLDICT_LONG` | лемма | callDict | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
 | `PUSHCTR` | лемма | pushCtr0, pushCtr1, pushCtr2, pushCtr3, pushCtr5, pushCtr7, pushRoot | развёртка | лемма срабатывает; посчитан, ветвлений 0 |
@@ -811,14 +811,14 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `DICTIGETREF` | лемма с условием | dictGetIntRef_found, dictGetIntRef_notFound, dictGetInt_wf | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUGET` | лемма с условием | dictGetInt_empty, dictGetInt_found, dictGetInt_noKey, dictGetInt_notFound, dictGetInt_wf; обрамлённый шаг `dictGetAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUGETREF` | лемма с условием | dictGetIntRef_found, dictGetIntRef_notFound, dictGetInt_wf | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTSET` | лемма с условием | dictSetSliceEmpty_flag, dictSetSliceEmpty_set, dictSetSlice_flag, dictSetSlice_set; обрамлённый шаг `dictSetAny` | развёртка | предел глубины рекурсии simp |
-| `DICTSETREF` | лемма с условием | dictSetSliceRefEmpty_flag, dictSetSliceRefEmpty_set, dictSetSliceRef_flag, dictSetSliceRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел глубины рекурсии simp |
-| `DICTISET` | лемма с условием | dictSetIntEmpty_flag, dictSetIntEmpty_set, dictSetInt_flag, dictSetInt_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
-| `DICTISETREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRefEmpty_set, dictSetIntRef_flag, dictSetIntRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
-| `DICTUSET` | лемма с условием | dictSetIntEmpty_flag, dictSetIntEmpty_set, dictSetInt_flag, dictSetInt_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
-| `DICTUSETREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRefEmpty_set, dictSetIntRef_flag, dictSetIntRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
-| `DICTSETGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTSETGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTSET` | лемма с условием | dictSetSliceEmpty_set, dictSetSlice_set; обрамлённый шаг `dictSetAny` | развёртка | предел глубины рекурсии simp |
+| `DICTSETREF` | лемма с условием | dictSetSliceRefEmpty_set, dictSetSliceRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел глубины рекурсии simp |
+| `DICTISET` | лемма с условием | dictSetIntEmpty_set, dictSetInt_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTISETREF` | лемма с условием | dictSetIntRefEmpty_set, dictSetIntRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUSET` | лемма с условием | dictSetIntEmpty_set, dictSetInt_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUSETREF` | лемма с условием | dictSetIntRefEmpty_set, dictSetIntRef_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTSETGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTSETGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTISETGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTISETGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUSETGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
@@ -829,8 +829,8 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `DICTIREPLACEREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTUREPLACE` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTUREPLACEREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
-| `DICTREPLACEGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTREPLACEGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTREPLACEGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTREPLACEGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTIREPLACEGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTIREPLACEGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUREPLACEGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
@@ -841,18 +841,18 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `DICTIADDREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTUADD` | лемма с условием | dictSetIntEmpty_flag, dictSetInt_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTUADDREF` | лемма с условием | dictSetIntRefEmpty_flag, dictSetIntRef_flag; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
-| `DICTADDGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTADDGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTADDGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
+| `DICTADDGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTIADDGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTIADDGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUADDGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUADDGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
-| `DICTDELGET` | лемма с условием | dictSetGetSlice, dictSetGetSliceEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTDELGETREF` | лемма с условием | dictSetGetSliceRef, dictSetGetSliceRefEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTIDELGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTIDELGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTUDELGET` | лемма с условием | dictSetGetInt, dictSetGetIntEmpty | развёртка | предел глубины рекурсии simp |
-| `DICTUDELGETREF` | лемма с условием | dictSetGetIntRef, dictSetGetIntRefEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTDELGET` | лемма с условием | dictDelGetSlice, dictDelGetSliceEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTDELGETREF` | лемма с условием | dictDelGetSlice, dictDelGetSliceEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTIDELGET` | лемма с условием | dictDelGetInt, dictDelGetIntEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTIDELGETREF` | лемма с условием | dictDelGetInt, dictDelGetIntEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTUDELGET` | лемма с условием | dictDelGetInt, dictDelGetIntEmpty | развёртка | предел глубины рекурсии simp |
+| `DICTUDELGETREF` | лемма с условием | dictDelGetInt, dictDelGetIntEmpty | развёртка | предел глубины рекурсии simp |
 | `DICTMIN` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTMINREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
 | `DICTIMIN` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
@@ -877,9 +877,9 @@ python3 tools/spec-coverage/spec_coverage.py inventory --from-raw inv.tsv --md d
 | `DICTIREMMAXREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
 | `DICTUREMMAX` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTUREMMAXREF` | обрамлённый шаг | обрамлённый шаг `dictMinMaxAny` | развёртка | предел heartbeats |
-| `DICTSETB` | лемма с условием | dictSetSliceBEmpty_flag, dictSetSliceBEmpty_set, dictSetSliceB_flag, dictSetSliceB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
-| `DICTISETB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntBEmpty_set, dictSetIntB_flag, dictSetIntB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
-| `DICTUSETB` | лемма с условием | dictSetIntBEmpty_flag, dictSetIntBEmpty_set, dictSetIntB_flag, dictSetIntB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTSETB` | лемма с условием | dictSetSliceBEmpty_set, dictSetSliceB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTISETB` | лемма с условием | dictSetIntBEmpty_set, dictSetIntB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
+| `DICTUSETB` | лемма с условием | dictSetIntBEmpty_set, dictSetIntB_set; обрамлённый шаг `dictSetAny` | развёртка | предел heartbeats |
 | `DICTSETGETB` | лемма с условием | dictSetGetSliceB, dictSetGetSliceBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`); остаются термами: VmState.registerCellLoads |
 | `DICTISETGETB` | лемма с условием | dictSetGetIntB, dictSetGetIntBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
 | `DICTUSETGETB` | лемма с условием | dictSetGetIntB, dictSetGetIntBEmpty | развёртка | посчитан до `match` по неизвестному значению (делит `vm_split`) |
