@@ -521,18 +521,7 @@ theorem execInstrDictExt_WF : FamilyWF execInstrDictExt := by
       · clear_value jp
         split
         · split
-          · extract_lets -underBinder +onlyGivenNames jpIdx
-            have hjpIdx : ∀ idx, VM.KeepsWFIf True (jpIdx idx) := ?jpIdx
-            · clear_value jpIdx
-              mvcgen
-              all_goals first
-                | (jp_close (hjpIdx _) <;> trivial)
-                | wf_cells
-            intro idx
-            apply VM.KeepsWFIf.of_keeps
-            intro _
-            unfold jpIdx
-            mvcgen
+          · mvcgen
             all_goals first
               | (jp_close (hjp _) <;> trivial)
               | wf_cells
