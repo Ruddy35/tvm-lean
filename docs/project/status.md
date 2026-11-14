@@ -71,8 +71,9 @@
   расширениях). Регрессия всех примеров на `b1166db` (сервер 3, все сразу): wallet v3 / v2 / simple /
   ext / обновляемый — 309 / 265 / 203 / 266 / 226 с, highload v1 768 с, restricted v1 / v2 / v3 —
   971 / 2409 / 2355 с, jetton wallet / minter — 3518 / 1530 с, коллекция NFT 1230 с, wallet v5r1
-  8337 с, пробы 173 / 173 за 1793 с; ложный инвариант wallet v3 (seqno всегда 0) — `NOT PROVED` с
-  путём принятого внешнего сообщения; NFT item, wallet v4r2, TON Storage и highload v2 — идут. На
+  8337 с, NFT item 2547 с, wallet v4r2 2096 с, TON Storage 1488 с, highload v2 25 600 с (`--split`),
+  пробы 173 / 173 за 1793 с; все 17 — только `propext`, `Classical.choice`, `Quot.sound`; ложный
+  инвариант wallet v3 (seqno всегда 0) — `NOT PROVED` с путём принятого внешнего сообщения. На
   головах слияния: wallet v4r2 2266 с, wallet v5r1 7349 с, highload v2 25 146 с (`--split`).
 - **TON Storage (приёмка), от байткода до теоремы индукции** (`TvmLean/Proofs/Contracts/StorageInduction.lean`,
   прогоны — `Contracts/StorageRun/`): после любой последовательности транзакций код не меняется, не
