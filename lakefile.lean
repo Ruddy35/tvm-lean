@@ -188,6 +188,7 @@ lean_lib TvmLeanTests where
     `Tests.Harness.Gen.AdvancedSlices,
     `Tests.Harness.Gen.Klee,
     `Tests.Harness.Gen.GasSweep,
+    `Tests.Harness.Gen.ExactGas,
     `Tests.Tx.Oracle,
     `Tests.Tx.Gen,
     `Tests.Tx.StorageContract,

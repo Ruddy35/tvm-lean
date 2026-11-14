@@ -9,6 +9,7 @@ import Tests.Harness.Gen.Versions
 import Tests.Harness.Gen.AdvancedSlices
 import Tests.Harness.Gen.Klee
 import Tests.Harness.Gen.GasSweep
+import Tests.Harness.Gen.ExactGas
 import TvmLean.Spec.Index
 
 namespace Tests
@@ -162,10 +163,11 @@ def hasSuitePrefix (pfxs? : Option (Array TvmLean.BitString)) (i : TvmLean.Instr
 /-- Every oracle case run for `suite`: its own, the short stacks, and the generators run for every
 suite (`Tests.Gen.CellDepth`, `Tests.Gen.OwnOpcode`, `Tests.Gen.Loops`, the overflow, label and library cases of `Tests.Gen.Dict`,
 `Tests.Gen.Versions`, `Tests.Gen.Klee`), its own cases on advanced slices
-(`Tests.Gen.AdvancedSlices`) and with small gas limits (`Tests.Gen.GasSweep`). -/
+(`Tests.Gen.AdvancedSlices`) and with small gas limits (`Tests.Gen.GasSweep`). Its own gas cases and
+their variants run at the exact budget of their run (`Tests.Gen.ExactGas`). -/
 def suiteOracleCases (suite : InstrSuite) : Array OracleCase :=
   let pfxs? := (TvmLean.allInstrRows.find? (fun r => r.id.name == suite.id.name)).map specRowPrefixes
-  suite.oracle ++ Tests.Gen.AdvancedSlices.casesOf suite.oracle ++ shortStackCases suite ++
+  (suite.oracle ++ Tests.Gen.AdvancedSlices.casesOf suite.oracle).map Tests.Gen.ExactGas.fix ++ shortStackCases suite ++
     Tests.Gen.CellDepth.casesFor suite.id.name ++
     Tests.Gen.OwnOpcode.casesFor suite.id.name ++ Tests.Gen.Loops.casesFor suite.id.name ++
     Tests.Gen.Dict.overflowCasesFor suite.id.name ++ Tests.Gen.Dict.labelCasesFor suite.id.name ++

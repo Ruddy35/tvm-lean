@@ -2,6 +2,7 @@ import Lean
 import Tests.Harness.Registry
 import Tests.Harness.OracleHarness
 import Tests.Harness.Gen.AdvancedSlices
+import Tests.Harness.Gen.ExactGas
 
 namespace Tests
 
@@ -462,13 +463,14 @@ def fuzzSpecCases (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : Arr
     gen := gen'
     if !oracleCaseFuzzComparable oracleCase then
       continue
+    let oracleCase := Tests.Gen.ExactGas.fix oracleCase
     out := out.push oracleCase
     i := i + 1
     let (adv?, advGen') := Tests.Gen.AdvancedSlices.advance oracleCase advGen
     advGen := advGen'
     if let some adv := adv? then
       if oracleCaseFuzzComparable adv then
-        out := out.push adv
+        out := out.push (Tests.Gen.ExactGas.fix adv)
   pure out
 
 def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO FuzzRunResult := do
@@ -488,6 +490,7 @@ def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO Fu
     gen := gen'
     if !oracleCaseFuzzComparable oracleCase then
       continue
+    let oracleCase := Tests.Gen.ExactGas.fix oracleCase
     let out ← runOracleCase oracleCase
     i := i + 1
     if !out.ok then
@@ -501,6 +504,7 @@ def runFuzzSpec (spec : FuzzSpec) (oraclePool : Array OracleCase := #[]) : IO Fu
     if let some adv := adv? then
       if oracleCaseFuzzComparable adv then
         advanced := advanced + 1
+        let adv := Tests.Gen.ExactGas.fix adv
         let outAdv ← runOracleCase adv
         if !outAdv.ok then
           let artifact? ← dumpFailureArtifact spec.seed i adv outAdv
