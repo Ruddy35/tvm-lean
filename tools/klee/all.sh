@@ -19,7 +19,8 @@ mkdir -p "$RUNS"
 if [ $# -gt 0 ]; then
   printf '%s\n' "$@" > "$RUNS/../runlist.txt"
 else
-  python3 -I "$HERE/gen_families.py" docs/progress/tvm_spec_index.json --runs ${PART:+--part=$PART} \
+  tonops=; [ "${TONOPS:-1}" = 1 ] && tonops=--tonops
+  python3 -I "$HERE/gen_families.py" docs/progress/tvm_spec_index.json --runs ${PART:+--part=$PART} $tonops \
     > "$RUNS/../runlist.txt"
 fi
 if [ -z "${NOBUILD:-}" ]; then

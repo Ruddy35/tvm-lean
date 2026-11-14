@@ -11,6 +11,8 @@ typedef struct engine_st ENGINE;
 const EVP_MD* EVP_sha1(void);
 const EVP_MD* EVP_sha256(void);
 const EVP_MD* EVP_sha512(void);
+const EVP_MD* EVP_blake2b512(void);  // vm/Hasher.cpp (HASHEXT, tonops)
+int EVP_MD_CTX_size(const EVP_MD_CTX* ctx);
 EVP_MD_CTX* EVP_MD_CTX_new(void);
 void EVP_MD_CTX_free(EVP_MD_CTX* ctx);
 #define EVP_MD_CTX_create() EVP_MD_CTX_new()

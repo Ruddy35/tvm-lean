@@ -7,8 +7,8 @@
 // unlike the real VM (relevant only where the VM compares hashes: the reload price of a cell
 // loaded twice, HASHCU and the like; none of the pilot handlers).
 //
-// tonops (TON-specific opcodes: crypto, config, messages) is not compiled: register_ton_ops
-// registers nothing. sodium_init is the VM's only libsodium call.
+// tonops (TON-specific opcodes: crypto, config, messages), when the build leaves it out
+// (TONOPS=0): register_ton_ops registers nothing. Its crypto calls: tonops-stubs.cpp.
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 
@@ -37,13 +37,15 @@ struct FakeMdCtx {
 struct FakeMd {
   int bytes;
 };
-const FakeMd md_sha1{20}, md_sha256{32}, md_sha512{64};
+const FakeMd md_sha1{20}, md_sha256{32}, md_sha512{64}, md_blake2b512{64};
 }  // namespace
 
+#ifndef TVM_KLEE_TONOPS  // tonops.cpp left out of the build (build.sh TONOPS=0)
 namespace vm {
 void register_ton_ops(OpcodeTable&) {
 }
 }  // namespace vm
+#endif
 
 extern "C" {
 
@@ -75,6 +77,12 @@ const EVP_MD* EVP_sha256(void) {
 }
 const EVP_MD* EVP_sha512(void) {
   return reinterpret_cast<const EVP_MD*>(&md_sha512);
+}
+const EVP_MD* EVP_blake2b512(void) {
+  return reinterpret_cast<const EVP_MD*>(&md_blake2b512);
+}
+int EVP_MD_CTX_size(const EVP_MD_CTX* c) {
+  return reinterpret_cast<const FakeMdCtx*>(c)->bytes;
 }
 EVP_MD_CTX* EVP_MD_CTX_new(void) {
   auto* c = static_cast<FakeMdCtx*>(std::calloc(1, sizeof(FakeMdCtx)));

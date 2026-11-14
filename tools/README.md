@@ -210,7 +210,7 @@ repository root:
 
 ```sh
 tools/klee/setup.sh                 # once per server, ~3 min: everything under ~/ws/klee
-tools/klee/build.sh                 # ~1 min: ~/ws/klee/build/harness.bc (KLEE) and replay (native)
+tools/klee/build.sh                 # ~3 min: ~/ws/klee/build/harness.bc (KLEE) and replay (native)
 lake build tvm-lean-tests
 tools/klee/run.sh ADD.G 600         # KLEE on one family and class, ~/ws/klee/runs/ADD.G
 tools/klee/measure.sh               # every run: Lean vs C++ at versions 0..16, coverage, missed
@@ -221,12 +221,17 @@ tools/klee/build.sh --native        # locally, no setup: replay only (system cla
 - `setup.sh`: LLVM/clang 18, cmake, ninja, Z3 and sqlite from conda-forge (micromamba), libc++
   and libc++abi as bitcode (wllvm, single-threaded, as KLEE's own scripts build them),
   klee-uclibc, KLEE 3.3, the reference sources at the commit. Each stage is skipped when done.
-- `build.sh`: the VM (dispatch, opcode tables, every op family but `tonops`), cells, slices,
-  builders, dictionaries, BOC, the bigint and the parts of tdutils they use, compiled to one
-  bitcode module against KLEE's libc++. Replaced: SHA-256 of cells by a counter (cell hashes are
-  unique per cell, not per content), crc32c by a software one, `register_ton_ops` by nothing (the
-  TON-specific opcodes are not in the table), `std::mutex`/`std::thread` by single-threaded
-  stand-ins (`harness/compat`). The one source change: hooks where `VmState::step()` starts and where the step ends (after its gas
+- `build.sh`: the VM (dispatch, opcode tables, every op family), cells, slices, builders,
+  dictionaries, BOC, the bigint and the parts of tdutils they use; with `TONOPS=1` (the default)
+  also `tonops.cpp` with the TL-B code `tlbc` generates from `block.tlb` (tlbc is built from the
+  reference too), `block-parse.cpp`, `mc-config.cpp`, `transaction.cpp` (fee computations), the
+  HASHEXT hashers and keccak. Compiled to one bitcode module against KLEE's libc++. Replaced:
+  digests (cell hashes, HASHEXT) by a counter (unique per computation, not per content), the
+  signature and curve libraries of tonops by stand-ins that succeed when the first input byte is
+  even (`harness/tonops-stubs.cpp`: KLEE takes both outcomes; the real C++ may take the other one
+  on a KLEE case), the TL-generated network API by declarations (`harness/compat/auto`), crc32c by
+  a software one, `std::mutex`/`std::thread` by single-threaded stand-ins (`harness/compat`). The
+  one source change: hooks where `VmState::step()` starts and where the step ends (after its gas
   check, or where the VM catches what it threw). Every basic block of the TON code reports its id
   (`cov_instrument.py`): over a window of execution the ids give three path signatures: the block
   sequence (the exact path), the set of block-to-block edges (the path up to loop iteration

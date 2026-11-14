@@ -29,8 +29,9 @@ control registers and the continuations on the stack set up by a code prelude, a
 follow the control transfer (control-flow families: continuation and exception forms, those that
 take a continuation, the dictionary jumps).
 
-Forms not in the table (`--list` says why): those of tonops.cpp (not compiled into the bitcode,
-`build.sh`), and forms whose layout or signature this script does not understand.
+--tonops: with the forms of tonops.cpp (build.sh TONOPS=1, the default); without it they are not in
+the table. Forms not in the table (`--list` says why): those, and forms whose layout or signature
+this script does not understand.
 """
 import itertools
 import json
@@ -378,14 +379,14 @@ def depths_of(form, slots, variadic, alts):
 
 
 # ------------------------------------------------------------------------------- the table
-def load(index_path):
+def load(index_path, tonops):
     idx = json.load(open(index_path))
     fams, skipped = [], []
     for form in idx['tvm_instructions']:
         impl = form.get('implementation') or {}
         name = form['name']
-        if impl.get('file_path') == 'crypto/vm/tonops.cpp':
-            skipped.append((name, 'tonops.cpp: not in the bitcode (register_ton_ops is a stub)'))
+        if impl.get('file_path') == 'crypto/vm/tonops.cpp' and not tonops:
+            skipped.append((name, 'tonops.cpp: not in the bitcode (build.sh TONOPS=0)'))
             continue
         try:
             alts = code_alts(form)
@@ -462,9 +463,11 @@ def cxx(fams):
 
 
 def main():
+    tonops = '--tonops' in sys.argv
+    sys.argv = [a for a in sys.argv if a != '--tonops']
     if len(sys.argv) < 3:
-        die('usage: gen_families.py <tvm_spec_index.json> <out.inc> | --list | --runs [classes]')
-    fams, skipped = load(sys.argv[1])
+        die('usage: gen_families.py <tvm_spec_index.json> <out.inc> | --list | --runs [classes] [--tonops]')
+    fams, skipped = load(sys.argv[1], tonops)
     if sys.argv[2] == '--list':
         for f in fams:
             sl = ' '.join(f'{n}:{k}:{r}' for k, r, n in f['slots']) or '-'
