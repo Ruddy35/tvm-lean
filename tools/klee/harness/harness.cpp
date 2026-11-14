@@ -24,15 +24,18 @@
 // references, a dictionary from a few concrete ones. Entries below the ones the spec lists are
 // concrete integers.
 //
-// Path signature: every basic block of the TON code calls tvm_cov(id) (cov_instrument.py).
-// VmState::step() calls tvm_klee_step_hook() first, and the step ends (tvm_klee_step_end) after
-// the gas check that follows it in run_inner or where run_inner/run catch what it threw. Over a
-// step that starts with one of the spec's opcodes the block ids are hashed: the C++ path of that
-// execution of the instruction (dispatch, handler, the throw if any, the gas check), not of the
-// VM's generic exception handling after it. Two hashes: of the block sequence (the exact path)
-// and of the set of block-to-block edges (the path up to loop iteration counts, the one compared
-// with the existing suites). Under KLEE the harness ends by constraining symbolic `sig` and
-// `esig` to them, so each .ktest carries the signatures of its path.
+// Path signatures: every basic block of the TON code calls tvm_cov(id) or, inside the folded
+// functions, tvm_covf(id) (cov_instrument.py: outside namespace vm, the bit-level methods of
+// CellSlice and CellBuilder, destructors). VmState::step() calls tvm_klee_step_hook() first, and
+// the step ends (tvm_klee_step_end) after the gas check that follows it in run_inner or where
+// run_inner/run catch what it threw. Over a step that starts with one of the spec's opcodes the
+// block ids are hashed: the C++ path of that execution of the instruction (dispatch, handler, the
+// throw if any, the gas check), not of the VM's generic exception handling after it. Three
+// hashes: of the block sequence (the exact path), of the set of block-to-block edges (the path up
+// to loop iteration counts), and of the set of edges between the blocks outside the folded
+// functions (the coarse, handler-level path: the BigInt, bitstring, refcount and library internals
+// folded; the one compared with the existing suites). Under KLEE the harness ends by constraining
+// symbolic `sig`, `esig` and `csig` to them, so each .ktest carries the signatures of its path.
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -183,15 +186,17 @@ static int pick(const int* vals, int n, const char* name) {
 // ---------------------------------------------------------------- path signature
 static bool g_rec = false;
 struct Sig {
-  uint64_t seq;    // hash of the sequence of blocks: the exact path
-  uint64_t edges;  // hash of the set of block-to-block edges: the path up to loop iteration counts
+  uint64_t seq;     // hash of the sequence of blocks: the exact path
+  uint64_t edges;   // hash of the set of block-to-block edges: the path up to loop iteration counts
+  uint64_t coarse;  // hash of the set of edges between blocks outside the folded functions
 };
 static Sig g_sig;
 static std::vector<Sig> g_sigs;
-static uint32_t g_prev;
+static uint32_t g_prev, g_prevc;
 
-// the window's edge set: open addressing, cleared by bumping the generation
-constexpr unsigned kEdgeSlots = 4096;
+// the window's edge sets (both kinds in one table, the coarse ones tagged): open addressing,
+// cleared by bumping the generation
+constexpr unsigned kEdgeSlots = 8192;
 static uint64_t g_edge_key[kEdgeSlots];
 static uint32_t g_edge_gen[kEdgeSlots];
 static uint32_t g_gen = 0;
@@ -215,28 +220,52 @@ struct Alt {
 };
 static const std::vector<Alt>* g_target = nullptr;
 
-extern "C" void tvm_cov(uint32_t id) {
-  if (!g_rec) {
-    return;
-  }
-  g_sig.seq = (g_sig.seq ^ id) * 0x100000001b3ULL;
-  uint64_t e = ((uint64_t)g_prev << 32) | id;
-  g_prev = id;
+// adds edge e to the window's set; false if it was there
+static bool edge_new(uint64_t e) {
   if (g_edge_count >= kEdgeSlots / 2) {  // more distinct edges than a handler has: fold the rest in
-    g_sig.edges ^= mix64(e ^ 0x5bd1e995);
-    return;
+    return true;
   }
   unsigned h = (unsigned)mix64(e) & (kEdgeSlots - 1);
   while (g_edge_gen[h] == g_gen) {
     if (g_edge_key[h] == e) {
-      return;
+      return false;
     }
     h = (h + 1) & (kEdgeSlots - 1);
   }
   g_edge_gen[h] = g_gen;
   g_edge_key[h] = e;
   g_edge_count++;
-  g_sig.edges += mix64(e);
+  return true;
+}
+
+static inline void cov_exact(uint32_t id) {
+  g_sig.seq = (g_sig.seq ^ id) * 0x100000001b3ULL;
+  uint64_t e = ((uint64_t)g_prev << 32) | id;
+  g_prev = id;
+  if (edge_new(e)) {
+    g_sig.edges += mix64(e);
+  }
+}
+
+// a block outside the folded functions
+extern "C" void tvm_cov(uint32_t id) {
+  if (!g_rec) {
+    return;
+  }
+  cov_exact(id);
+  uint64_t c = (1ULL << 63) | ((uint64_t)g_prevc << 32) | id;
+  g_prevc = id;
+  if (edge_new(c)) {
+    g_sig.coarse += mix64(c);
+  }
+}
+
+// a block of a folded function: the exact signatures only
+extern "C" void tvm_covf(uint32_t id) {
+  if (!g_rec) {
+    return;
+  }
+  cov_exact(id);
 }
 
 static bool code_matches(const vm::CellSlice& cs) {
@@ -269,8 +298,8 @@ extern "C" void tvm_klee_step_hook(const vm::CellSlice* code) {
   end_windows();
   if (code && code_matches(*code)) {
     g_rec = true;
-    g_sig = {0xcbf29ce484222325ULL, 0};
-    g_prev = 0;
+    g_sig = {0xcbf29ce484222325ULL, 0, 0};
+    g_prev = g_prevc = 0;
     g_gen++;
     g_edge_count = 0;
   }
@@ -629,11 +658,13 @@ int main(int argc, char** argv) {
   g_target = &spec->alts;
   Input in = make_input(*spec);
   run_vm(in);
-  Sig s = g_sigs.size() == 1 ? g_sigs[0] : Sig{0, 0};
+  Sig s = g_sigs.size() == 1 ? g_sigs[0] : Sig{0, 0, 0};
   uint64_t out = sym<uint64_t>("sig");
   klee_assume(out == s.seq);
   uint64_t out_edges = sym<uint64_t>("esig");
   klee_assume(out_edges == s.edges);
+  uint64_t out_coarse = sym<uint64_t>("csig");
+  klee_assume(out_coarse == s.coarse);
   _exit(0);  // no destructors of the input, the VM or the opcode tables: the path is complete
 }
 #else
@@ -832,7 +863,7 @@ static int run_case(const std::vector<std::string>& cols) {
   end_windows();
   std::string sigs;
   for (auto s : g_sigs) {
-    sigs += (sigs.empty() ? "" : " ") + sig_hex(s.seq) + ":" + sig_hex(s.edges);
+    sigs += (sigs.empty() ? "" : " ") + sig_hex(s.seq) + ":" + sig_hex(s.edges) + ":" + sig_hex(s.coarse);
   }
   std::printf("%s\t%d\t%s\n", cols[0].c_str(), res, sigs.empty() ? "-" : sigs.c_str());
   return 0;
@@ -895,14 +926,15 @@ int main(int argc, char** argv) {
           return 1;
         }
         run_vm(in);
-        Sig s = g_sigs.size() == 1 ? g_sigs[0] : Sig{0, 0};
+        Sig s = g_sigs.size() == 1 ? g_sigs[0] : Sig{0, 0, 0};
         if (replay::bad) {
           std::printf("%s\tERROR\t%s\n", argv[i], replay::why.c_str());
           return 1;
         }
         uint64_t out = sym<uint64_t>("sig");
         uint64_t out_edges = sym<uint64_t>("esig");
-        if (replay::bad || out != s.seq || out_edges != s.edges) {
+        uint64_t out_coarse = sym<uint64_t>("csig");
+        if (replay::bad || out != s.seq || out_edges != s.edges || out_coarse != s.coarse) {
           std::printf("%s\tERROR\tpath differs from KLEE's (KLEE %s, replay %s, windows %zu)\n", argv[i],
                       sig_hex(out).c_str(), sig_hex(s.seq).c_str(), g_sigs.size());
           return 1;
@@ -911,8 +943,10 @@ int main(int argc, char** argv) {
         for (const auto& e : in.stack) {
           toks += (toks.empty() ? "" : " ") + token(e);
         }
-        std::printf("%s\t%s\t%s\t%d\t%lld\t%s\t%s\n", argv[i], sig_hex(s.seq).c_str(),
-                    sig_hex(s.edges).c_str(), in.version, in.gas, boc_hex(in.code).c_str(), toks.c_str());
+        // ktest, exact, edges, coarse, version, gas, code, tokens
+        std::printf("%s\t%s\t%s\t%s\t%d\t%lld\t%s\t%s\n", argv[i], sig_hex(s.seq).c_str(),
+                    sig_hex(s.edges).c_str(), sig_hex(s.coarse).c_str(), in.version, in.gas,
+                    boc_hex(in.code).c_str(), toks.c_str());
         return 0;
       });
     }

@@ -8,17 +8,19 @@
       the dumped suite cases (`tvm-lean-tests --dump-cases`: id, gas, code, tokens), once per
       global version 0..16, as case lines: `<id>@<v> \\t <v> \\t <gas> \\t <code> \\t <tokens>`
   klee_cases.py lines <cases.tsv>
-      KLEE's cases (run.sh: ktest, exact sig, edge sig, version, gas, code, tokens) as case lines,
-      one per distinct input, the id `<SPEC>/<test>`
+      KLEE's cases (run.sh: ktest, exact sig, edge sig, coarse sig, version, gas, code, tokens) as
+      case lines, one per distinct input, the id `<SPEC>/<test>`
   klee_cases.py reps <cases.tsv>
       the same, one per exact path
   klee_cases.py compare <SPEC> <cases.tsv> <existing-sigs.tsv> <out dir>
       which of KLEE's paths the existing cases reach; writes <out>/coverage.txt and
-      <out>/missed.tsv (one KLEE case line per path no existing case reaches, then the path's
-      edge signature)
-  klee_cases.py lean <tvm_spec_index.json> <missed.tsv>...
-      Tests/Harness/Gen/Klee.lean (stdout): the case lines, one per path, each after the name of
-      the suite of its opcode, in a string the module parses
+      <out>/missed.tsv: `C` + a KLEE case line + its coarse signature for each coarse path no
+      existing case reaches, `E` + case line + edge signature for each edge path no existing case
+      reaches whose coarse path one does
+  klee_cases.py lean <tvm_spec_index.json> [--edges] <missed.tsv>...
+      Tests/Harness/Gen/Klee.lean (stdout): the case lines, one per missed coarse path (--edges:
+      and per missed edge path), each after the name of the suite of its opcode, in a string the
+      module parses
 """
 import json
 import os
@@ -56,7 +58,7 @@ def read_klee(path):
     rows = []
     for line in open(path):
         cols = line.rstrip('\n').split('\t')
-        if len(cols) < 7 or cols[1] == 'ERROR':
+        if len(cols) < 8 or cols[1] == 'ERROR':
             continue
         rows.append(cols)
     return rows
@@ -65,23 +67,25 @@ def read_klee(path):
 def lines(path, reps_only=False):
     seen = set()
     for c in read_klee(path):
-        key = c[1] if reps_only else tuple(c[3:7])
+        key = c[1] if reps_only else tuple(c[4:8])
         if key in seen:
             continue
         seen.add(key)
         test = os.path.basename(c[0]).replace('.ktest', '')
         spec = os.path.basename(os.path.dirname(os.path.dirname(c[0])))
-        print(f'{spec}/{test}\t' + '\t'.join(c[3:7]))
+        print(f'{spec}/{test}\t' + '\t'.join(c[4:8]))
 
 
 def compare(spec, cases_path, sigs_path, out):
     klee = read_klee(cases_path)
     k_exact = {}
     k_edges = {}
+    k_coarse = {}
     for c in klee:
         k_exact.setdefault(c[1], c)
         k_edges.setdefault(c[2], c)
-    e_exact, e_edges = set(), set()
+        k_coarse.setdefault(c[3], c)
+    e_exact, e_edges, e_coarse = set(), set(), set()
     n_runs = n_hit = 0
     per_suite = {}
     for line in open(sigs_path):
@@ -94,27 +98,37 @@ def compare(spec, cases_path, sigs_path, out):
         n_hit += 1
         suite = cols[0].split('/')[0]
         for s in cols[2].split(' '):
-            a, b = s.split(':')
+            a, b, d = s.split(':')
             e_exact.add(a)
             e_edges.add(b)
+            e_coarse.add(d)
             per_suite.setdefault(suite, set()).add(b)
     missed = [k_edges[s] for s in sorted(k_edges) if s not in e_edges]
+    missed_coarse = [k_coarse[s] for s in sorted(k_coarse) if s not in e_coarse]
     with open(os.path.join(out, 'missed.tsv'), 'w') as f:
-        for c in missed:  # a case line, then the edge signature of its path
+        for c in missed_coarse:  # C, a case line, the coarse signature of its path
             test = os.path.basename(c[0]).replace('.ktest', '')
-            f.write(f'{spec}/{test}\t' + '\t'.join(c[3:7]) + f'\t{c[2]}\n')
+            f.write(f'C\t{spec}/{test}\t' + '\t'.join(c[4:8]) + f'\t{c[3]}\n')
+        for c in missed:  # E, a case line, the edge signature of its path (its coarse path reached)
+            if c[3] in e_coarse:
+                test = os.path.basename(c[0]).replace('.ktest', '')
+                f.write(f'E\t{spec}/{test}\t' + '\t'.join(c[4:8]) + f'\t{c[2]}\n')
     with open(os.path.join(out, 'coverage.txt'), 'w') as f:
         f.write(f'spec {spec}\n')
         f.write(f'klee_tests {len(klee)}\n')
         f.write(f'klee_paths_exact {len(k_exact)}\n')
         f.write(f'klee_paths_edges {len(k_edges)}\n')
+        f.write(f'klee_paths_coarse {len(k_coarse)}\n')
         f.write(f'existing_runs {n_runs} (case x version)\n')
         f.write(f'existing_runs_reaching_the_instruction {n_hit}\n')
         f.write(f'existing_paths_exact {len(e_exact)}\n')
         f.write(f'existing_paths_edges {len(e_edges)}\n')
+        f.write(f'existing_paths_coarse {len(e_coarse)}\n')
         f.write(f'klee_exact_reached {sum(1 for s in k_exact if s in e_exact)}\n')
         f.write(f'klee_edges_reached {len(k_edges) - len(missed)}\n')
         f.write(f'klee_edges_missed {len(missed)}\n')
+        f.write(f'klee_coarse_reached {len(k_coarse) - len(missed_coarse)}\n')
+        f.write(f'klee_coarse_missed {len(missed_coarse)}\n')
         f.write(f'existing_edges_outside_klee {len(e_edges - set(k_edges))}\n')
     print(open(os.path.join(out, 'coverage.txt')).read(), end='')
 
@@ -154,7 +168,9 @@ def boc_root_bits(h):
     raise ValueError('root not found')
 
 
-def lean(index_path, missed_paths):
+def lean(index_path, args):
+    edges = '--edges' in args
+    missed_paths = [a for a in args if a != '--edges']
     idx = json.load(open(index_path))
     rows = []
     for row in idx['tvm_instructions']:
@@ -169,12 +185,13 @@ def lean(index_path, missed_paths):
             if not line:
                 continue
             cols = line.split('\t')
-            if len(cols) > 5:  # one case per path over all the runs given
-                if cols[5] in seen:
-                    continue
-                seen.add(cols[5])
-                cols = cols[:5]
-                line = '\t'.join(cols)
+            kind, cols, sig = cols[0], cols[1:6], cols[6]
+            if kind == 'E' and not edges:
+                continue
+            if (kind, sig) in seen:  # one case per path over all the runs given
+                continue
+            seen.add((kind, sig))
+            line = '\t'.join(cols)
             bits = boc_root_bits(cols[3])
             op = int((bits[:24] + '0' * 24)[:24], 2)
             names = [n for lo, hi, n in rows if lo <= op < hi]
@@ -197,9 +214,10 @@ import Tests.Harness.CaseFile
 
 /-!
 Oracle cases found by `tools/klee` (KLEE on the C++ instruction handlers, `tools/README.md`): each
-is an input on which C++ takes a path through the handler (the set of block-to-block edges of the
-instruction's step, loop counts aside) that no other oracle or fuzz case of the suites takes, at
-any global version. Each runs at every version like the suite's own cases.
+is an input on which C++ takes a path through the instruction (its handler-level path: the set of
+block-to-block edges of the instruction's step outside the BigInt, bitstring, refcount and library
+internals) that no other oracle or fuzz case of the suites takes, at any global version. Each runs
+at every version like the suite's own cases.
 
 `data` holds one case per line: `<suite> \t <case line of Tests.CaseFile>` (id, version found,
 gas limit, code BOC, stack tokens). Generated, do not edit: `python3 tools/klee/klee_cases.py lean

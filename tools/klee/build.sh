@@ -14,8 +14,8 @@
 # libsodium. The one source change: VmState::step() calls tvm_klee_step_hook() first, so the
 # harness can tell where the instruction under test starts (path signatures, see harness.cpp).
 #
-# Every basic block of the TON code calls tvm_cov(<block id>) (cov_instrument.py): the hash of
-# the block sequence while the instruction under test runs is its C++ path signature, the same in
+# Every basic block of the TON code calls tvm_cov(<block id>) or tvm_covf (cov_instrument.py): the
+# block ids seen while the instruction under test runs give its C++ path signatures, the same in
 # KLEE and in the native replay.
 set -euo pipefail
 KW=${KW:-$HOME/ws/klee}; JOBS=${JOBS:-$(nproc)}
@@ -103,7 +103,7 @@ done
 # TON module, block-instrumented
 llvm-link "$OUT"/bc/*.bc -o "$OUT/ton.bc"
 llvm-dis "$OUT/ton.bc" -o "$OUT/ton.ll"
-python3 "$HERE/cov_instrument.py" "$OUT/ton.ll" "$OUT/ton-cov.ll" "$OUT/cov-blocks.txt"
+python3 "$HERE/cov_instrument.py" "$OUT/ton.ll" "$OUT/ton-cov.ll" "$OUT/cov-blocks.txt" "$ENV/bin/llvm-cxxfilt"
 llvm-as "$OUT/ton-cov.ll" -o "$OUT/ton-cov.bc"
 rm -f "$OUT/ton.ll" "$OUT/ton-cov.ll"
 

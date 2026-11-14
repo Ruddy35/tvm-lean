@@ -15,7 +15,9 @@
 #   existing.tsv       their oracle and fuzz cases as the oracle gets them (--dump-cases)
 #   existing-sigs.tsv  the C++ path of every execution of the instruction in each existing case,
 #                      at every version (native replay)
-#   coverage.txt       the path counts; missed.tsv: one KLEE case per path no existing case reaches
+#   coverage.txt       the path counts (exact, edge, coarse); missed.tsv: one KLEE case per coarse
+#                      path no existing case reaches (C), and per edge path whose coarse path one
+#                      reaches (E)
 #   replay-check.tsv   KLEE's cases run back through the replay from their case lines: the path
 #                      must be the one KLEE recorded (the case line is the input KLEE found)
 set -euo pipefail
@@ -36,9 +38,9 @@ import sys, os
 want = {}
 for l in open(sys.argv[1]):
     c = l.rstrip('\n').split('\t')
-    if len(c) >= 7 and c[1] != 'ERROR':
+    if len(c) >= 8 and c[1] != 'ERROR':
         t = os.path.basename(c[0]).replace('.ktest', '')
-        want[t] = c[1] + ':' + c[2]
+        want[t] = c[1] + ':' + c[2] + ':' + c[3]
 bad = 0; n = 0
 for l in open(sys.argv[3]):
     c = l.rstrip('\n').split('\t')

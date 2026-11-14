@@ -8,9 +8,10 @@
 # $RUNS/<SPEC> (default ~/ws/klee/runs): klee/ (KLEE's output, one .ktest per explored path),
 # klee.log, info.txt (KLEE's summary: whether the exploration finished, paths, time), and
 # cases.tsv: one line per test,
-#   <ktest> \t <path signature> \t <global version> \t <gas limit> \t <code BOC hex> \t <stack tokens>
+#   <ktest> \t <exact sig> \t <edge sig> \t <coarse sig> \t <global version> \t <gas limit>
+#           \t <code BOC hex> \t <stack tokens>
 # made by the native replay binary, which rebuilds each test's input, reruns it and checks that
-# it takes the path (signature) KLEE recorded; a test that does not is reported as ERROR.
+# it takes the path (all three signatures) KLEE recorded; a test that does not is reported as ERROR.
 set -euo pipefail
 SPEC=${1:?spec}; MAXT=${2:-3600}
 KW=${KW:-$HOME/ws/klee}; B=${OUT:-$KW/build}; RUNS=${RUNS:-$KW/runs}
@@ -60,4 +61,5 @@ echo "tests $(wc -l < "$R/ktests.txt") (partial paths left out: $(wc -l < "$R/pa
 echo "replay_errors $(grep -c $'\tERROR\t' "$R/cases.tsv" || true)" >> "$R/info.txt"
 echo "paths_exact $(grep -v $'\tERROR\t' "$R/cases.tsv" | cut -f2 | sort -u | wc -l)" >> "$R/info.txt"
 echo "paths_edges $(grep -v $'\tERROR\t' "$R/cases.tsv" | cut -f3 | sort -u | wc -l)" >> "$R/info.txt"
+echo "paths_coarse $(grep -v $'\tERROR\t' "$R/cases.tsv" | cut -f4 | sort -u | wc -l)" >> "$R/info.txt"
 cat "$R/info.txt"

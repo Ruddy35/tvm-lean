@@ -227,9 +227,12 @@ tools/klee/pilot.sh 3000 ADD MUL    # build, run.sh in parallel, measure.sh: the
   stand-ins (`harness/compat`). The one source change: hooks where `VmState::step()` starts and
   where the step ends (after its gas check, or where the VM catches what it threw). Every basic
   block of the TON code reports its id (`cov_instrument.py`): over the steps of the instruction
-  under test the ids give two path signatures, the block sequence (the exact path) and the set of
-  block-to-block edges (the path up to loop iteration counts). The same module is linked natively
-  as `replay`.
+  under test the ids give three path signatures, the block sequence (the exact path), the set of
+  block-to-block edges (the path up to loop iteration counts) and the coarse one, the set of edges
+  between the blocks outside the folded functions (everything outside namespace `vm`: BigInt,
+  refint, bitstring, `Ref`, library templates; the bit-level methods of `CellSlice` and
+  `CellBuilder`; destructors): the handler-level path. The same module is linked natively as
+  `replay`.
 - `harness/harness.cpp`: the instruction families (`kSpecs`) and the input of each: the global
   version (0..16, symbolic), the gas limit (0..400 symbolic, or 10^6; `<SPEC>+G`: 10^6 only), the
   opcode and its immediate arguments, the stack depth from a set, every entry the instruction
@@ -255,10 +258,13 @@ tools/klee/pilot.sh 3000 ADD MUL    # build, run.sh in parallel, measure.sh: the
   whose opcodes meet the family's ranges dumped with `tvm-lean-tests --dump-cases` (oracle and fuzz
   cases, as `runvmx` gets them) and run through `replay cases` at every version; `coverage.txt`:
   KLEE's paths, the suites' paths, how many of KLEE's the suites reach; `missed.tsv`: one case per
-  path they do not reach.
+  coarse path they do not reach (`C`), and per edge path they do not reach whose coarse path they
+  do (`E`).
 - `klee_cases.py lean docs/progress/tvm_spec_index.json <runs>/*/missed.tsv`: those cases, one per
-  path over all the runs, as `Tests/Harness/Gen/Klee.lean`, each under the suite of its opcode;
-  `Tests.Gen.Klee` adds them to the suites' oracle cases (run at every version like the rest).
+  coarse path over all the runs, as `Tests/Harness/Gen/Klee.lean`, each under the suite of its
+  opcode; `Tests.Gen.Klee` adds them to the suites' oracle cases (run at every version like the
+  rest). Edge paths whose coarse path the suites take differ only inside the folded functions,
+  which the Lean model has no counterpart of (`--edges` adds them anyway).
 
 ## Collect and promote diff fixtures
 
