@@ -12,7 +12,7 @@ private def parsePositiveNatArg (flag : String) (value : String) : IO Nat :=
   | none =>
       throw (IO.userError s!"{flag}: expected positive integer, got {value}")
 
-partial def parseCliArgs (args : List String) (opts : RunnerOpts := {}) : IO RunnerOpts :=
+def parseCliArgs (args : List String) (opts : RunnerOpts := {}) : IO RunnerOpts :=
   match args with
   | [] => pure opts
   | "--filter" :: id :: rest =>
@@ -49,5 +49,6 @@ partial def parseCliArgs (args : List String) (opts : RunnerOpts := {}) : IO Run
       parseCliArgs rest opts
   | arg :: _ =>
       throw (IO.userError s!"unknown argument: {arg}")
+termination_by structural args
 
 end Tests

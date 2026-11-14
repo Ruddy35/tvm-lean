@@ -63,20 +63,29 @@ fift side (`push-token`) turns into `n tuple`; nested tuples follow from the rec
 `tuple` takes at most 255 values (`interpret_make_tuple`, fift/words.cpp:1254-1265): a longer tuple
 is its first 255 elements and `TUP:255`, then each further element's tokens and `TPUSH` (fift's `,`,
 `interpret_tuple_push`). -/
-private partial def valueToTokens (v : Value) : Except String (List String) := do
+private def valueToTokens (v : Value) : Except String (List String) := do
   match v with
   | .tuple t =>
       if t.isEmpty then
         pure ["T"]
       else
         let mut out : List String := []
-        for x in t.extract 0 255 do
+        for _hx : x in t.extract 0 255 do
           out := out ++ (← valueToTokens x)
         out := out ++ [s!"TUP:{min t.size 255}"]
-        for x in t.extract 255 t.size do
+        for _hx : x in t.extract 255 t.size do
           out := out ++ (← valueToTokens x) ++ ["TPUSH"]
         pure out
   | _ => pure [← valueToToken v]
+termination_by sizeOf v
+decreasing_by
+  all_goals
+    have hmem : x ∈ t := by
+      obtain ⟨k, hk, rfl⟩ := Array.mem_extract_iff_getElem.mp _hx
+      exact Array.getElem_mem (by omega)
+    have h1 := Array.sizeOf_lt_of_mem hmem
+    simp_wf
+    omega
 
 private def stackToTokens (stack : Array Value) : Except String (List String) := do
   let mut out : List String := []
