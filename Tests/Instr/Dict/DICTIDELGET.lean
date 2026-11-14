@@ -29,14 +29,15 @@ BRANCH ANALYSIS (derived from Lean + C++ source):
 3. [B3] Integer key/value parsing:
   - `n` is validated by `popNatUpTo 1023`.
   - `n < 0`, `.nan`, and `n > 1023` are `.rangeChk`.
-  - Integer key is parsed with `popInt`; non-int errors become `.typeChk`.
-  - `dictKeyBits?` returning `none` for `(key, n)` currently yields `.rangeChk` in Lean.
+  - Integer key is parsed with `popIntFinite` (C++ `pop_int_finite`,
+    crypto/vm/dictops.cpp:411): a NaN key is `.intOv`; non-int errors become `.typeChk`.
+  - `dictKeyBits?` returning `none` for `(key, n)` yields `.rangeChk`.
 
 4. [B4] Signed integer key extraction boundary:
-  - In C++ `exec_dict_deleteget`, out-of-range signed integer key is a miss result (`0`)
-    with unchanged dictionary.
-  - Lean currently throws `.rangeChk` because `dictKeyBits?` returns `none`.
-  - This is a semantic mismatch to track with direct checks and oracle coverage.
+  - In C++ `exec_dict_deleteget`, `integer_key` is called with `quiet = false`
+    (crypto/vm/dict.h:207-208), so an out-of-range key throws `range_chk`
+    (crypto/vm/dict.cpp:432); the miss branch at dictops.cpp:412-416 is never taken.
+  - Lean throws `.rangeChk` when `dictKeyBits?` returns `none`, the same result.
 
 5. [B5] Delete semantics:
   - `dictDeleteWithCells` miss path returns same root and `0`.
@@ -397,9 +398,9 @@ def suite : InstrSuite where
       run := do
         expectErr "runtime/range-key-low" (runDictIDelGetDirect #[.cell intSignedRoot4, intV (-9), intV 4]) .rangeChk
     },
-    { name := "unit/runtime/range/key-nan"
+    { name := "unit/runtime/intov/key-nan"
       run := do
-        expectErr "runtime/range-key-nan" (runDictIDelGetDirect #[.cell intSignedRoot4, .int .nan, intV 4]) .rangeChk
+        expectErr "runtime/intov-key-nan" (runDictIDelGetDirect #[.cell intSignedRoot4, .int .nan, intV 4]) .intOv
     },
     { name := "unit/decode/target"
       run := do
@@ -469,6 +470,10 @@ def suite : InstrSuite where
     mkCase "oracle/type/dict-not-cell" #[intV 4, intV 2, intV 4],
     -- [B3] key type-check error.
     mkCase "oracle/type/key-not-int" #[.cell intSignedRoot4, .slice (Slice.ofCell sampleCellA), intV 4],
+    -- [B3] NaN key is `int_ov` (`pop_int_finite`, crypto/vm/dictops.cpp:411).
+    mkCase "oracle/intov/key-nan" #[.int .nan, .cell intSignedRoot4, intV 4],
+    -- [B3] NaN key with a null root and the widest key is `int_ov` too.
+    mkCase "oracle/intov/key-nan-null-n1023" #[.int .nan, .null, intV 1023],
     -- [B4] negative n.
     mkCase "oracle/range/n-negative" #[.cell intSignedRoot4, intV 2, intV (-1)],
     -- [B4] too-large n.

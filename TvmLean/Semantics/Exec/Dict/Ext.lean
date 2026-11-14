@@ -346,14 +346,12 @@ def execInstrDictExt (i : Instr) (next : VM Unit) : VM Unit := do
           let keyBits? : Option BitString ←
             if mode == .del then
               if intKey then
-                let idx ←
-                  if byRef then
-                    VM.popIntFinite
-                  else
-                    let idxVal ← VM.popInt
-                    match idxVal with
-                    | .nan => throw .rangeChk
-                    | .num idx => pure idx
+                -- C++ `exec_dict_deleteget` (crypto/vm/dictops.cpp:411) reads the key with
+                -- `pop_int_finite` for every form, REF or not: a NaN key is `int_ov`. A key that
+                -- does not fit `n` is `range_chk` from `integer_key` (`quiet` is false,
+                -- crypto/vm/dict.h:207-208, dict.cpp:432), so the miss branch at
+                -- dictops.cpp:412-416 is never taken.
+                let idx ← VM.popIntFinite
                 match dictKeyBits? idx n unsigned with
                 | some bs => pure (some bs)
                 | none => throw .rangeChk

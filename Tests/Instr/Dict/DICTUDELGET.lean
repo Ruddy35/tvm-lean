@@ -32,13 +32,15 @@ BRANCH ANALYSIS (derived from Lean + C++ source):
 
 4. [B4] Dictionary/value key extraction:
    - `dict` uses `popMaybeCell`, accepting `.null` or `.cell`.
-   - key uses `popInt`, expecting signed integer for integer-key forms.
-   - `.nan` key and non-int key throw `.rangeChk`/`.typeChk`.
+   - key uses `popIntFinite` (C++ `pop_int_finite`, crypto/vm/dictops.cpp:411).
+   - `.nan` key throws `.intOv`; a non-int key throws `.typeChk`.
    - `dictKeyBits? idx n true` governs unsigned key acceptance.
 
 5. [B5] Unsigned key conversion behavior:
    - Lean throws `.rangeChk` when `dictKeyBits?` returns `none`.
-   - C++ uses `integer_key(..., quiet=true)` and treats out-of-range unsigned keys as miss (`0`), not exceptions.
+   - C++ calls `integer_key` with `quiet = false` (crypto/vm/dict.h:207-208), so an
+     out-of-range unsigned key throws `range_chk` (crypto/vm/dict.cpp:432); the miss
+     branch at dictops.cpp:412-416 is never taken.
    - Coverage includes values that exercise both matching and non-matching key encodings.
 
 6. [B6] Dict lookup-delete semantics:
@@ -459,11 +461,11 @@ def suite : InstrSuite where
           (runDictUdelGetDirect (mkIntCaseStack (.cell uintRoot4Two) (-1) 4))
           .rangeChk
     },
-    { name := "unit/runtime/range/key-nan"
+    { name := "unit/runtime/intov/key-nan"
       run := do
-        expectErr "runtime/range-key-nan"
+        expectErr "runtime/intov-key-nan"
           (runDictUdelGetDirect #[.int .nan, .cell uintRoot4Two, intV 4])
-          .rangeChk
+          .intOv
     },
     { name := "unit/runtime/underflow/empty"
       run := do
@@ -553,6 +555,11 @@ def suite : InstrSuite where
     , -- [B4][B5]
     mkCase "oracle/range/key-low" (mkIntCaseStack (.cell uintRoot4Two) (-1) 4) -- [B4][B5]
     , -- [B4][B5]
+    -- [B4] NaN key is `int_ov` (`pop_int_finite`, crypto/vm/dictops.cpp:411).
+    mkCase "oracle/intov/key-nan" #[.int .nan, .cell uintRoot4Two, intV 4] -- [B4]
+    , -- [B4]
+    mkCase "oracle/intov/key-nan-null-n1023" #[.int .nan, .null, intV 1023] -- [B4]
+    , -- [B4]
     mkCase "oracle/type/key-not-int2" #[.cell uintRoot4Two, .tuple #[], intV 4] -- [B4][B5]
     , -- [B4][B5]
     mkCase "oracle/type/n-non-int" #[.cell uintRoot4Two, intV 0, .slice (Slice.ofCell sampleCellA)] -- [B3]
